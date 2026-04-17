@@ -1,0 +1,34 @@
+# --- Ambientes Virtuais ---
+.venv/
+venv/
+env/
+
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# --- Configurações Sensíveis ---
+.env
+.streamlit/secrets.toml
+
+# --- Dados e Bases (Arquivos Grandes) ---
+*.csv
+*.xlsx
+*.xls
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+
+# --- IDE / Sistema ---
+.vscode/
+.idea/
+.DS_Store
+
+# --- Temporários ---
+tmp_cols.json
+
+# --- Arquivo específico ---
+.antigravity
