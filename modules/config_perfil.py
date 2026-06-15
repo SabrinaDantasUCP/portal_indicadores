@@ -1,5 +1,6 @@
 import streamlit as st
 from utils import db_pia
+from utils.system_logging import log_exception
 
 def render():
     st.header("🔑 Cambiar Contraseña")
@@ -26,8 +27,8 @@ def render():
                     st.warning("⚠️ Debe completar todos los campos obligatorios.")
                 elif new_pass != confirm_pass:
                     st.error("❌ Las nuevas contraseñas no coinciden. Por favor, verifícalas.")
-                elif len(new_pass) < 4:
-                    st.error("❌ La nueva contraseña es demasiado corta (mínimo 4 caracteres).")
+                elif not db_pia.is_password_strong(new_pass):
+                    st.error(f"❌ La nueva contraseña es demasiado corta (mínimo {db_pia.MIN_PASSWORD_LENGTH} caracteres).")
                 else:
                     # Verificar la contraseña actual contra la base de datos
                     # Usamos st.session_state.user['email'] que está garantizado al estar logueado
@@ -40,9 +41,14 @@ def render():
                         # Proceder al cambio
                         try:
                             db_pia.change_password(st.session_state.user_id, new_pass)
+                            db_pia.log_audit_event(
+                                "password_changed_by_user",
+                                target_usuario_id=st.session_state.user_id,
+                            )
                             st.success("✅ ¡Contraseña actualizada exitosamente! Usa tu nueva clave la próxima vez que inicies sesión.")
                             # No hacemos rerun forzoso para que el usuario vea el mensaje de éxito
                         except Exception as e:
+                            log_exception("Error al cambiar contraseña desde perfil", e)
                             st.error(f"❌ Ocurrió un error al intentar actualizar la base de datos: {e}")
     
     with col3:

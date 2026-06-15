@@ -6,6 +6,19 @@ import re
 import unicodedata 
 from datetime import datetime, timedelta
 from utils import db_pia
+from utils.system_logging import log_exception
+from utils.ui import render_download_button_styles
+from services.data.alumnos import load_current_alumnos
+from services.calculations.rendimiento_academico import (
+    COL_CALIFICACION,
+    COL_COHORTE,
+    COL_FILIAL,
+    COL_ID_ALUMNO,
+    COL_SEMESTRE_ALUMNO,
+    COL_TIPO_DISCIPLINA,
+    calculate_career_performance,
+    prepare_rendimiento_source,
+)
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
@@ -18,53 +31,19 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 def render():
     st.subheader("Rendimiento Académico de la Carrera")
 
-    # CSS para esconder toolbar e ajustar botões
-    st.markdown("""
-        <style>
-        [data-testid="stElementToolbar"] { display: none; }
-        div[data-testid="stDownloadButton"] button {
-            min-height: 50px !important;
-            font-size: 16px !important;
-            border-radius: 8px !important;
-        }
-        </style>
-    """, unsafe_allow_html=True)
+    render_download_button_styles()
     
-    @st.cache_data
-    def load_data():
-        """Carrega e cacheia o dataset"""
-        df = pd.read_csv("assets/data/alumnos.csv", sep=",", low_memory=False)
-        df.columns = df.columns.str.strip()
-        return df
+    df = load_current_alumnos(only_regular=True)
+    if df.empty:
+        st.error("Archivo de datos no encontrado.")
+        return
 
-    df = load_data()
+    df, missing_cols = prepare_rendimiento_source(df)
+    if missing_cols:
+        st.error(f"Faltan columnas requeridas en el archivo: {', '.join(missing_cols)}")
+        return
 
-
- 
-
-    # ------------------------------------------------------------
-    # 🧩 Colunas
-    # ------------------------------------------------------------
-    # ------------------------------------------------------------
-    # 🧩 Colunas
-    # ------------------------------------------------------------
-    COL_COHORTE = "cohorte"
-    COL_SEMESTRE = "semestre_alumno"
-    COL_CALIFICACION = "calificacion_final_1a5"
-    COL_ID_ALUMNO = "usuarios_id"
-    COL_TIPO_DISCIPLINA = "tipo_disciplina"
-    COL_FILIAL = "filial_periodo_letivo"
-
-    # Tratamento de strings
-    COL_TIPO_DISCIPLINA = "tipo_disciplina"
-    COL_FILIAL = "filial_periodo_letivo"
-
-    # Tratamento de strings
-    df[COL_COHORTE] = df[COL_COHORTE].astype(str).str.strip()
-    
-    # Converter semestre para número para ordenação correta (1 a 12)
-    # Garante que seja numérico, forçando erros a NaN e depois dropando ou preenchendo se necessário
-    df[COL_SEMESTRE] = pd.to_numeric(df[COL_SEMESTRE], errors='coerce')
+    COL_SEMESTRE = COL_SEMESTRE_ALUMNO
 
     # ------------------------------------------------------------
     # Filtros (COHORTE + SEMESTRE)
@@ -86,12 +65,7 @@ def render():
         col2.multiselect("Semestre", [], disabled=True)
         return
 
-    # Filtra o DF pela Cohorte selecionada, Tipo Regular e Filial CDE
-    df_filtrado = df[
-        (df[COL_COHORTE] == cohorte_sel) & 
-        (df[COL_TIPO_DISCIPLINA] == "Regular") &
-        (df[COL_FILIAL].isin(["CDE", "CDE III"]))
-    ]
+    df_filtrado = df[df[COL_COHORTE] == cohorte_sel]
     
     # 2. SEMESTRE (Ordenacion 1-12)
     semestre_opts = sorted(df_filtrado[COL_SEMESTRE].dropna().unique().astype(int).tolist())
@@ -112,27 +86,10 @@ def render():
     # Calculo do TRC (Carrera)
     # ------------------------------------------------------------
     
-    # PASSO 1: TRASE (Média Aluno/Semestre)
-    df_trase = (
-        df_filtrado
-        .groupby([COL_COHORTE, COL_SEMESTRE, COL_ID_ALUMNO])
-        .agg(TRASE=(COL_CALIFICACION, "mean"))
-        .reset_index()
-    )
-
-    # PASSO 2: TRAS (Média do Semestre baseada nos alunos)
-    df_tras = (
-        df_trase
-        .groupby([COL_COHORTE, COL_SEMESTRE])
-        .agg(
-            TRAS=("TRASE", "mean"),
-            N_ALUNOS=(COL_ID_ALUMNO, "count")
-        )
-        .reset_index()
-    )
-
-    # PASSO 3: TRC (Média da Carreira baseada nos Semestres)
-    trc_valor = df_tras["TRAS"].mean() # Média simples dos TRAS conforme fórmula
+    df_tras, trc_valor, missing_cols = calculate_career_performance(df_filtrado)
+    if missing_cols:
+        st.error(f"Faltan columnas requeridas en el archivo: {', '.join(missing_cols)}")
+        return
     
     # Preparando DF para exibição (Detalhamento por semestre)
     df_display = df_tras.copy()
@@ -280,8 +237,8 @@ def render():
         if logo_path:
             try:
                 canvas.drawImage(logo_path, x=2 * cm, y=height - 2.5 * cm, width=2*cm, height=2*cm, preserveAspectRatio=True, mask='auto')
-            except: pass
-
+            except Exception as exc:
+                log_exception("Error silencioso tratado en rend_acad_carrera.py", exc)
         # --- Cabeçalho ---
         canvas.setFont("Helvetica-Bold", 14)
         canvas.setFillColor(colors.HexColor("#004080"))
@@ -462,7 +419,8 @@ def render():
             ws_res = writer.sheets['Resumen TRC']
             ws_res.set_column(1, 1, 15, num_fmt)
 
-    except:
+    except Exception as exc:
+        log_exception("No se pudo generar Excel con xlsxwriter en rendimiento por carrera", exc)
         with pd.ExcelWriter(buffer_excel) as writer:
              df_display.to_excel(writer, index=False, sheet_name='Datos TRC')
 

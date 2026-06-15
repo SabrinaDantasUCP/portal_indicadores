@@ -3,7 +3,12 @@ import mysql.connector
 from mysql.connector import Error
 from dotenv import load_dotenv
 import hashlib
+import hmac
+import json
+import secrets
 import streamlit as st
+from utils.menu_config import PERMISOS_SISTEMA
+from utils.system_logging import log_exception
 
 # Cargar variables de entorno
 load_dotenv()
@@ -21,14 +26,56 @@ def get_connection():
         if connection.is_connected():
             return connection
     except Error as e:
+        log_exception("Error al conectar a MySQL", e)
         st.error(f"Error al conectar a MySQL: {e}")
         return None
 
-def hash_password(password):
-    """Genera un hash SHA-256 de forma asaltada para la contraseña"""
-    # Usar un salt simple estático o dinámico. Para robustez media:
+PASSWORD_HASH_ALGORITHM = "pbkdf2_sha256"
+PASSWORD_HASH_ITERATIONS = 260000
+MIN_PASSWORD_LENGTH = 8
+
+
+def legacy_hash_password(password):
     salt = "pia_salt_2026_"
-    return hashlib.sha256((salt + password).encode('utf-8')).hexdigest()
+    return hashlib.sha256((salt + password).encode("utf-8")).hexdigest()
+
+
+def hash_password(password):
+    salt = secrets.token_hex(16)
+    derived_key = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        PASSWORD_HASH_ITERATIONS,
+    ).hex()
+    return f"{PASSWORD_HASH_ALGORITHM}${PASSWORD_HASH_ITERATIONS}${salt}${derived_key}"
+
+
+def verify_password(password, stored_hash):
+    if not stored_hash:
+        return False, False
+
+    if stored_hash.startswith(f"{PASSWORD_HASH_ALGORITHM}$"):
+        try:
+            algorithm, iterations, salt, expected_hash = stored_hash.split("$", 3)
+            if algorithm != PASSWORD_HASH_ALGORITHM:
+                return False, False
+            calculated_hash = hashlib.pbkdf2_hmac(
+                "sha256",
+                password.encode("utf-8"),
+                salt.encode("utf-8"),
+                int(iterations),
+            ).hex()
+            return hmac.compare_digest(calculated_hash, expected_hash), False
+        except (ValueError, TypeError):
+            return False, False
+
+    legacy_hash = legacy_hash_password(password)
+    return hmac.compare_digest(legacy_hash, stored_hash), True
+
+
+def is_password_strong(password):
+    return bool(password) and len(password.strip()) >= MIN_PASSWORD_LENGTH
 
 @st.cache_resource
 def init_db():
@@ -83,6 +130,19 @@ def init_db():
                     FOREIGN KEY (usuario_id) REFERENCES pia_usuarios(id) ON DELETE SET NULL
                 )
             """)
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pia_audit_logs (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    actor_usuario_id INT,
+                    target_usuario_id INT,
+                    evento VARCHAR(100) NOT NULL,
+                    detalle TEXT,
+                    fecha_evento TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (actor_usuario_id) REFERENCES pia_usuarios(id) ON DELETE SET NULL,
+                    FOREIGN KEY (target_usuario_id) REFERENCES pia_usuarios(id) ON DELETE SET NULL
+                )
+            """)
             
             # Crear un administrador por defecto si no existe ninguno
             cursor.execute("SELECT COUNT(*) FROM pia_usuarios")
@@ -95,6 +155,7 @@ def init_db():
                 
             conn.commit()
         except Error as e:
+            log_exception("Error inicializando tablas de base de datos", e)
             st.error(f"Error inicializando las tablas de DB: {e}")
         finally:
             if conn and conn.is_connected():
@@ -109,14 +170,25 @@ def authenticate_user(email, password):
     if conn:
         try:
             cursor = conn.cursor(dictionary=True)
-            p_hash = hash_password(password)
             cursor.execute("""
-                SELECT id, nombre, apellido, email, rol, activo 
+                SELECT id, nombre, apellido, email, rol, activo, contrasena_hash
                 FROM pia_usuarios 
-                WHERE email = %s AND contrasena_hash = %s AND activo = TRUE
-            """, (email, p_hash))
-            user_data = cursor.fetchone()
+                WHERE email = %s AND activo = TRUE
+            """, (email,))
+            row = cursor.fetchone()
+            if row:
+                password_ok, needs_rehash = verify_password(password, row["contrasena_hash"])
+                if password_ok:
+                    if needs_rehash:
+                        cursor.execute(
+                            "UPDATE pia_usuarios SET contrasena_hash = %s WHERE id = %s",
+                            (hash_password(password), row["id"]),
+                        )
+                        conn.commit()
+                    row.pop("contrasena_hash", None)
+                    user_data = row
         except Error as e:
+            log_exception("Error de autenticación en base de datos", e)
             st.error(f"Error de autenticación: {e}")
         finally:
             if conn and conn.is_connected():
@@ -137,6 +209,7 @@ def get_user_by_id(user_id):
             """, (user_id,))
             user_data = cursor.fetchone()
         except Error as e:
+            log_exception("Error al obtener usuario por ID", e)
             st.error(f"Error al obtener usuario por ID: {e}")
         finally:
             if conn and conn.is_connected():
@@ -153,6 +226,7 @@ def get_user_permissions(usuario_id):
             cursor.execute("SELECT modulo FROM pia_permisos WHERE usuario_id = %s", (usuario_id,))
             permisos = [row[0] for row in cursor.fetchall()]
         except Error as e:
+            log_exception("Error al obtener permisos", e)
             st.error(f"Error al obtener permisos: {e}")
         finally:
             if conn and conn.is_connected():
@@ -169,6 +243,7 @@ def dict_fetchall(query, params=None):
             cursor.execute(query, params or ())
             result = cursor.fetchall()
         except Error as e:
+            log_exception("Error al ejecutar dict_fetchall", e)
             st.error(f"Error de query: {e}")
         finally:
             if conn and conn.is_connected():
@@ -187,6 +262,7 @@ def execute_query(query, params=None, commit=True):
                 conn.commit()
                 last_id = cursor.lastrowid
         except Error as e:
+            log_exception("Error al ejecutar consulta", e)
             st.error(f"Error ejecutando consulta: {e}")
             raise e
         finally:
@@ -194,6 +270,42 @@ def execute_query(query, params=None, commit=True):
                 cursor.close()
                 conn.close()
     return last_id
+
+
+def current_actor_id():
+    return st.session_state.get("user_id") if hasattr(st, "session_state") else None
+
+
+def log_audit_event(evento, target_usuario_id=None, detalle=None, actor_usuario_id=None):
+    actor_usuario_id = actor_usuario_id if actor_usuario_id is not None else current_actor_id()
+    detalle_json = json.dumps(detalle or {}, ensure_ascii=False, default=str)
+    try:
+        execute_query("""
+            INSERT INTO pia_audit_logs (actor_usuario_id, target_usuario_id, evento, detalle)
+            VALUES (%s, %s, %s, %s)
+        """, (actor_usuario_id, target_usuario_id, evento, detalle_json))
+    except Exception as exc:
+        log_exception(f"No se pudo registrar evento de auditoría '{evento}'", exc)
+
+
+def get_audit_logs():
+    return dict_fetchall("""
+        SELECT
+            l.id,
+            l.evento,
+            l.detalle,
+            l.fecha_evento,
+            actor.nombre AS actor_nombre,
+            actor.apellido AS actor_apellido,
+            actor.email AS actor_email,
+            target.nombre AS target_nombre,
+            target.apellido AS target_apellido,
+            target.email AS target_email
+        FROM pia_audit_logs l
+        LEFT JOIN pia_usuarios actor ON l.actor_usuario_id = actor.id
+        LEFT JOIN pia_usuarios target ON l.target_usuario_id = target.id
+        ORDER BY l.fecha_evento DESC
+    """)
 
 # MÉTODOS CRUD RÁPIDOS PARA ADMIN
 
@@ -242,6 +354,10 @@ def set_user_permissions(user_id, modulos):
     execute_query(query_del, (user_id,))
     
     if modulos:
+        valid_permissions = set(PERMISOS_SISTEMA)
+        modulos = [mod for mod in modulos if mod in valid_permissions]
+    
+    if modulos:
         # Re-insertar bloque
         conn = get_connection()
         if conn:
@@ -251,6 +367,7 @@ def set_user_permissions(user_id, modulos):
                 cursor.executemany("INSERT INTO pia_permisos (usuario_id, modulo) VALUES (%s, %s)", data)
                 conn.commit()
             except Error as e:
+                log_exception("Error al guardar permisos de usuario", e)
                 st.error(f"Error seteando permisos: {e}")
             finally:
                 if conn and conn.is_connected():

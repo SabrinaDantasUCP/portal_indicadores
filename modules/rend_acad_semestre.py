@@ -6,6 +6,19 @@ import re
 import unicodedata 
 from datetime import datetime, timedelta
 from utils import db_pia
+from utils.system_logging import log_exception
+from utils.ui import render_download_button_styles, render_kpi_grid
+from services.data.alumnos import load_current_alumnos
+from services.calculations.rendimiento_academico import (
+    COL_CALIFICACION,
+    COL_COHORTE,
+    COL_FILIAL,
+    COL_ID_ALUMNO,
+    COL_SEMESTRE_ALUMNO,
+    COL_TIPO_DISCIPLINA,
+    calculate_semester_performance,
+    prepare_rendimiento_source,
+)
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
@@ -18,42 +31,19 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 def render():
     st.subheader("Rendimiento Académico por Semestre")
 
-    # CSS para esconder toolbar e ajustar botões
-    st.markdown("""
-        <style>
-        [data-testid="stElementToolbar"] { display: none; }
-        div[data-testid="stDownloadButton"] button {
-            min-height: 50px !important;
-            font-size: 16px !important;
-            border-radius: 8px !important;
-        }
-        </style>
-    """, unsafe_allow_html=True)
+    render_download_button_styles()
     
-    @st.cache_data
-    def load_data():
-        """Carrega e cacheia o dataset"""
-        df = pd.read_csv("assets/data/alumnos.csv", sep=",", low_memory=False)
-        df.columns = df.columns.str.strip()
-        return df
+    df = load_current_alumnos(only_regular=True)
+    if df.empty:
+        st.error("Archivo de datos no encontrado.")
+        return
 
-    df = load_data()
+    df, missing_cols = prepare_rendimiento_source(df)
+    if missing_cols:
+        st.error(f"Faltan columnas requeridas en el archivo: {', '.join(missing_cols)}")
+        return
 
-    # ------------------------------------------------------------
-    # Columnas
-    # ------------------------------------------------------------
-    COL_COHORTE = "cohorte"
-    COL_SEMESTRE = "semestre_alumno"
-    COL_CALIFICACION = "calificacion_final_1a5"
-    COL_ID_ALUMNO = "usuarios_id"
-    COL_TIPO_DISCIPLINA = "tipo_disciplina"
-    COL_FILIAL = "filial_periodo_letivo"
-
-    # Tratamento de strings
-    df[COL_COHORTE] = df[COL_COHORTE].astype(str).str.strip()
-    
-    # Converter semestre para número para ordenação correta (1 a 12)
-    df[COL_SEMESTRE] = pd.to_numeric(df[COL_SEMESTRE], errors='coerce')
+    COL_SEMESTRE = COL_SEMESTRE_ALUMNO
 
     # ------------------------------------------------------------
     # Filtros (COHORTE + SEMESTRE)
@@ -75,12 +65,7 @@ def render():
         col2.multiselect("Semestre", [], disabled=True)
         return
 
-    # Filtra o DF pela Cohorte selecionada, Tipo Regular e Filial CDE
-    df_filtrado = df[
-        (df[COL_COHORTE] == cohorte_sel) & 
-        (df[COL_TIPO_DISCIPLINA] == "Regular") &
-        (df[COL_FILIAL].isin(["CDE", "CDE III"]))
-    ]
+    df_filtrado = df[df[COL_COHORTE] == cohorte_sel]
 
     # 2. SEMESTRE
     semestre_opts = sorted(df_filtrado[COL_SEMESTRE].dropna().unique().astype(int).tolist())
@@ -101,26 +86,10 @@ def render():
     # Calculo do TRAS
     # ------------------------------------------------------------
     
-    # PASSO 1: Calcular o TRASE (Rendimento de CADA aluno no semestre)
-    df_trase = (
-        df_filtrado
-        .groupby([COL_COHORTE, COL_SEMESTRE, COL_ID_ALUMNO])
-        .agg(TRASE=(COL_CALIFICACION, "mean"))
-        .reset_index()
-    )
-
-    # PASSO 2: Calcular o TRAS (Média dos TRASEs para o semestre)
-    df_tras = (
-        df_trase
-        .groupby([COL_COHORTE, COL_SEMESTRE])
-        .agg(
-            TRAS=("TRASE", "mean"),
-            N=(COL_ID_ALUMNO, "count")
-        )
-        .reset_index()
-    )
-
-    df_tras["TRAS"] = df_tras["TRAS"].fillna(0)
+    df_tras, missing_cols = calculate_semester_performance(df_filtrado)
+    if missing_cols:
+        st.error(f"Faltan columnas requeridas en el archivo: {', '.join(missing_cols)}")
+        return
 
     # Renomeação para exibição
     mapa_colunas = {
@@ -139,34 +108,10 @@ def render():
     total_semestres = len(df_display)
     total_alunos_unicos = df_filtrado[COL_ID_ALUMNO].nunique()
     
-    kpi1, kpi2 = st.columns(2)
-
-    def kpi_box(label, value):
-        return f"""
-        <div style="
-            background-color: #f9f9f9;
-            border: 1px solid #ddd;
-            border-radius: 10px;
-            padding: 20px;
-            text-align: center;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-        ">
-            <span style="font-size: 14px; color: #666; text-transform: uppercase; font-weight: 600; margin-bottom: 5px;">
-                {label}
-            </span>
-            <span style="font-size: 28px; color: #333; font-weight: 700;">
-                {value}
-            </span>
-        </div>
-        """
-
-    kpi1.markdown(kpi_box("Cohorte", cohorte_sel), unsafe_allow_html=True)
-    kpi2.markdown(kpi_box("Total Estudiantes", total_alunos_unicos), unsafe_allow_html=True)
+    render_kpi_grid([
+        ("Cohorte", cohorte_sel),
+        ("Total Estudiantes", total_alunos_unicos),
+    ])
     
     st.divider()
 
@@ -286,8 +231,8 @@ def render():
         if logo_path:
             try:
                 canvas.drawImage(logo_path, x=2 * cm, y=height - 2.5 * cm, width=2*cm, height=2*cm, preserveAspectRatio=True, mask='auto')
-            except: pass
-
+            except Exception as exc:
+                log_exception("Error silencioso tratado en rend_acad_semestre.py", exc)
         # --- Cabeçalho ---
         canvas.setFont("Helvetica-Bold", 14)
         canvas.setFillColor(colors.HexColor("#004080"))
@@ -443,7 +388,8 @@ def render():
                     worksheet.set_column(i, i, max_len, num_fmt)
                 else:
                     worksheet.set_column(i, i, max_len)
-    except:
+    except Exception as exc:
+        log_exception("No se pudo generar Excel con xlsxwriter en rendimiento por semestre", exc)
         with pd.ExcelWriter(buffer_excel) as writer:
              df_export = df_display.copy()
              df_export["Semestre"] = df_export["Semestre"].apply(lambda x: f"{int(x)}º Semestre")

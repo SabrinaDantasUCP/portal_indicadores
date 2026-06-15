@@ -9,74 +9,25 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.units import cm
 from utils import db_pia
-import streamlit as st
-import pandas as pd
-import plotly.express as px
-import io
-import os
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4, landscape
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib.units import cm
+from utils.system_logging import log_exception
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-from reportlab.pdfgen import canvas
-
-# ---------------------------------------------------------------------
-# CONSTANTES DE COLUMNAS
-# ---------------------------------------------------------------------
-COL_PERIODO = "anho"
-COL_SUBPERIODO = "periodo_anual"
-COL_SEMESTRE_DISCIPLINA = "semestre_asignatura"
-COL_DISCIPLINA = "asignatura"
-COL_SECCION = "seccion"
-COL_DOCENTE = "docente"
-COL_MATRICULADOS = "matriculados"
-COL_PRESENTES = "presentes"
-COL_AUSENTES = "ausentes"
-COL_PORC_PRESENCIA = "porc_presencia"
-COL_TIPO_CLASE = "tipo_clase"
-COL_FECHA = "fecha"
-COL_MES = "mes_nombre" # Nueva columna auxiliar
-
-# ---------------------------------------------------------------------
-# Carga de Datos
-# ---------------------------------------------------------------------
-@st.cache_data
-def load_data():
-    file_path = "assets/data/asistencia_unificada.csv"
-    if not os.path.exists(file_path):
-        return None
-    
-    try:
-        # Leer CSV
-        df = pd.read_csv(file_path, low_memory=False)
-        
-        # Limpiar nombres de columnas
-        df.columns = df.columns.str.strip()
-        
-        # Convertir columnas clave a numérico/string para filtrado consistente
-        df[COL_PERIODO] = pd.to_numeric(df[COL_PERIODO], errors='coerce').fillna(0).astype(int)
-        df[COL_SUBPERIODO] = pd.to_numeric(df[COL_SUBPERIODO], errors='coerce').fillna(0).astype(int)
-        df[COL_SEMESTRE_DISCIPLINA] = pd.to_numeric(df[COL_SEMESTRE_DISCIPLINA], errors='coerce').fillna(0).astype(int)
-        
-        # Procesar Fechas
-        # Intentar varios formatos si es necesario, o asumir DD/MM/YYYY
-        df[COL_FECHA] = pd.to_datetime(df[COL_FECHA], dayfirst=True, errors='coerce')
-        
-        # Extraer Nombre del Mes
-        # Mapeo manual para asegurar español
-        meses_map = {
-            1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
-            7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
-        }
-        df[COL_MES] = df[COL_FECHA].dt.month.map(meses_map)
-        # Orden para gráficas
-        df['mes_num'] = df[COL_FECHA].dt.month
-
-        return df
-    except Exception as e:
-        st.error(f"Error al cargar los datos: {e}")
-        return pd.DataFrame()
+from services.data.asistencia import load_current_asistencia
+from services.calculations.panel_academico import (
+    COL_ASIS_DISCIPLINA,
+    COL_ASIS_DOCENTE,
+    COL_ASIS_MES,
+    COL_ASIS_MES_NUM,
+    COL_ASIS_PERIODO,
+    COL_ASIS_SECCION,
+    COL_ASIS_SEMESTRE_DISCIPLINA,
+    COL_ASIS_SUBPERIODO,
+    COL_ASIS_TIPO_CLASE,
+    build_asistencia_by_date,
+    build_asistencia_detail,
+    calculate_asistencia_metrics,
+    calculate_asistencia_monthly_summary,
+    prepare_asistencia_source,
+)
 
 # -------------------------------------------------------------------------
 # 📄 PDF FUNCTIONS
@@ -96,8 +47,8 @@ def agregar_encabezado_y_pie(canvas, doc):
     if logo_path:
         try:
             canvas.drawImage(logo_path, x=2 * cm, y=height - 2.5 * cm, width=2*cm, height=2*cm, preserveAspectRatio=True, mask='auto')
-        except: pass
-
+        except Exception as exc:
+            log_exception("Error silencioso tratado en panel_acad_asistencias.py", exc)
     # --- Cabeçalho ---
     canvas.setFont("Helvetica-Bold", 14)
     canvas.setFillColor(colors.HexColor("#004080"))
@@ -214,14 +165,14 @@ def render():
     st.subheader("Panel de Asistencia")
 
 
-    df = load_data()
-
-    if df is None:
-        st.error("Archivo 'assets/data/asistencia_syseduca.csv' no encontrado.")
-        return
-
+    df = load_current_asistencia()
     if df.empty:
         st.warning("El archivo de datos está vacío.")
+        return
+
+    df, missing_cols = prepare_asistencia_source(df)
+    if missing_cols:
+        st.error(f"Faltan columnas requeridas en el archivo: {', '.join(missing_cols)}")
         return
 
     # ---------------------------------------------------------------------
@@ -234,16 +185,16 @@ def render():
         c6, c7 = st.columns(2)
 
         # 1. Filtro: Año (Obligatorio)
-        anhos_disponibles = sorted(df[COL_PERIODO].unique(), reverse=True)
+        anhos_disponibles = sorted(df[COL_ASIS_PERIODO].unique(), reverse=True)
         anho_sel = c1.multiselect("Periodo (Año) *", anhos_disponibles)
 
         # Filtrado progresivo para Periodo
         df_temp = df.copy()
         if anho_sel:
-            df_temp = df_temp[df_temp[COL_PERIODO].isin(anho_sel)]
+            df_temp = df_temp[df_temp[COL_ASIS_PERIODO].isin(anho_sel)]
 
         # 2. Filtro: Periodo (Obligatorio)
-        periodos_disponibles = sorted(df_temp[COL_SUBPERIODO].unique())
+        periodos_disponibles = sorted(df_temp[COL_ASIS_SUBPERIODO].unique())
         periodo_sel = c2.multiselect("Subperiodo (Semestre) *", periodos_disponibles)
 
         # CHECK DE OBLIGATORIEDAD
@@ -253,42 +204,42 @@ def render():
 
         # Filtrado progresivo para Semestre
         if periodo_sel:
-            df_temp = df_temp[df_temp[COL_SUBPERIODO].isin(periodo_sel)]
+            df_temp = df_temp[df_temp[COL_ASIS_SUBPERIODO].isin(periodo_sel)]
 
         # 3. Filtro: Semestre de la Asignatura
-        semestres_disponibles = sorted(df_temp[COL_SEMESTRE_DISCIPLINA].unique())
+        semestres_disponibles = sorted(df_temp[COL_ASIS_SEMESTRE_DISCIPLINA].unique())
         semestre_sel = c3.multiselect("Semestre de la Asignatura", semestres_disponibles, format_func=lambda x: f"{x}º Semestre")
 
         # Filtrado progresivo para Asignatura
         if semestre_sel:
-            df_temp = df_temp[df_temp[COL_SEMESTRE_DISCIPLINA].isin(semestre_sel)]
+            df_temp = df_temp[df_temp[COL_ASIS_SEMESTRE_DISCIPLINA].isin(semestre_sel)]
 
         # 4. Filtro: Asignatura
-        asignaturas_disponibles = sorted(df_temp[COL_DISCIPLINA].astype(str).unique())
+        asignaturas_disponibles = sorted(df_temp[COL_ASIS_DISCIPLINA].astype(str).unique())
         asignatura_sel = c4.multiselect("Asignatura", asignaturas_disponibles)
 
         # Filtrado progresivo para Docente
         if asignatura_sel:
-            df_temp = df_temp[df_temp[COL_DISCIPLINA].isin(asignatura_sel)]
+            df_temp = df_temp[df_temp[COL_ASIS_DISCIPLINA].isin(asignatura_sel)]
 
         # 5. Filtro: Docente
-        docentes_disponibles = sorted(df_temp[COL_DOCENTE].astype(str).unique())
+        docentes_disponibles = sorted(df_temp[COL_ASIS_DOCENTE].astype(str).unique())
         docente_sel = c5.multiselect("Docente", docentes_disponibles)
 
         # Filtrado progresivo para Sección
         if docente_sel:
-            df_temp = df_temp[df_temp[COL_DOCENTE].isin(docente_sel)]
+            df_temp = df_temp[df_temp[COL_ASIS_DOCENTE].isin(docente_sel)]
 
         # 6. Filtro: Sección
-        secciones_disponibles = sorted(df_temp[COL_SECCION].astype(str).unique())
+        secciones_disponibles = sorted(df_temp[COL_ASIS_SECCION].astype(str).unique())
         seccion_sel = c6.multiselect("Sección", secciones_disponibles)
 
         # Filtrado progresivo para Tipo de Clase
         if seccion_sel:
-            df_temp = df_temp[df_temp[COL_SECCION].isin(seccion_sel)]
+            df_temp = df_temp[df_temp[COL_ASIS_SECCION].isin(seccion_sel)]
 
         # 7. Filtro: Tipo de Clase
-        tipos_clase_disponibles = sorted(df_temp[COL_TIPO_CLASE].astype(str).unique())
+        tipos_clase_disponibles = sorted(df_temp[COL_ASIS_TIPO_CLASE].astype(str).unique())
         tipo_clase_sel = c7.multiselect("Tipo de Clase", tipos_clase_disponibles)
 
     # ---------------------------------------------------------------------
@@ -297,23 +248,23 @@ def render():
     df_filtered = df.copy()
 
     # Filtros Obligatorios ya chequeados arriba en la UI, pero aplicamos aqui
-    df_filtered = df_filtered[df_filtered[COL_PERIODO].isin(anho_sel)]
-    df_filtered = df_filtered[df_filtered[COL_SUBPERIODO].isin(periodo_sel)]
+    df_filtered = df_filtered[df_filtered[COL_ASIS_PERIODO].isin(anho_sel)]
+    df_filtered = df_filtered[df_filtered[COL_ASIS_SUBPERIODO].isin(periodo_sel)]
 
     if semestre_sel:
-        df_filtered = df_filtered[df_filtered[COL_SEMESTRE_DISCIPLINA].isin(semestre_sel)]
+        df_filtered = df_filtered[df_filtered[COL_ASIS_SEMESTRE_DISCIPLINA].isin(semestre_sel)]
 
     if asignatura_sel:
-        df_filtered = df_filtered[df_filtered[COL_DISCIPLINA].isin(asignatura_sel)]
+        df_filtered = df_filtered[df_filtered[COL_ASIS_DISCIPLINA].isin(asignatura_sel)]
 
     if docente_sel:
-        df_filtered = df_filtered[df_filtered[COL_DOCENTE].isin(docente_sel)]
+        df_filtered = df_filtered[df_filtered[COL_ASIS_DOCENTE].isin(docente_sel)]
 
     if seccion_sel:
-        df_filtered = df_filtered[df_filtered[COL_SECCION].isin(seccion_sel)]
+        df_filtered = df_filtered[df_filtered[COL_ASIS_SECCION].isin(seccion_sel)]
 
     if tipo_clase_sel:
-        df_filtered = df_filtered[df_filtered[COL_TIPO_CLASE].isin(tipo_clase_sel)]
+        df_filtered = df_filtered[df_filtered[COL_ASIS_TIPO_CLASE].isin(tipo_clase_sel)]
 
     # ---------------------------------------------------------------------
     # Exualización de Resultados
@@ -326,9 +277,7 @@ def render():
 
     # Métricas Resumen Globales (Siempre visibles o dentro de Tabs?) 
     # Generalmente metricas globales quedan bien fuera
-    total_registros = len(df_filtered)
-    # Promedio ponderado o simple? Aqui es promedio de la columna porcentaje
-    promedio_presencia = df_filtered[COL_PORC_PRESENCIA].mean()    
+    total_registros, promedio_presencia = calculate_asistencia_metrics(df_filtered)
 
     m1, m2 = st.columns(2)
     m1.metric("Total de Registros de Clase", total_registros)
@@ -337,57 +286,44 @@ def render():
     # ---------------------------------------------------------------------
     # TABS
     # ---------------------------------------------------------------------
-    tab1, tab2 = st.tabs(["Resumen", "Detalle"])
+    tab1, tab2, tab3 = st.tabs(["Resumen", "Detalle", "Por Fecha"])
 
     # --- TAB 1: RESUMEN ---
     with tab1:
         st.markdown("#### Evolución de Asistencia")
         
         # Agrupar por Mes (y mes_num para ordenar)
-        # Sumar Matriculados y Presentes para el gráfico agrupado
-        df_agrupado = df_filtered.groupby([COL_MES, 'mes_num'])[[COL_MATRICULADOS, COL_PRESENTES]].sum().reset_index()
-        df_agrupado = df_agrupado.sort_values('mes_num') # Enero a izquierda
-        
-        # Renombrar columnas para que se vea bonito en el gráfico
-        df_agrupado = df_agrupado.rename(columns={
-            COL_MATRICULADOS: "Matriculados",
-            COL_PRESENTES: "Presentes"
-        })
-
-        # Melt para tener una columna 'Tipo' (Matriculados vs Presentes) para el color y agrupación
-        # id_vars: Mes, mes_num. value_vars: Matriculados, Presentes
-        df_melt = df_agrupado.melt(id_vars=[COL_MES, 'mes_num'], value_vars=["Matriculados", "Presentes"], var_name='Tipo', value_name='Cantidad')
+        df_agrupado, df_melt = calculate_asistencia_monthly_summary(df_filtered)
         
         # Mapeo de colores amigable
         color_map = {
-            "Matriculados": '#1f77b4', # Azul
-            "Presentes": '#2ca02c'     # Verde
+            "% Presentes": '#2ca02c',
+            "% Ausentes": '#d62728',
         }
 
         fig = px.bar(
             df_melt,
-            x=COL_MES,
-            y='Cantidad',
+            x=COL_ASIS_MES,
+            y='Porcentaje',
             color='Tipo',
             barmode='group',
             text_auto=True,
             color_discrete_map=color_map,
-            labels={COL_MES: "Mes", "Cantidad": "Cantidad de Alumnos", "Tipo": "Indicador"}
+            labels={COL_ASIS_MES: "Mes", "Porcentaje": "%", "Tipo": "Indicador"}
         )
         
         fig.update_layout(
             xaxis_title="Mes",
-            yaxis_title="Cantidad de Alumnos",
+            yaxis_title="Porcentaje",
             legend_title="Indicador",
             uniformtext_minsize=8, 
             uniformtext_mode='hide',
             separators=",." # Decimal=, Miles=. (Estilo Latam/Euro)
         )
         
-        # Formato eje Y sin K (1k -> 1.000)
-        fig.update_yaxes(tickformat=",d") 
+        fig.update_yaxes(ticksuffix="%", range=[0, 100])
         fig.update_traces(
-            texttemplate='%{y:,d}', # Formato del texto en las barras
+            texttemplate='%{y:.2f}%',
             textposition='auto'
         )
         
@@ -398,14 +334,11 @@ def render():
         c_pdf, c_xls = st.columns(2, gap="medium")
         
         # Prepare Table for PDF (Resumen)
-        # Using df_melt or df_agrupado? 
-        # The chart uses melted data, but table is usually the grouped summary.
-        # Let's show the grouped summary: Mes, Matriculados, Presentes
         df_export_resumen = df_agrupado.copy()
-        # Rename col_mes if needed (it is already 'mes_nombre' or rename it)
-        # It has 'mes_nombre', 'mes_num', 'Matriculados', 'Presentes'
-        # Drop mes_num for visual
-        df_export_resumen = df_export_resumen.drop(columns=['mes_num'], errors='ignore')
+        df_export_resumen = df_export_resumen.drop(columns=[COL_ASIS_MES_NUM], errors='ignore')
+        for col in ["% Presentes", "% Ausentes"]:
+            if col in df_export_resumen.columns:
+                df_export_resumen[col] = df_export_resumen[col].round(2)
         
         # PDF - No Chart
         pdf_bytes = gerar_pdf_asistencia(df_export_resumen, "Evolución de Asistencia", col_widths=None)
@@ -425,51 +358,18 @@ def render():
 
     # --- TAB 2: DETALLE ---
     with tab2:
-        st.markdown("#### Detalle de Registros")
+        st.markdown("#### Resumen por Asignatura, Sección y Docente")
         
         # Seleccionar columnas relevantes para mostrar
-        cols_to_show = [
-            COL_FECHA, COL_PERIODO, COL_SUBPERIODO, COL_SEMESTRE_DISCIPLINA, 
-            COL_DISCIPLINA, COL_SECCION, COL_DOCENTE, 
-            COL_MATRICULADOS, COL_PRESENTES, COL_AUSENTES, COL_PORC_PRESENCIA, COL_TIPO_CLASE
-        ]
-        
-        # Verificar que las columnas existan antes de seleccionarlas
-        cols_final = [c for c in cols_to_show if c in df_filtered.columns]
-        
-        df_display = df_filtered[cols_final].sort_values(by=[COL_FECHA, COL_DISCIPLINA])
-        
-        # Renombrar columnas para visualización
-        rename_map = {
-            COL_FECHA: "Fecha",
-            COL_PERIODO: "Año",
-            COL_SUBPERIODO: "Periodo",
-            COL_SEMESTRE_DISCIPLINA: "Semestre Asignatura",
-            COL_DISCIPLINA: "Asignatura",
-            COL_SECCION: "Sección",
-            COL_DOCENTE: "Docente",
-            COL_MATRICULADOS: "Matriculados",
-            COL_PRESENTES: "Presentes",
-            COL_AUSENTES: "Ausentes",
-            COL_PORC_PRESENCIA: "% Presencia",
-            COL_TIPO_CLASE: "Tipo de Clase"
-        }
-        df_display = df_display.rename(columns=rename_map)
-        
-        # Reemplazar NaN e Inf con 0 explícitamente para visualización
-        df_display = df_display.fillna(0)
+        df_display = build_asistencia_detail(df_filtered)
         
         # Formateo para visualización
         st.dataframe(
             df_display.style.format({
-                "% Presencia": "{:.2f}%",
-                "Año": "{:.0f}",
-                "Periodo": "{:.0f}",
-                "Semestre Asignatura": "{:.0f}",
+                "Aulas": "{:.0f}",
                 "Matriculados": "{:.0f}",
-                "Presentes": "{:.0f}",
-                "Ausentes": "{:.0f}",
-                "Fecha": lambda t: t.strftime("%d/%m/%Y") if pd.notnull(t) and t != 0 else "" 
+                "% Presentes": "{:.2f}%",
+                "% Ausentes": "{:.2f}%",
             }, na_rep="0"),
             width="stretch",
             hide_index=True
@@ -481,26 +381,32 @@ def render():
         c_pdf2, c_xls2 = st.columns(2, gap="medium")
 
         # PDF Definition for Detalle
-        # Columns in df_display: "Fecha", "Año", "Periodo", "Semestre Asignatura", ...
-        # Need to select concise columns for PDF to fit width
-        # Let's select key columns
-        cols_pdf_detalle = ["Fecha", "Asignatura", "Sección", "Docente", "Matriculados", "Presentes", "% Presencia"]
+        cols_pdf_detalle = [
+            "Asignatura",
+            "Sección",
+            "Docente",
+            "Aulas",
+            "Matriculados",
+            "% Presentes",
+            "% Ausentes",
+            "Tipo de Clase",
+        ]
         df_pdf_detalle = df_display[cols_pdf_detalle].copy()
         
-        # Format Date for PDF
-        df_pdf_detalle["Fecha"] = df_pdf_detalle["Fecha"].apply(lambda x: x.strftime("%d/%m/%Y") if pd.notnull(x) else "")
-        df_pdf_detalle["% Presencia"] = df_pdf_detalle["% Presencia"].apply(lambda x: f"{x:.2f}%")
+        df_pdf_detalle["% Presentes"] = df_pdf_detalle["% Presentes"].apply(lambda x: f"{x:.2f}%")
+        df_pdf_detalle["% Ausentes"] = df_pdf_detalle["% Ausentes"].apply(lambda x: f"{x:.2f}%")
 
         # Custom widths
         # A4 Landscape width ~27.7cm
         col_widths_detalle = [
-            2.0 * cm, # Fecha
             4.0 * cm, # Asignatura
-            4.0 * cm, # Sección
-            6.0 * cm, # Docente
+            3.0 * cm, # Sección
+            4.5 * cm, # Docente
+            1.6 * cm, # Aulas
             2.0 * cm, # Matriculados
-            2.0 * cm, # Presentes
-            2.0 * cm  # % Presencia
+            2.0 * cm, # % Presentes
+            2.0 * cm, # % Ausentes
+            2.5 * cm, # Tipo de Clase
         ]
 
         pdf_bytes_2 = gerar_pdf_asistencia(df_pdf_detalle, "Detalle de Asistencia", col_widths=col_widths_detalle)
@@ -517,4 +423,53 @@ def render():
 
         with c_xls2:
             st.download_button("Descargar Datos (Excel)", data=excel_bytes_2, file_name=f"Detalle_Asistencia.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", key="btn_xls_asist_2", on_click=db_pia.log_export_callback, args=("Asistencia - Detalle", "Excel"))
+
+    # --- TAB 3: POR FECHA ---
+    with tab3:
+        st.markdown("#### Asistencia por Fecha")
+
+        df_by_date = build_asistencia_by_date(df_filtered)
+
+        st.dataframe(
+            df_by_date.style.format({
+                "Fecha": lambda t: t.strftime("%d/%m/%Y") if pd.notnull(t) and t != 0 else "",
+                "Matriculados": "{:.0f}",
+                "% Presentes": "{:.2f}%",
+                "% Ausentes": "{:.2f}%",
+            }, na_rep="0"),
+            width="stretch",
+            hide_index=True,
+        )
+
+        st.divider()
+        c_pdf3, c_xls3 = st.columns(2, gap="medium")
+
+        cols_pdf_fecha = ["Fecha", "Asignatura", "Sección", "Docente", "Tipo de Clase", "Matriculados", "% Presentes", "% Ausentes"]
+        df_pdf_fecha = df_by_date[cols_pdf_fecha].copy()
+        df_pdf_fecha["Fecha"] = df_pdf_fecha["Fecha"].apply(lambda x: x.strftime("%d/%m/%Y") if pd.notnull(x) else "")
+        df_pdf_fecha["% Presentes"] = df_pdf_fecha["% Presentes"].apply(lambda x: f"{x:.2f}%")
+        df_pdf_fecha["% Ausentes"] = df_pdf_fecha["% Ausentes"].apply(lambda x: f"{x:.2f}%")
+
+        col_widths_fecha = [
+            2.0 * cm,
+            3.5 * cm,
+            2.6 * cm,
+            4.0 * cm,
+            2.4 * cm,
+            2.0 * cm,
+            2.0 * cm,
+            2.0 * cm,
+        ]
+
+        pdf_bytes_3 = gerar_pdf_asistencia(df_pdf_fecha, "Asistencia por Fecha", col_widths=col_widths_fecha)
+        if pdf_bytes_3:
+            with c_pdf3:
+                st.download_button("Descargar Reporte (PDF)", data=pdf_bytes_3, file_name=f"Asistencia_Por_Fecha.pdf", mime="application/pdf", icon=":material/download:", width="stretch", key="btn_pdf_asist_3", on_click=db_pia.log_export_callback, args=("Asistencia - Por Fecha", "PDF"))
+        else:
+            with c_pdf3:
+                st.warning("No se pudo generar el PDF.")
+
+        excel_bytes_3 = generate_excel_bytes(df_by_date, sheet_name='Por Fecha')
+        with c_xls3:
+            st.download_button("Descargar Datos (Excel)", data=excel_bytes_3, file_name=f"Asistencia_Por_Fecha.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", key="btn_xls_asist_3", on_click=db_pia.log_export_callback, args=("Asistencia - Por Fecha", "Excel"))
 

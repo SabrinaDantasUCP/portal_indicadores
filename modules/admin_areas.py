@@ -1,5 +1,6 @@
 import streamlit as st
 from utils import db_pia
+from utils.system_logging import log_exception
 
 @st.dialog("Crear Nueva Área")
 def modal_crear_area():
@@ -11,6 +12,7 @@ def modal_crear_area():
                 st.session_state.temp_msg_area = f"Área '{nueva_area.strip()}' creada exitosamente."
                 st.rerun()
             except Exception as e:
+                log_exception("Error al crear área", e)
                 st.error("El nombre de esta área ya existe en este sistema.")
         else:
             st.warning("El nombre del área es requerido y no puede estar vacío.")
@@ -25,6 +27,7 @@ def modal_editar_area(a):
                 st.session_state.temp_msg_area = "El nombre del Área ha sido actualizado."
                 st.rerun()
             except Exception as e:
+                log_exception("Error al actualizar área", e)
                 st.error("Error al actualizar (posiblemente hay otra área con ese nombre).")
         else:
             st.warning("El nombre del área no puede estar vacío.")
@@ -82,5 +85,6 @@ def render():
                         st.session_state.temp_msg_area = "Área eliminada exitosamente."
                         st.rerun()
                     except Exception as e:
+                        log_exception("Error al eliminar área", e)
                         st.error("No se puede eliminar porque esta área está vinculada a un usuario.")
         st.markdown("<hr style='margin: 5px 0px; border-top: 1px solid #f0f0f0;'>", unsafe_allow_html=True)

@@ -1,10 +1,16 @@
 import streamlit as st
-import pandas as pd
 import plotly.express as px
 import io
 import os
 from datetime import datetime
 from utils import db_pia
+from utils.system_logging import log_exception
+from services.data.alumnos import load_current_alumnos
+from services.calculations.tasa_desercion import (
+    COL_COHORTE,
+    calculate_semester_dropout,
+    prepare_semester_enrollments,
+)
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
@@ -26,29 +32,18 @@ def render():
         </style>
     """, unsafe_allow_html=True)
     
-    @st.cache_data
-    def load_data():
-        try:
-            df = pd.read_csv("assets/data/alumnos.csv", low_memory=False)
-            df.columns = df.columns.str.strip()
-            df = df[df["filial_periodo_letivo"].isin(["CDE", "CDE III"])].copy()
-            return df
-        except Exception:
-            return pd.DataFrame()
-
-    df = load_data()
+    df = load_current_alumnos()
     if df.empty:
         st.error("Archivo de datos no encontrado.")
         return
 
-    COL_COHORTE = "cohorte"
-    COL_ID_ALUMNO = "usuarios_id"
-    COL_SEMESTRE_ALUMNO = "semestre_alumno"
-
-    # --- Lógica de Cálculo TDSC ---
-    df[COL_SEMESTRE_ALUMNO] = pd.to_numeric(df[COL_SEMESTRE_ALUMNO], errors='coerce')
-    df_clean = df.dropna(subset=[COL_SEMESTRE_ALUMNO, COL_ID_ALUMNO, COL_COHORTE])
-    inscritos = df_clean.groupby([COL_COHORTE, COL_SEMESTRE_ALUMNO, COL_ID_ALUMNO]).first().reset_index()
+    inscritos, missing_cols = prepare_semester_enrollments(df)
+    if missing_cols:
+        st.error(f"Faltan columnas requeridas en el archivo: {', '.join(missing_cols)}")
+        return
+    if inscritos.empty:
+        st.warning("No hay datos suficientes para calcular la deserción semestral.")
+        return
 
     cohortes_list = sorted(inscritos[COL_COHORTE].unique().tolist())
     cohorte_sel = st.selectbox("Seleccione una Cohorte para ver la evolución semestral", cohortes_list, index=None)
@@ -62,7 +57,8 @@ def render():
         logo_path = "assets/logo-ucp-icon.png" if os.path.exists("assets/logo-ucp-icon.png") else None
         if logo_path:
             try: canvas.drawImage(logo_path, x=2*cm, y=height-2.5*cm, width=2*cm, height=2*cm, preserveAspectRatio=True, mask='auto')
-            except: pass
+            except Exception as exc:
+                log_exception("Error silencioso tratado en tasa_desercion_semestral.py", exc)
         canvas.setFont("Helvetica-Bold", 14)
         canvas.setFillColor(colors.HexColor("#004080"))
         canvas.drawString(5*cm, height-1.5*cm, "Universidad Central del Paraguay")
@@ -113,23 +109,10 @@ def render():
         return buffer.getvalue()
 
     if cohorte_sel:
-        ins_coh = inscritos[inscritos[COL_COHORTE] == cohorte_sel]
-        max_sem = int(ins_coh[COL_SEMESTRE_ALUMNO].max())
-        limite_sem = min(max_sem, 12)
-        datos_tdsc = []
-        for s in range(1, limite_sem):
-            eis_ids = set(ins_coh[ins_coh[COL_SEMESTRE_ALUMNO] == s][COL_ID_ALUMNO])
-            s_plus_1_ids = set(ins_coh[ins_coh[COL_SEMESTRE_ALUMNO] == s + 1][COL_ID_ALUMNO])
-            eis_count = len(eis_ids)
-            if eis_count == 0: continue
-            eacs_ids = eis_ids - s_plus_1_ids
-            eacs_count = len(eacs_ids)
-            datos_tdsc.append({"Semestre": f"{s}º -> {s+1}º", "EIS": eis_count, "EACS": eacs_count, "TDSC (%)": (eacs_count / eis_count) * 100})
-            
-        if not datos_tdsc:
+        df_tdsc = calculate_semester_dropout(inscritos, cohorte_sel)
+        if df_tdsc.empty:
             st.warning("No hay datos suficientes para calcular la deserción semestral.")
         else:
-            df_tdsc = pd.DataFrame(datos_tdsc)
             st.markdown(f"### Evolución de Deserción Semestral - Cohorte {cohorte_sel}")
             fig = px.line(df_tdsc, x="Semestre", y="TDSC (%)", text=[f"{v:.2f}%" for v in df_tdsc["TDSC (%)"]], markers=True)
             fig.update_traces(textposition="top center", line_color="#b02a37")

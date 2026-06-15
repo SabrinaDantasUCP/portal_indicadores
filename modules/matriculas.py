@@ -10,31 +10,32 @@ from reportlab.lib.styles import getSampleStyleSheet
 import io
 import os
 from utils import db_pia
+from utils.system_logging import log_exception
+from services.data.matriculas import load_current_matriculas
+from services.calculations.matriculas import (
+    COL_ANO,
+    COL_DISCIPLINA,
+    COL_PERIODO,
+    COL_SEMESTRE,
+    COL_TURMA,
+    build_matriculas_view,
+    calculate_matriculas_summary,
+    validate_matriculas_source,
+)
 
 def render():
     st.subheader("Matrículas")
 
-    # --- Cargar datos ---
-    @st.cache_data
-    def cargar_datos():
-        df = pd.read_excel("assets/data/matriculados-20251.xlsx")
-        df.columns = [c.strip().lower() for c in df.columns]
-        return df
-
-    df = cargar_datos()
+    df = load_current_matriculas()
+    if df.empty:
+        st.error("Archivo de datos no encontrado.")
+        return
 
     # --- Verifica columna ---
-    if "quantidade_alunos" not in df.columns:
-        st.error("⚠️ No se encontró la columna 'quantidade_alunos' en el archivo Excel.")
+    missing_cols = validate_matriculas_source(df)
+    if missing_cols:
+        st.error(f"Faltan columnas requeridas en el archivo: {', '.join(missing_cols)}")
         st.stop()
-
-    # --- Definir nombres de columnas ---
-    COL_ANO       = "ano"
-    COL_PERIODO   = "periodo_anual_nome"
-    COL_SEMESTRE  = "semestre_nome"
-    COL_DISC      = "disciplina_nome"
-    COL_TURMA     = "turma_nome"
-    COL_QTD       = "quantidade_alunos"
 
     st.subheader("Filtros")
 
@@ -61,15 +62,15 @@ def render():
 
     # Disciplinas disponíveis conforme semestre
     if semestre_sel:
-        disc_vals = sorted(df_temp[df_temp[COL_SEMESTRE].isin(semestre_sel)][COL_DISC].dropna().unique().tolist())
+        disc_vals = sorted(df_temp[df_temp[COL_SEMESTRE].isin(semestre_sel)][COL_DISCIPLINA].dropna().unique().tolist())
     else:
-        disc_vals = sorted(df_temp[COL_DISC].dropna().unique().tolist())
+        disc_vals = sorted(df_temp[COL_DISCIPLINA].dropna().unique().tolist())
 
     disc_sel = col4.multiselect("Disciplina", disc_vals)
 
     # Turmas disponíveis conforme disciplina
     if disc_sel:
-        turma_vals = sorted(df_temp[df_temp[COL_DISC].isin(disc_sel)][COL_TURMA].dropna().unique().tolist())
+        turma_vals = sorted(df_temp[df_temp[COL_DISCIPLINA].isin(disc_sel)][COL_TURMA].dropna().unique().tolist())
     else:
         turma_vals = sorted(df_temp[COL_TURMA].dropna().unique().tolist())
 
@@ -84,34 +85,19 @@ def render():
     if semestre_sel:
         df_filtrado = df_filtrado[df_filtrado[COL_SEMESTRE].isin(semestre_sel)]
     if disc_sel:
-        df_filtrado = df_filtrado[df_filtrado[COL_DISC].isin(disc_sel)]
+        df_filtrado = df_filtrado[df_filtrado[COL_DISCIPLINA].isin(disc_sel)]
     if turma_sel:
         df_filtrado = df_filtrado[df_filtrado[COL_TURMA].isin(turma_sel)]
 
     # --- Tabla resumen ---
 
     if not df_filtrado.empty:
-        # Agrupar y sumar
-        agrup_cols = [COL_ANO, COL_PERIODO, COL_SEMESTRE, COL_DISC, COL_TURMA]
-        resumen = (
-            df_filtrado
-            .groupby(agrup_cols, dropna=False)[COL_QTD]
-            .sum()
-            .reset_index(name="Cantidad de Alumnos")
-        )
+        resumen, missing_cols = calculate_matriculas_summary(df_filtrado)
+        if missing_cols:
+            st.error(f"Faltan columnas requeridas en el archivo: {', '.join(missing_cols)}")
+            return
 
-        # Formata números com separador de milhar
-        resumen["Cantidad de Alumnos"] = resumen["Cantidad de Alumnos"].apply(lambda x: f"{int(x):,}".replace(",", "."))
-
-        # Renomeia colunas para exibição
-        resumen_vista = resumen.rename(columns={
-            "ano": "Año",
-            "periodo_anual_nome": "Período Anual",
-            "semestre_nome": "Semestre",
-            "disciplina_nome": "Disciplina",
-            "turma_nome": "Turma",
-            "Cantidad de Alumnos": "Cantidad de Alumnos"
-        })
+        resumen_vista = build_matriculas_view(resumen)
 
 
         st.dataframe(resumen_vista, width="stretch", hide_index=True)
@@ -161,10 +147,8 @@ def render():
                         preserveAspectRatio=True,
                         mask='auto'
                     )
-                except Exception:
-                    pass
-
-            # Texto institucional
+                except Exception as exc:
+                    log_exception("Error silencioso tratado en matriculas.py", exc)
             canvas.setFont("Helvetica-Bold", 12)
             canvas.drawString(8.5 * cm, height - 2.2 * cm, "Universidad Central del Paraguay")
             canvas.setFont("Helvetica", 10)

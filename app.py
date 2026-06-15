@@ -7,6 +7,24 @@ import pandas as pd
 import io
 import extra_streamlit_components as etc
 from utils import db_pia
+from utils.data_loader import data_file_mtime, set_current_version
+from utils.menu_config import (
+    ACCOUNT_PAGES,
+    ADMINISTRACION,
+    ADMIN_PAGES,
+    INDICADORES_VERSION,
+    INDICE_PERMANENCIA,
+    INDICE_PERMANENCIA_PERMISSION,
+    MI_CUENTA,
+    PERMANENCIA_PAGES,
+    VERSION_GROUPS,
+    all_module_names,
+    iter_page_configs,
+    page_key,
+    permission_key,
+    version_permission_key,
+)
+from utils.system_logging import log_exception
 
 # -------------------------------
 # CONFIGURAÇÃO INICIAL
@@ -30,47 +48,12 @@ def safe_import_module(module_name):
     """Tenta importar um módulo. Se falhar, retorna um Placeholder."""
     try:
         return importlib.import_module(f"modules.{module_name}")
-    except ImportError:
+    except ImportError as exc:
+        log_exception(f"No se pudo importar el módulo {module_name}", exc)
         return ModulePlaceholder(module_name)
 
-# Carregamento dos Módulos (Existentes e Futuros)
-
-# Panel Académico 
-panel_acad_resumen     = safe_import_module("panel_acad_resumen") 
-panel_acad_asistencia  = safe_import_module("panel_acad_asistencias")
-
-# Rendimento
-rend_acad_alumno      = safe_import_module("rend_acad_alumno")
-rend_acad_asignatura  = safe_import_module("rend_acad_asignatura")
-rend_acad_semestre    = safe_import_module("rend_acad_semestre")
-rend_acad_carrera     = safe_import_module("rend_acad_carrera")
-
-# Tasa de Aprobación
-tasa_aprob_asignatura = safe_import_module("tasa_aprobacion_asignatura")
-tasa_aprob_carrera    = safe_import_module("tasa_aprobacion_carrera")
-
-# Eficiencia Académica (Futuros)
-eficiencia_terminal    = safe_import_module("eficiencia_terminal")
-eficiencia_egreso      = safe_import_module("eficiencia_egreso")
-eficiencia_rezago      = safe_import_module("eficiencia_rezago")
-eficiencia_titulacion  = safe_import_module("eficiencia_titulacion")
-tasa_retencion         = safe_import_module("tasa_retencion")
-tiempos_medios         = safe_import_module("tiempos_medios")
-indice_permanencia     = safe_import_module("indice_permanencia")
-
-# Tasa de Deserción (Futuros)
-desercion_semestral    = safe_import_module("tasa_desercion_semestral")
-desercion_generacional = safe_import_module("tasa_desercion_generacional")
-
-# Tasa de Promoción (Futuros)
-promocion_semestral    = safe_import_module("tasa_promocion_semestral")
-promocion_anual        = safe_import_module("tasa_promocion_anual")
-
-# Administración
-admin_usuarios         = safe_import_module("admin_usuarios")
-admin_areas            = safe_import_module("admin_areas")
-admin_logs             = safe_import_module("admin_logs")
-config_perfil          = safe_import_module("config_perfil")
+# Carregamento dos Módulos declarados no catálogo de navegação
+MODULES = {module_name: safe_import_module(module_name) for module_name in all_module_names()}
 
 # -------------------------------
 # 2. FUNÇÕES DE PÁGINA (WRAPPERS)
@@ -84,6 +67,7 @@ def render_page(module):
         # Se for um Placeholder, ele tem .render(), então cai no if acima.
         # Se for um módulo real mas sem função render, cai aqui.
         st.warning(f"O módulo '{module.__name__}' foi carregado, mas não possui a função 'render()'.")
+
 
 def page_home():
     user_name = "Usuario"
@@ -125,48 +109,20 @@ def create_page(module_obj, title, url_slug, category, custom_render=None):
     page = st.Page(page_func, title=title, url_path=url_slug)
     
     # Registra no dicionário global usando a chave composta
-    key = f"{category}:{title}"
+    key = page_key(category, title)
     ALL_PAGES[key] = page
     return page
 
+def register_page_from_config(category, page_config):
+    module_obj = MODULES[page_config["module"]]
+    custom_render_name = page_config.get("custom_render")
+    custom_render = getattr(module_obj, custom_render_name) if custom_render_name else None
+    return create_page(module_obj, page_config["title"], page_config["slug"], category, custom_render=custom_render)
+
+
 # --- REGISTRO DAS PÁGINAS ---
-
-# 1. Rendimento Académico
-p_ra_est = create_page(rend_acad_alumno,     "Estudiante", "rend_aca_estudiante", "Rendimento Académico")
-p_ra_asig= create_page(rend_acad_asignatura, "Asignatura", "rend_aca_asignatura", "Rendimento Académico")
-p_ra_sem = create_page(rend_acad_semestre,   "Semestre",   "rend_aca_semestre",   "Rendimento Académico")
-p_ra_car = create_page(rend_acad_carrera,    "Carrera",    "rend_aca_carrera",    "Rendimento Académico")
-
-# Panel Académico (New Category)
-p_panel_resumen = create_page(panel_acad_resumen, "Resumen", "panel_resumen", "Panel Académico")
-p_panel_asist   = create_page(panel_acad_asistencia, "Asistencias", "panel_asistencias", "Panel Académico")
-
-# 2. Tasa de Aprobación
-p_ta_asig= create_page(tasa_aprob_asignatura,"Asignatura", "tasa_aprob_asignatura", "Tasa de Aprobación")
-p_ta_car = create_page(tasa_aprob_carrera,   "Carrera",    "tasa_aprob_carrera",    "Tasa de Aprobación")
-
-# 3. Eficiencia Académica
-p_ea_term = create_page(eficiencia_terminal,   "Terminal",                "efic_terminal",   "Eficiencia Académica")
-p_ea_egre = create_page(eficiencia_egreso,     "Egreso",                  "efic_egreso",     "Eficiencia Académica")
-p_ea_reza = create_page(eficiencia_rezago,     "Rezago Educativo",        "efic_rezago",     "Eficiencia Académica")
-p_ea_titu = create_page(eficiencia_titulacion, "Eficiencia de Titulación","efic_titulacion", "Eficiencia Académica")
-p_ea_rete = create_page(tasa_retencion,        "Tasa de Retención",       "tasa_retencion",  "Eficiencia Académica") # Atenção ao nome da categoria se mudar
-p_ea_tiem = create_page(tiempos_medios,        "Tiempos Medios de Egreso","tiempos_medios",  "Eficiencia Académica")
-p_ip_actual = create_page(indice_permanencia, "Visión General", "ip_actual", "Índice de Permanencia", custom_render=indice_permanencia.render_actual)
-p_ip_corte  = create_page(indice_permanencia, "Fecha de Corte",    "ip_corte",  "Índice de Permanencia", custom_render=indice_permanencia.render_corte)
-
-# 4. Tasa de Deserción
-p_td_sem = create_page(desercion_semestral,    "Semestral",    "tasa_desercion_sem", "Tasa de Deserción")
-p_td_gen = create_page(desercion_generacional, "Generacional", "tasa_desercion_gen", "Tasa de Deserción")
-
-# 5. Tasa de Promoción
-p_tp_sem = create_page(promocion_semestral, "Semestral / Anual", "tasa_promocion_sem", "Tasa de Promoción")
-
-# 6. Administración
-p_admin_us = create_page(admin_usuarios, "Gestión de Usuarios", "admin_usuarios", "Administración")
-p_admin_ar = create_page(admin_areas, "Gestión de Áreas", "admin_areas", "Administración")
-p_admin_lo = create_page(admin_logs, "Registro de Descargas", "admin_logs", "Administración")
-p_config_perf = create_page(config_perfil, "Cambiar Contraseña", "config_perfil", "Mi Cuenta")
+for category, page_config in iter_page_configs():
+    register_page_from_config(category, page_config)
 
 # -------------------------------
 # 4. NAVEGAÇÃO "OCULTA" (st.navigation)
@@ -203,8 +159,8 @@ def main():
                     st.session_state.user_id = user_data['id']
                     st.session_state.permisos = db_pia.get_user_permissions(user_data['id'])
                     st.rerun() 
-        except Exception:
-             pass
+        except Exception as exc:
+            log_exception("Error durante auto-login por cookie", exc)
 
     if st.session_state.user is None:
         # Página de Login
@@ -226,6 +182,12 @@ def main():
                 if submitted:
                     user_data = db_pia.authenticate_user(email, password)
                     if user_data:
+                        db_pia.log_audit_event(
+                            "login_success",
+                            target_usuario_id=user_data["id"],
+                            actor_usuario_id=user_data["id"],
+                            detalle={"email": email},
+                        )
                         st.session_state.user = user_data
                         st.session_state.rol = user_data['rol']
                         st.session_state.user_id = user_data['id']
@@ -234,11 +196,16 @@ def main():
                         # Guardar cookie para persistencia (expira en 3 horas)
                         try:
                             cookie_manager.set("pia_uid", str(user_data['id']), key="set_cookie_login", expires_at=datetime.now() + timedelta(hours=3))
-                        except:
-                            pass
+                        except Exception as exc:
+                            log_exception("No se pudo guardar la cookie de login", exc)
                             
                         st.switch_page(p_home)
                     else:
+                        db_pia.log_audit_event(
+                            "login_failed",
+                            detalle={"email": email},
+                            actor_usuario_id=None,
+                        )
                         st.error("Credenciales incorrectas o cuenta inactiva.")
         return  # Bloquear la carga de la app real
 
@@ -253,7 +220,8 @@ def main():
                 logo_path = os.path.join(os.path.dirname(__file__), "assets", "logo-ucp.png")
                 with open(logo_path, "rb") as f:
                     return base64.b64encode(f.read()).decode()
-            except Exception:
+            except Exception as exc:
+                log_exception("No se pudo cargar el logo del sidebar", exc)
                 return None
 
         data = get_logo_base64()
@@ -263,44 +231,79 @@ def main():
                 unsafe_allow_html=True
             )
 
-        # --- ESTRUTURA DO MENU ---
-        MENU_ESTRUTURA = {
-            "Mi Cuenta": ["Cambiar Contraseña"],
-            "Panel Académico": ["Resumen", "Asistencias"],
-            "Rendimento Académico": ["Estudiante", "Asignatura", "Semestre", "Carrera"],
-            "Índice de Permanencia": ["Visión General", "Fecha de Corte"],
-            "Tasa de Aprobación": ["Asignatura", "Carrera"],
-            "Eficiencia Académica": ["Terminal", "Egreso", "Rezago Educativo", "Eficiencia de Titulación", "Tasa de Retención", "Tiempos Medios de Egreso"],
-            "Tasa de Deserción": ["Semestral", "Generacional"],
-            "Tasa de Promoción": ["Semestral / Anual"],
-        }
-        
-        if st.session_state.rol == 'ADMIN':
-            MENU_ESTRUTURA["Administración"] = ["Gestión de Usuarios", "Gestión de Áreas", "Registro de Descargas"]
+        user_perms = set(st.session_state.permisos or [])
 
-        # Loop y Filtrado de Permisos por Categoría
-        for category, buttons in MENU_ESTRUTURA.items():
-            # Validación de Permisos para rol Lectura (Excluyendo 'Mi Cuenta' que es universal)
-            if st.session_state.rol == 'LEITURA' and category != "Mi Cuenta" and category not in st.session_state.permisos:
+        def has_indicator_permission(version, indicator):
+            if st.session_state.rol != 'LEITURA':
+                return True
+            return (
+                version_permission_key(version) in user_perms
+                or permission_key(version, indicator) in user_perms
+            )
+
+        def has_category_permission(category):
+            if st.session_state.rol != 'LEITURA' or category == MI_CUENTA:
+                return True
+            if category == INDICE_PERMANENCIA:
+                return INDICE_PERMANENCIA_PERMISSION in user_perms
+            return False
+
+        with st.expander(MI_CUENTA, expanded=False):
+            for page_config in ACCOUNT_PAGES:
+                lookup_key = page_key(MI_CUENTA, page_config["title"])
+                if st.button(page_config["title"], key=f"btn_{lookup_key}", use_container_width=True):
+                    st.switch_page(ALL_PAGES[lookup_key])
+
+        for version in VERSION_GROUPS:
+            visible_indicators = [
+                indicator for indicator in INDICADORES_VERSION
+                if has_indicator_permission(version, indicator)
+            ]
+            if not visible_indicators:
                 continue
-                
-            with st.expander(category, expanded=False):
-                for btn_name in buttons:
-                    lookup_key = f"{category}:{btn_name}"
-                    if st.button(btn_name, key=f"btn_{lookup_key}", use_container_width=True):
-                        if lookup_key in ALL_PAGES:
-                            st.switch_page(ALL_PAGES[lookup_key])
-                        else:
-                            st.error(f"Página no encontrada: {lookup_key}")
+
+            with st.expander(version, expanded=False):
+                for indicator in visible_indicators:
+                    st.markdown(f"**{indicator['name']}**")
+                    for page_config in indicator["pages"]:
+                        lookup_key = page_key(indicator["target_category"], page_config["title"])
+                        button_key = f"btn_{version}_{indicator['name']}_{page_config['title']}"
+                        if st.button(page_config["title"], key=button_key, use_container_width=True):
+                            if lookup_key in ALL_PAGES:
+                                set_current_version(version_permission_key(version))
+                                st.switch_page(ALL_PAGES[lookup_key])
+                            else:
+                                st.error(f"Página no encontrada: {lookup_key}")
+
+        if has_category_permission(INDICE_PERMANENCIA):
+            with st.expander(INDICE_PERMANENCIA, expanded=False):
+                for page_config in PERMANENCIA_PAGES:
+                    lookup_key = page_key(INDICE_PERMANENCIA, page_config["title"])
+                    if st.button(page_config["title"], key=f"btn_{lookup_key}", use_container_width=True):
+                        st.switch_page(ALL_PAGES[lookup_key])
+
+        if st.session_state.rol == 'ADMIN':
+            with st.expander(ADMINISTRACION, expanded=False):
+                for page_config in ADMIN_PAGES:
+                    lookup_key = page_key(ADMINISTRACION, page_config["title"])
+                    if st.button(page_config["title"], key=f"btn_{lookup_key}", use_container_width=True):
+                        st.switch_page(ALL_PAGES[lookup_key])
 
     # Botón de Logout Global en esquina superior derecha
     c_out1, c_out2 = st.columns([9, 1])
     with c_out2:
         if st.button("Salir", icon=":material/logout:", use_container_width=True):
+            logout_user_id = st.session_state.get("user_id")
+            if logout_user_id:
+                db_pia.log_audit_event(
+                    "logout",
+                    target_usuario_id=logout_user_id,
+                    actor_usuario_id=logout_user_id,
+                )
             try:
                 cookie_manager.delete("pia_uid", key="delete_cookie_logout")
-            except:
-                pass
+            except Exception as exc:
+                log_exception("No se pudo eliminar la cookie de logout", exc)
             st.session_state.clear()
             st.rerun()
             
@@ -318,21 +321,20 @@ def main():
         
         # Mapeo inteligente de página actual -> archivo de datos fuente
         MAP_SOURCES = {
-            "ip_actual": ["permanencia_20252.csv"],
-            "ip_corte": ["permanencia_20252_05-04-2026.csv"],
-            "matriculas": ["matriculados-20251.xlsx"],
-            "notas": ["notas.xlsx"]
+            "ip_actual": [("global", "permanencia_vision_general")],
+            "ip_corte": [("global", "permanencia_fecha_corte")],
+            "matriculas": [(None, "matriculas")],
+            "notas": [(None, "notas")]
         }
         
         # pg es el objeto retornado por st.navigation
         current_slug = pg.url_path if hasattr(pg, "url_path") else ""
-        targets = MAP_SOURCES.get(current_slug, ["alumnos.csv"])
+        targets = MAP_SOURCES.get(current_slug, [(None, "alumnos")])
         
         fechas_list = []
-        for target_file in targets:
-            data_path = os.path.join(base_dir, "assets", "data", target_file)
-            if os.path.exists(data_path):
-                mtime = os.path.getmtime(data_path)
+        for scope, dataset_name in targets:
+            mtime = data_file_mtime(dataset_name, scope)
+            if mtime:
                 fechas_list.append(datetime.fromtimestamp(mtime).strftime("%d/%m/%Y %H:%M"))
         
         # Eliminar duplicados manteniendo el orden
@@ -345,7 +347,8 @@ def main():
             fecha_actualizacion = " | ".join(unique_fechas)
         else:
             fecha_actualizacion = datetime.now().strftime("%d/%m/%Y %H:%M")
-    except Exception:
+    except Exception as exc:
+        log_exception("No se pudo calcular la última actualización de datos", exc)
         fecha_actualizacion = datetime.now().strftime("%d/%m/%Y %H:%M")
 
     try:
@@ -365,7 +368,8 @@ def main():
             )
         else:
             st.caption(f"Datos académicos internos de la institución | Última actualización: {fecha_actualizacion}")
-    except Exception:
+    except Exception as exc:
+        log_exception("No se pudo renderizar el icono del pie de página", exc)
         st.caption(f"Datos académicos internos de la institución | Última actualización: {fecha_actualizacion}")
 
 if __name__ == "__main__":

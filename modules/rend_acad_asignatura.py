@@ -5,6 +5,17 @@ import os
 import re
 from datetime import datetime
 from utils import db_pia
+from utils.ui import render_download_button_styles, render_kpi_grid, render_section_box
+from services.data.alumnos import load_current_alumnos
+from services.calculations.rendimiento_academico import (
+    COL_CALIFICACION,
+    COL_COHORTE,
+    COL_DISCIPLINA,
+    COL_ID_ALUMNO,
+    COL_SEMESTRE_DISCIPLINA,
+    calculate_subject_performance,
+    prepare_rendimiento_source,
+)
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
@@ -17,40 +28,17 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 def render():
     st.subheader("Rendimiento Académico por Asignatura")
 
-    # CSS para esconder toolbar e ajustar botões
-    st.markdown("""
-        <style>
-        [data-testid="stElementToolbar"] { display: none; }
-        div[data-testid="stDownloadButton"] button {
-            min-height: 50px !important;
-            font-size: 16px !important;
-            border-radius: 8px !important;
-        }
-        </style>
-    """, unsafe_allow_html=True)
+    render_download_button_styles()
     
-    @st.cache_data
-    def load_data():
-        df = pd.read_csv("assets/data/alumnos.csv", sep=",", low_memory=False)
-        df.columns = df.columns.str.strip()
-        
-        # Filtro obrigatório: Regular e CDE
-        df = df[(df["tipo_disciplina"] == "Regular") & (df["filial_periodo_letivo"].isin(["CDE", "CDE III"]))]
-        
-        # Converter semestre para número para ordenação correta (1 a 12)
-        df["semestre_disciplina"] = pd.to_numeric(df["semestre_disciplina"], errors='coerce')
-        return df
+    df = load_current_alumnos(only_regular=True)
+    if df.empty:
+        st.error("Archivo de datos no encontrado.")
+        return
 
-    df = load_data()
-
-    # 🧩 Colunas
-    COL_COHORTE = "cohorte"
-    COL_SEMESTRE_DISCIPLINA = "semestre_disciplina"
-    COL_DISCIPLINA = "disciplina"
-    COL_CALIFICACION = "calificacion_final_1a5"
-    COL_ID_ALUMNO = "usuarios_id"
-
-    df[COL_COHORTE] = df[COL_COHORTE].astype(str).str.strip()
+    df, missing_cols = prepare_rendimiento_source(df)
+    if missing_cols:
+        st.error(f"Faltan columnas requeridas en el archivo: {', '.join(missing_cols)}")
+        return
 
     # ------------------------------------------------------------
     # 🎚️ Filtros em Cascata
@@ -100,14 +88,10 @@ def render():
     # ------------------------------------------------------------
     # 📊 Cálculo
     # ------------------------------------------------------------
-    df_unicos = df_filtrado.drop_duplicates(subset=[COL_COHORTE, COL_SEMESTRE_DISCIPLINA, COL_DISCIPLINA, COL_ID_ALUMNO])
-
-    resumen = (
-        df_unicos
-        .groupby([COL_COHORTE, COL_SEMESTRE_DISCIPLINA, COL_DISCIPLINA])
-        .agg(TRASA=(COL_CALIFICACION, "mean"), N=(COL_ID_ALUMNO, "count"))
-        .reset_index()
-    )
+    resumen, missing_cols = calculate_subject_performance(df_filtrado)
+    if missing_cols:
+        st.error(f"Faltan columnas requeridas en el archivo: {', '.join(missing_cols)}")
+        return
 
     # DataFrame para exibição (com "º Semestre")
     df_display = resumen.copy()
@@ -129,15 +113,11 @@ def render():
     total_asignaturas = len(df_display)
     total_alumnos = df_filtrado[COL_ID_ALUMNO].nunique()
     
-    kpi1, kpi2, kpi3 = st.columns(3)
-    def kpi_box(label, value):
-        return f"""<div style="background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 10px; padding: 20px; text-align: center;">
-        <span style="font-size: 14px; color: #666; font-weight: 600; text-transform: uppercase;">{label}</span><br>
-        <span style="font-size: 28px; color: #333; font-weight: 700;">{value}</span></div>"""
-
-    kpi1.markdown(kpi_box("Cohorte", cohorte_sel), unsafe_allow_html=True)
-    kpi2.markdown(kpi_box("Estudiantes (N)", total_alumnos), unsafe_allow_html=True)
-    kpi3.markdown(kpi_box("Asignaturas", total_asignaturas), unsafe_allow_html=True)
+    render_kpi_grid([
+        ("Cohorte", cohorte_sel),
+        ("Estudiantes (N)", total_alumnos),
+        ("Asignaturas", total_asignaturas),
+    ])
     
     st.divider()
 
@@ -147,7 +127,7 @@ def render():
     semestres_presentes = sorted(df_display["Semestre"].unique(), key=lambda x: int(x.split('º')[0]))
 
     for semestre in semestres_presentes:
-        st.markdown(f"""<div style="border: 1px solid #ddd; border-radius: 10px; background-color: #f9f9f9; padding: 14px 20px; margin-top: 25px; margin-bottom: 15px; font-size: 18px; font-weight: 600; color: #444;">{semestre}</div>""", unsafe_allow_html=True)
+        render_section_box(semestre)
         
         df_sem = df_display[df_display["Semestre"] == semestre]
         st.dataframe(

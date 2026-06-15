@@ -3,6 +3,15 @@ import pandas as pd
 import plotly.express as px
 import io
 from utils import db_pia
+from utils.ui import render_kpi_card
+from services.data.permanencia import (
+    load_permanencia_fecha_corte,
+    load_permanencia_vision_general,
+)
+from services.calculations.permanencia import (
+    calculate_permanencia_indicators,
+    prepare_permanencia_source,
+)
 
 def render_common_setup():
     st.markdown("""
@@ -47,24 +56,15 @@ def render_common_setup():
         </style>
     """, unsafe_allow_html=True)
 
-@st.cache_data
-def load_data(filename):
-    try:
-        df = pd.read_csv(f"assets/data/{filename}", sep=";", low_memory=False)
-        return df
-    except FileNotFoundError:
-        st.error(f"Archivo de datos {filename} no encontrado en assets/data/.")
-        return pd.DataFrame()
-
 def render_actual():
     render_common_setup()
-    df_act = load_data("permanencia_20252.csv")
+    df_act = load_permanencia_vision_general()
     if not df_act.empty:
         render_permanence_module(df_act, "actual")
 
 def render_corte():
     render_common_setup()
-    df_cor = load_data("permanencia_20252_05-04-2026.csv")
+    df_cor = load_permanencia_fecha_corte()
     if not df_cor.empty:
         render_permanence_module(df_cor, "corte")
 
@@ -74,95 +74,7 @@ def render():
 
 
 def render_permanence_module(df_base, suffix=""):
-    # Limpiar columnas
-    if 'estado_matricula' in df_base.columns:
-        df_base['estado_matricula'] = df_base['estado_matricula'].fillna('').astype(str).str.strip().str.lower()
-    
-    if 'status_academico' in df_base.columns:
-        df_base['status_academico'] = df_base['status_academico'].fillna('').astype(str).str.strip().str.lower()
-    
-    df_lista = df_base.copy()
-
-    # Función para determinar momento de baja
-    def definir_momento(row, periodo_ref="2026.1"):
-        estado = str(row.get('estado_matricula', '')).strip().lower()
-        if estado == 'activo':
-            return 'Activo'
-            
-        fc = row.get('fecha_cambio')
-        if pd.isnull(fc):
-            return 'Sin fecha de cambio'
-
-        try: 
-            sem = int(row.get('semestre_20261', 0))
-        except: 
-            sem = 0
-            
-        if periodo_ref == "2026.1":
-            limite = pd.to_datetime('2026-02-04') if sem == 1 else pd.to_datetime('2026-02-09')
-        elif periodo_ref == "2025.2":
-            limite = pd.to_datetime('2025-07-30') if sem == 1 else pd.to_datetime('2025-08-04')
-        else:
-            return "Periodo desconocido"
-            
-        fc_dt = pd.to_datetime(fc, errors='coerce', dayfirst=True)
-        if pd.isnull(fc_dt):
-            return 'Sin fecha de cambio válida'
-
-        return 'Antes del inicio de clases' if fc_dt < limite else 'Después del inicio de clases'
-
-    df_lista['momento_cambio'] = df_lista.apply(lambda r: definir_momento(r, "2025.2"), axis=1)
-
-    # Variables auxiliares para los indicadores globales
-    df_lista['sem_252'] = pd.to_numeric(df_lista.get('semestre_20252', 0), errors='coerce').fillna(0).astype(int)
-    df_lista['sem_261'] = pd.to_numeric(df_lista.get('semestre_20261', 0), errors='coerce').fillna(0).astype(int)
-
-    # Excluir globalmente a los alumnos de 6º semestre (2025.2) de todo el análisis
-    df_lista = df_lista[df_lista['sem_252'] != 6]
-
-    # Excluir 100% de los análisis a los alumnos de Primer Periodo que son Convalidados
-    if 'analise_primer_periodo' in df_lista.columns and 'tipo_matricula' in df_lista.columns:
-        # Usamos stripping y lower para una comparación más robusta
-        is_primer_p = df_lista['analise_primer_periodo'].astype(str).str.strip() == "Primer Periodo"
-        is_conv = df_lista['tipo_matricula'].astype(str).str.strip() == "Convalidado"
-        df_lista = df_lista[~(is_primer_p & is_conv)]
-
-    is_convalid = pd.Series(False, index=df_lista.index)
-    if 'tipo_matricula' in df_lista.columns:
-        is_convalid = df_lista['tipo_matricula'].astype(str).str.lower().str.contains('convalid', na=False)
-    
-    is_recurs = pd.Series(False, index=df_lista.index)
-    if 'es_recursante' in df_lista.columns:
-        is_recurs = df_lista['es_recursante'].astype(str).str.strip().str.lower().isin(['si', 'true', '1', 's'])
-        
-    es_paga_252 = pd.Series(False, index=df_lista.index)
-    if 'estado_pago_20252' in df_lista.columns:
-        es_paga_252 = df_lista['estado_pago_20252'].astype(str).str.lower().str.contains('paga', na=False)
-
-    es_paga_261 = pd.Series(False, index=df_lista.index)
-    if 'estado_pago_20261' in df_lista.columns:
-        es_paga_261 = df_lista['estado_pago_20261'].astype(str).str.lower().str.contains('paga', na=False)
-
-    # Formatear montos para la lista
-    def formatear_monto(monto, es_pago):
-        if not es_pago or pd.isnull(monto): return ""
-        try: 
-            # Guaraníes no suelen llevar decimales
-            return f"Gs. {int(float(monto)):,.0f}".replace(",", ".")
-        except: 
-            return str(monto)
-
-    monto_252_col = 'monto_factura_20252' if 'monto_factura_20252' in df_lista.columns else None
-    if monto_252_col:
-        df_lista['Monto Pagado 2025.2'] = df_lista.apply(lambda r: formatear_monto(r[monto_252_col], pd.notna(r.get('estado_pago_20252')) and 'paga' in str(r['estado_pago_20252']).lower()), axis=1)
-    else:
-        df_lista['Monto Pagado 2025.2'] = ""
-
-    monto_261_col = 'monto_factura_20261' if 'monto_factura_20261' in df_lista.columns else None
-    if monto_261_col:
-        df_lista['Monto Pagado 2026.1'] = df_lista.apply(lambda r: formatear_monto(r[monto_261_col], pd.notna(r.get('estado_pago_20261')) and 'paga' in str(r['estado_pago_20261']).lower()), axis=1)
-    else:
-        df_lista['Monto Pagado 2026.1'] = ""
+    df_lista = prepare_permanencia_source(df_base)
 
     # === Configuración Global de Cálculo ===
     with st.container(border=True):
@@ -175,92 +87,12 @@ def render_permanence_module(df_base, suffix=""):
     tab_resumen, tab_lista = st.tabs(["Visión General", "Lista Detallada"])
 
     with tab_resumen:
-        # Copia para filtrado matemático con máscara única para evitar advertencias de reindexación
-        mask_resumen = pd.Series(True, index=df_lista.index)
-        if not incluir_convalidados: mask_resumen &= ~is_convalid
-        if not incluir_recursantes: mask_resumen &= ~is_recurs
-        mask_resumen &= (df_lista['momento_cambio'] != 'Antes del inicio de clases')
-        
-        df_calc = df_lista[mask_resumen].copy()
-
-        es_paga_252_c = df_calc['estado_pago_20252'].astype(str).str.lower().str.contains('paga', na=False) if 'estado_pago_20252' in df_calc.columns else pd.Series(False, index=df_calc.index)
-        es_paga_261_c = df_calc['estado_pago_20261'].astype(str).str.lower().str.contains('paga', na=False) if 'estado_pago_20261' in df_calc.columns else pd.Series(False, index=df_calc.index)
-
-        indicadores = [
-            {"nombre": "Índice de Permanencia I", "sem_origen": 1, "sem_destino": 2, "r_nivel": 1},
-            {"nombre": "Índice de Permanencia II", "sem_origen": 2, "sem_destino": 3, "r_nivel": 2},
-            {"nombre": "Índice de Permanencia III", "sem_origen": 3, "sem_destino": 4, "r_nivel": 3},
-            {"nombre": "Índice de Permanencia IV", "sem_origen": 4, "sem_destino": 5, "r_nivel": 4},
-            {"nombre": "Índice de Permanencia V", "sem_origen": 5, "sem_destino": 6, "r_nivel": 5},
-        ]
-        
-        resultados_p = []
-        resultados_nr = []
-        df_todas_nr_list = []
-        
         st.markdown("#### Índice de Permanencia")
-        
-        for ind in indicadores:
-            base_mask = (df_calc['sem_252'] == ind["sem_origen"]) & es_paga_252_c
-            poblacion_base = df_calc[base_mask]
-            total_base = len(poblacion_base)
-            
-            # Se contabiliza como éxito si avanzó al semestre destino o si se mantuvo en el mismo (reprobó/recurso pero pagó)
-            exito_mask = poblacion_base['sem_261'].isin([ind["sem_origen"], ind["sem_destino"]]) & es_paga_261_c[poblacion_base.index]
-            total_exito = len(poblacion_base[exito_mask])
-            
-            # Análisis de No Rematriculados
-            poblacion_nr = poblacion_base[~exito_mask]
-            
-            c_trancados = 0
-            c_reprobados = 0
-            c_abandonos = 0
-            
-            ip_name = f'IP {ind["r_nivel"]}'
-            
-            if not poblacion_nr.empty:
-                is_trancado = poblacion_nr['estado_matricula'] == 'trancado'
-                c_trancados = int(is_trancado.sum())
-                
-                if 'status_academico' in poblacion_nr.columns:
-                    is_reprobado = (~is_trancado) & poblacion_nr['status_academico'].astype(str).str.contains('reprovado|reprobado', case=False, na=False)
-                else:
-                    is_reprobado = pd.Series(False, index=poblacion_nr.index)
-                    
-                c_reprobados = int(is_reprobado.sum())
-                c_abandonos = int((~is_trancado & ~is_reprobado).sum())
-                
-                p_nr_copy = poblacion_nr.copy()
-                p_nr_copy['Indicador'] = ip_name
-                p_nr_copy['Motivo_NR'] = 'Abandono'
-                p_nr_copy.loc[is_reprobado, 'Motivo_NR'] = 'Reprobado'
-                p_nr_copy.loc[is_trancado, 'Motivo_NR'] = 'Trancado'
-                df_todas_nr_list.append(p_nr_copy)
-            
-            no_rematr = total_base - total_exito
-            tasa = (total_exito / total_base * 100) if total_base > 0 else 0.0
-            
-            resultados_p.append({
-                "Indicador": ip_name,
-                "Inicio 2025.2": int(total_base),
-                "Rematrícula 2026.1": int(total_exito),
-                "% de Permanencia": f"{tasa:.0f}%",
-                "Inicio_s": f'{ind["sem_origen"]} s',
-                "Rematricula_s": f'{ind["sem_destino"]} s',
-                "Descripcion": f'Los alumnos que inician el {ind["sem_origen"]}º semestre en el 2025.2 y al terminar se rematricularon para el {ind["sem_destino"]}º semestre en el periodo 2026.1',
-                "tasa_num": tasa
-            })
-            
-            resultados_nr.append({
-                "Nivel": str(ind["r_nivel"]),
-                "No rematriculados": no_rematr,
-                "Trancados": c_trancados,
-                "Reprobados": c_reprobados,
-                "Abandonos": c_abandonos
-            })
-
-        df_vp = pd.DataFrame(resultados_p)
-        df_nr = pd.DataFrame(resultados_nr)
+        df_vp, df_nr, df_todas_nr_list = calculate_permanencia_indicators(
+            df_lista,
+            incluir_convalidados=incluir_convalidados,
+            incluir_recursantes=incluir_recursantes,
+        )
         
         # HTML Custom Table para Índice de Permanencia
         html_table = "<table class='custom_table' style='font-size: 16px; margin-bottom: 2rem;'><thead><tr><th>Indicador</th><th>Inicio 2025.2</th><th>Rematrícula 2026.1</th><th>% de Permanencia</th></tr></thead><tbody>"
@@ -363,13 +195,12 @@ def render_permanence_module(df_base, suffix=""):
             # ====== MÉTRICAS GLOBALES (3 CARDS) ======
             c1, c2, c3 = st.columns(3)
             
-            card_style = "background-color: #e2efd9; border: 1px solid #a9d08e; border-radius: 8px; padding: 15px; text-align: center; height: 100%; box-shadow: 2px 2px 5px rgba(0,0,0,0.05);"
             with c1:
-                st.markdown(f'<div style="{card_style}"><h5 style="color: #385623; margin: 0; font-size: 15px;">Total de Alumnos</h5><h2 style="color: #385623; margin: 10px 0 0 0;">{f"{total_inicio:,}".replace(",", ".")}</h2></div>', unsafe_allow_html=True)
+                render_kpi_card("Total de Alumnos", f"{total_inicio:,}".replace(",", "."), accent="#385623", background="#e2efd9", border="#a9d08e")
             with c2:
-                st.markdown(f'<div style="{card_style}"><h5 style="color: #385623; margin: 0; font-size: 15px;">Rematriculados</h5><h2 style="color: #385623; margin: 10px 0 0 0;">{f"{total_rematr:,}".replace(",", ".")}</h2></div>', unsafe_allow_html=True)
+                render_kpi_card("Rematriculados", f"{total_rematr:,}".replace(",", "."), accent="#385623", background="#e2efd9", border="#a9d08e")
             with c3:
-                st.markdown(f'<div style="{card_style}"><h5 style="color: #385623; margin: 0; font-size: 15px;">No rematriculados</h5><h2 style="color: #385623; margin: 10px 0 0 0;">{f"{total_norem:,}".replace(",", ".")}</h2></div>', unsafe_allow_html=True)
+                render_kpi_card("No rematriculados", f"{total_norem:,}".replace(",", "."), accent="#385623", background="#e2efd9", border="#a9d08e")
 
             st.markdown("<br>", unsafe_allow_html=True)
 

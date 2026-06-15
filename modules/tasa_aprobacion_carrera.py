@@ -5,6 +5,13 @@ import io
 import os
 from datetime import datetime
 from utils import db_pia
+from utils.system_logging import log_exception
+from services.data.alumnos import load_current_alumnos
+from services.calculations.tasa_aprobacion import (
+    COL_COHORTE,
+    COL_SEMESTRE,
+    calculate_career_approval,
+)
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
@@ -26,55 +33,18 @@ def render():
         </style>
     """, unsafe_allow_html=True)
     
-    @st.cache_data
-    def load_data():
-        try:
-            df = pd.read_csv("assets/data/alumnos.csv", sep=",", low_memory=False)
-            df.columns = df.columns.str.strip()
-            # Filter for Regular subjects and CDE as per other modules pattern
-            # Using copy() to avoid SettingWithCopyWarning
-            df = df[(df["tipo_disciplina"] == "Regular") & (df["filial_periodo_letivo"].isin(["CDE", "CDE III"]))].copy()
-            return df
-        except FileNotFoundError:
-            st.error("Archivo de datos no encontrado.")
-            return pd.DataFrame()
-
-    df = load_data()
+    df = load_current_alumnos(only_regular=True)
     if df.empty:
+        st.error("Archivo de datos no encontrado.")
         return
 
-    COL_COHORTE = "cohorte"
-    COL_CALIFICACION = "calificacion_final_1a5"
-    COL_ID_ALUMNO = "usuarios_id"
-    COL_SEMESTRE = "semestre_alumno"
-
-    # Pre-process Data for TAC (All Cohorts)
-    # 1. Validate numeric semester for sorting
-    df[COL_SEMESTRE] = pd.to_numeric(df[COL_SEMESTRE], errors='coerce')
-    df = df.dropna(subset=[COL_SEMESTRE])
-
-    # 2. Determine pass/fail per subject
-    df["aprobado"] = df[COL_CALIFICACION] >= 2
-
-    # 3. Group by Cohorte + Semester + Student to find EPAS candidates
-    # This prepares data for both views
-    alumno_semestre_all = df.groupby([COL_COHORTE, COL_SEMESTRE, COL_ID_ALUMNO]).agg(
-        Total_Asignaturas=(COL_CALIFICACION, "count"),
-        Total_Aprobadas=("aprobado", "sum")
-    ).reset_index()
-
-    # Student is EPAS if Total_Asignaturas == Total_Aprobadas
-    alumno_semestre_all["aprobo_todas"] = alumno_semestre_all["Total_Asignaturas"] == alumno_semestre_all["Total_Aprobadas"]
-
-    # 4. Agregate per Cohorte + Semester to find TAC
-    resumen_semestre_all = alumno_semestre_all.groupby([COL_COHORTE, COL_SEMESTRE]).agg(
-        EIS=(COL_ID_ALUMNO, "count"),
-        EPAS=("aprobo_todas", "sum")
-    ).reset_index()
-
-    # 5. Calculate TAC
-    resumen_semestre_all["TAC (%)"] = (resumen_semestre_all["EPAS"] / resumen_semestre_all["EIS"]) * 100
-    resumen_semestre_all["Semestre"] = resumen_semestre_all[COL_SEMESTRE].apply(lambda x: f"{int(x)}º Semestre")
+    resumen_semestre_all, missing_cols = calculate_career_approval(df)
+    if missing_cols:
+        st.error(f"Faltan columnas requeridas en el archivo: {', '.join(missing_cols)}")
+        return
+    if resumen_semestre_all.empty:
+        st.warning("No hay datos suficientes para calcular la tasa de aprobación por carrera.")
+        return
     
     # -------------------------------------------------------------------------
     # PDF FUNCTIONS
@@ -94,8 +64,8 @@ def render():
         if logo_path:
             try:
                 canvas.drawImage(logo_path, x=2 * cm, y=height - 2.5 * cm, width=2*cm, height=2*cm, preserveAspectRatio=True, mask='auto')
-            except: pass
-
+            except Exception as exc:
+                log_exception("Error silencioso tratado en tasa_aprobacion_carrera.py", exc)
         # --- Cabeçalho ---
         canvas.setFont("Helvetica-Bold", 14)
         canvas.setFillColor(colors.HexColor("#004080"))
@@ -303,7 +273,13 @@ def render():
     with tab2:
         
         cohortes = sorted(df[COL_COHORTE].dropna().unique().tolist())
-        cohorte_sel = st.selectbox("", cohortes, index=None, key="sel_cohorte_tab2")
+        cohorte_sel = st.selectbox(
+            "Seleccione una cohorte",
+            cohortes,
+            index=None,
+            key="sel_cohorte_tab2",
+            label_visibility="collapsed",
+        )
 
         if not cohorte_sel:
             st.info("Seleccione una **Cohorte** para ver el detalle.")
@@ -392,7 +368,8 @@ def render():
                     ws_res = writer.sheets['Resumen TAC']
                     ws_res.set_column(1, 1, 15, num_fmt)
 
-            except:
+            except Exception as exc:
+                log_exception("No se pudo generar Excel con xlsxwriter en tasa de aprobación por carrera", exc)
                 with pd.ExcelWriter(buffer_excel) as writer:
                      resumen_semestre.to_excel(writer, index=False, sheet_name='Datos TAC')
 

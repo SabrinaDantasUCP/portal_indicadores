@@ -5,6 +5,17 @@ import io
 import os
 from datetime import datetime
 from utils import db_pia
+from utils.system_logging import log_exception
+from services.data.alumnos import load_current_alumnos
+from services.calculations.eficiencia_academica import (
+    COL_ANO_FINAL_COHORTE,
+    COL_CATRACA,
+    COL_COHORTE,
+    COL_ID_ALUMNO,
+    COL_NOMBRE,
+    build_efficiency_context,
+    calculate_terminal_efficiency,
+)
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
@@ -27,80 +38,20 @@ def render():
         </style>
     """, unsafe_allow_html=True)
     
-    @st.cache_data
-    def load_data():
-        try:
-            df = pd.read_csv(
-                "assets/data/alumnos.csv", 
-                sep=",", 
-                dtype={
-                    'periodo_egresso_format': str, 
-                    'estado_titulacion': str
-                },
-                parse_dates=['fecha_titulacion'], # O Pandas já tenta converter para data aqui
-                low_memory=False
-            )
-            df.columns = df.columns.str.strip()
-            # Filtrar por CDE conforme padrão de outros módulos
-            df = df[df["filial_periodo_letivo"].isin(["CDE", "CDE III"])].copy()
-            return df
-        except FileNotFoundError:
-            st.error("Archivo de datos no encontrado.")
-            return pd.DataFrame()
-
-    df = load_data()
+    df = load_current_alumnos()
     if df.empty:
+        st.error("Archivo de datos no encontrado.")
         return
 
-    # Colunas necessárias
-    COL_COHORTE = "cohorte"
-    COL_ID_ALUMNO = "usuarios_id"
-    COL_NOMBRE = "nome_sobrenome"
-    COL_CATRACA = "numero_catraca"
-    COL_SEMESTRE_ALUMNO = "semestre_alumno"
-    COL_PERIODO_EGRESSO = "periodo_egresso_format"
-    COL_ANO_FINAL_COHORTE = "ano_final_coorte"
-
-    # --- Lógica de Cálculo da Eficiência Terminal ---
-    
-    # 1. Identificar EIIC (Ingressantes da coorte no 1º semestre)
-    # Incluimos Nombre y Catraca para el listado detallado
-    eiic_df = df[df[COL_SEMESTRE_ALUMNO].astype(float) == 1].groupby([COL_COHORTE, COL_ID_ALUMNO]).first().reset_index()
-    
-    # 2. Identificar ECE (Egressos em tempo regular daquela coorte)
-    # Primero buscamos los egresados usando periodo_egresso_format
-    # Si periodo_egresso_format está vacío, el alumno aún no finalizó
-    egressos_df = df.dropna(subset=[COL_PERIODO_EGRESSO]).groupby([COL_COHORTE, COL_ID_ALUMNO]).first().reset_index()
-    
-    # Cruzamos con los ingressantes (EIIC) para garantizar que son de la misma coorte
-    # Y verificamos si el periodo_egresso_format <= ano_final_coorte
-    ece_df = pd.merge(eiic_df[[COL_COHORTE, COL_ID_ALUMNO, COL_ANO_FINAL_COHORTE]], 
-                      egressos_df[[COL_ID_ALUMNO, COL_PERIODO_EGRESSO]], 
-                      on=COL_ID_ALUMNO, how="inner")
-    
-    # Converter para numérico para comparación cronológica (Ej: 2023.1 <= 2024.1)
-    ece_df[COL_PERIODO_EGRESSO] = pd.to_numeric(ece_df[COL_PERIODO_EGRESSO], errors='coerce')
-    ece_df[COL_ANO_FINAL_COHORTE] = pd.to_numeric(ece_df[COL_ANO_FINAL_COHORTE], errors='coerce')
-    
-    ece_df = ece_df[ece_df[COL_PERIODO_EGRESSO] <= ece_df[COL_ANO_FINAL_COHORTE]]
-
-    # --- Identificar Cohortes que completaron 12 semestres ---
-    cohortes_completas = df.groupby(COL_COHORTE)[COL_SEMESTRE_ALUMNO].max()
-    cohortes_completas = cohortes_completas[cohortes_completas >= 12].index.tolist()
-
-    # 3. Agrupar Resultados por Cohorte
-    resumen_eiic = eiic_df.groupby(COL_COHORTE)[COL_ID_ALUMNO].count().reset_index(name="EIIC")
-    resumen_ece = ece_df.groupby(COL_COHORTE)[COL_ID_ALUMNO].count().reset_index(name="ECE")
-    
-    resumen_et = pd.merge(resumen_eiic, resumen_ece, on=COL_COHORTE, how="left").fillna(0)
-    resumen_et["ECE"] = resumen_et["ECE"].astype(int)
-    resumen_et["EIIC"] = resumen_et["EIIC"].astype(int)
-    
-    # --- Aplicar Filtro de 12 Semestres (Requisito: ciclo completo) ---
-    resumen_et = resumen_et[resumen_et[COL_COHORTE].isin(cohortes_completas)]
-    
-    resumen_et["ET (%)"] = (resumen_et["ECE"] / resumen_et["EIIC"]) * 100
-    resumen_et = resumen_et.sort_values(COL_COHORTE)
+    efficiency_context, missing_cols = build_efficiency_context(df)
+    if missing_cols:
+        st.error(f"Faltan columnas requeridas en el archivo: {', '.join(missing_cols)}")
+        return
+    eiic_df = efficiency_context["eiic_df"]
+    resumen_et, ece_df = calculate_terminal_efficiency(efficiency_context)
+    if resumen_et.empty:
+        st.warning("No hay datos suficientes para calcular la eficiencia terminal.")
+        return
 
     # -------------------------------------------------------------------------
     # 📄 PDF FUNCTIONS
@@ -120,8 +71,8 @@ def render():
         if logo_path:
             try:
                 canvas.drawImage(logo_path, x=2 * cm, y=height - 2.5 * cm, width=2*cm, height=2*cm, preserveAspectRatio=True, mask='auto')
-            except: pass
-
+            except Exception as exc:
+                log_exception("Error silencioso tratado en eficiencia_terminal.py", exc)
         # --- Cabeçalho ---
         canvas.setFont("Helvetica-Bold", 14)
         canvas.setFillColor(colors.HexColor("#004080"))

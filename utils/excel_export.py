@@ -2,14 +2,14 @@ import streamlit as st
 import pandas as pd
 import io
 import os
+from utils.data_loader import get_global_data_path
+from utils.system_logging import log_exception
 
 @st.cache_data
 def get_egresados_excel_bytes():
     try:
-        # Usar ruta absoluta basada en la ubicación de este archivo (en utils/)
-        base_dir = os.path.dirname(os.path.dirname(__file__))
-        file_path = os.path.join(base_dir, 'assets', 'data', 'egressados.xlsx')
-        copy_path = os.path.join(base_dir, 'assets', 'data', 'egressados_copy.xlsx')
+        file_path = get_global_data_path("egressados")
+        copy_path = get_global_data_path("egressados_copy")
         
         # Intentar leer el original, si hay error de permiso (común en OneDrive), intentar con la copia
         try:
@@ -51,8 +51,8 @@ def get_egresados_excel_bytes():
         if "Fecha de titulación" in df.columns:
             try:
                 df["Fecha de titulación"] = pd.to_datetime(df["Fecha de titulación"]).dt.strftime('%d/%m/%Y')
-            except:
-                pass # Si falla, dejar como está
+            except Exception as exc:
+                log_exception("No se pudo formatear la fecha de titulación para exportación", exc)
         
         # Eliminar explícitamente cualquier columna "documento" extra
         if "documento" in df.columns:
@@ -70,5 +70,6 @@ def get_egresados_excel_bytes():
                     max_len = len(col) + 2
                 worksheet.set_column(i, i, min(max_len, 50))
         return output.getvalue()
-    except Exception:
+    except Exception as exc:
+        log_exception("No se pudo generar el Excel de egresados", exc)
         return None

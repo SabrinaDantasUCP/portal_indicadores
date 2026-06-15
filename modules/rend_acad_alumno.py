@@ -4,6 +4,12 @@ import io
 import os
 from datetime import datetime
 from utils import db_pia
+from utils.system_logging import log_exception
+from services.data.alumnos import load_current_alumnos
+from services.calculations.rendimiento_academico import (
+    calculate_student_general_performance,
+    prepare_rendimiento_source,
+)
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
@@ -19,13 +25,6 @@ from reportlab.graphics import renderPDF
 # ------------------------------------------------------------
 # Configurações iniciais
 # ------------------------------------------------------------
-
-@st.cache_data
-def load_data():
-    """Carrega e cacheia o dataset"""
-    df = pd.read_csv("assets/data/alumnos.csv", sep=",", low_memory=False)
-    df.columns = df.columns.str.strip()
-    return df
 
 # --- Nomes de colunas (Escopo Global para reuso em outros módulos)
 COL_PERIODO = "ano_periodo_letivo"        
@@ -124,9 +123,9 @@ def render_alumno_details(df_estudiante, df_completo):
         ) if is_convalidado else ""
 
     # Rendimento geral (Apenas Regulares)
-    df_regulares_global = df_completo[(df_completo[COL_ALUMNO] == alumno_nome) & 
-                                     (df_completo[COL_TIPO_DISCIPLINA].astype(str).str.strip().str.upper() == "REGULAR")]
-    rendimiento_general = df_regulares_global[COL_CALIFICACION].mean()
+    rendimiento_general, missing_cols = calculate_student_general_performance(df_completo, alumno_nome)
+    if missing_cols or pd.isna(rendimiento_general):
+        rendimiento_general = 0.0
 
     color = "#2E7D32" if rendimiento_general >= 2 else "#C62828"
     bg_color = "#E8F5E9" if rendimiento_general >= 2 else "#FFEBEE"
@@ -210,7 +209,15 @@ def render():
         </style>
     """, unsafe_allow_html=True)
     
-    df = load_data()
+    df = load_current_alumnos(only_cde=False)
+    if df.empty:
+        st.error("Archivo de datos no encontrado.")
+        return
+
+    df, missing_cols = prepare_rendimiento_source(df)
+    if missing_cols:
+        st.error(f"Faltan columnas requeridas en el archivo: {', '.join(missing_cols)}")
+        return
 
     # Função de Callback para Limpar (Garante que limpe visualmente)
     def limpar_filtros():
@@ -452,10 +459,8 @@ def render():
                     preserveAspectRatio=True,
                     mask='auto'
                 )
-            except Exception:
-                pass
-
-        # --- Cabeçalho textual ---
+            except Exception as exc:
+                log_exception("Error silencioso tratado en rend_acad_alumno.py", exc)
         canvas.setFont("Helvetica-Bold", 14)
         canvas.setFillColor(colors.HexColor("#004080"))
         canvas.drawString(5 * cm, height - 1.5 * cm, "Universidad Central del Paraguay")
@@ -701,7 +706,8 @@ def render():
             for i, col in enumerate(df_export.columns):
                 max_len = max(df_export[col].astype(str).map(len).max(), len(col)) + 2
                 worksheet.set_column(i, i, max_len)
-    except Exception:
+    except Exception as exc:
+        log_exception("No se pudo generar Excel con xlsxwriter en rendimiento por alumno", exc)
         with pd.ExcelWriter(buffer_excel) as writer:
             df_export.to_excel(writer, index=False, sheet_name='Rendimiento')
             

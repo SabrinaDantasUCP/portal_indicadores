@@ -1,16 +1,84 @@
 import streamlit as st
 import pandas as pd
 from utils import db_pia
+from utils.ui import render_info_header
+from utils.system_logging import log_exception
+from utils.menu_config import (
+    INDICADORES_VERSION,
+    INDICE_PERMANENCIA,
+    INDICE_PERMANENCIA_PERMISSION,
+    VERSION_GROUPS,
+    permission_key,
+    version_permission_key,
+)
 
-MODULOS_SISTEMA = [
-    "Panel Académico",
-    "Rendimento Académico",
-    "Tasa de Aprobación",
-    "Eficiencia Académica",
-    "Tasa de Deserción",
-    "Tasa de Promoción",
-    "Índice de Permanencia"
-]
+
+def render_permission_inputs(prefix, current_perms=None):
+    current_perms = set(current_perms or [])
+    selected_perms = []
+
+    render_info_header(
+        "Permisos de Acceso",
+        "Configure qué versiones e indicadores puede visualizar este usuario.",
+    )
+    for version in VERSION_GROUPS:
+        version_permission = version_permission_key(version)
+        has_all_version = version_permission in current_perms
+        has_any_indicator = any(
+            permission_key(version, indicator) in current_perms
+            for indicator in INDICADORES_VERSION
+        )
+
+        with st.container(border=True):
+            st.markdown(f"**{version}**")
+            col_ver, col_todos = st.columns(2)
+            with col_ver:
+                can_view_version = st.checkbox(
+                    "Habilitar versión",
+                    value=has_all_version or has_any_indicator,
+                    key=f"{prefix}_{version}_can_view",
+                )
+            with col_todos:
+                can_view_all = st.checkbox(
+                    "Todos los indicadores",
+                    value=has_all_version,
+                    disabled=not can_view_version,
+                    key=f"{prefix}_{version}_all",
+                )
+
+            if not can_view_version:
+                st.caption("Versión no visible para este usuario.")
+                continue
+
+            if can_view_all:
+                selected_perms.append(version_permission)
+                st.caption("El usuario verá todos los indicadores de esta versión.")
+                continue
+
+            st.caption("Seleccione los indicadores visibles")
+            indicator_cols = st.columns(2)
+            for idx, indicator in enumerate(INDICADORES_VERSION):
+                indicator_name = indicator["name"]
+                default_value = (
+                    permission_key(version, indicator) in current_perms
+                )
+                with indicator_cols[idx % 2]:
+                    if st.checkbox(
+                        indicator_name,
+                        value=default_value,
+                        key=f"{prefix}_{version}_{indicator_name}",
+                    ):
+                        selected_perms.append(permission_key(version, indicator))
+
+    with st.container(border=True):
+        if st.checkbox(
+            INDICE_PERMANENCIA,
+            value=INDICE_PERMANENCIA_PERMISSION in current_perms,
+            key=f"{prefix}_{INDICE_PERMANENCIA}",
+        ):
+            selected_perms.append(INDICE_PERMANENCIA_PERMISSION)
+
+    return selected_perms
 
 @st.dialog("Crear Nuevo Usuario")
 def modal_crear_usuario(areas_disp):
@@ -20,7 +88,7 @@ def modal_crear_usuario(areas_disp):
     f_eml = st.text_input("Email (Login) *")
     f_area = st.selectbox("Área *", options=areas_disp, format_func=lambda x: x['nombre']) if areas_disp else None
     f_rol = st.selectbox("Rol", ["LEITURA", "ADMIN"])
-    f_mods = st.multiselect("Permisos de Categorías (Sólo si es LEITURA)", options=MODULOS_SISTEMA)
+    f_mods = render_permission_inputs("crear_perms") if f_rol == "LEITURA" else []
     
     if st.button("Registrar Usuario", type="primary", use_container_width=True):
         if f_nom and f_ape and f_doc and f_eml and f_area:
@@ -28,9 +96,15 @@ def modal_crear_usuario(areas_disp):
                 uid, plain_pw = db_pia.add_user(f_nom, f_ape, f_doc, f_eml, f_area['id'], f_rol)
                 if f_rol == 'LEITURA':
                     db_pia.set_user_permissions(uid, f_mods)
+                db_pia.log_audit_event(
+                    "user_created",
+                    target_usuario_id=uid,
+                    detalle={"email": f_eml, "rol": f_rol, "permisos": f_mods},
+                )
                 st.session_state.temp_message = f"Usuario '{f_nom}' creado exitosamente. Contraseña inicial: {plain_pw}"
                 st.rerun()
             except Exception as e:
+                log_exception("Error al crear usuario desde administración", e)
                 st.error("Error al registrar: Probablemente ya exista el Email o Documento en la base de datos.")
         else:
             st.warning("Debe completar todos los campos obligatorios (*).")
@@ -51,15 +125,33 @@ def modal_editar_usuario(us_sel, areas_d, curr_perms):
                 
     e_area = st.selectbox("Área", options=areas_d, format_func=lambda x: x['nombre'], index=idx_area) if areas_d else None
     e_rol = st.selectbox("Rol", ["LEITURA", "ADMIN"], index=0 if us_sel['rol'] == 'LEITURA' else 1)
-    e_mods = st.multiselect("Permisos de Categorías", options=MODULOS_SISTEMA, default=[p for p in curr_perms if p in MODULOS_SISTEMA])
+    e_mods = render_permission_inputs(f"editar_perms_{us_sel['id']}", curr_perms) if e_rol == "LEITURA" else []
     
     if st.button("Guardar Cambios", type="primary", use_container_width=True):
         area_id_val = e_area['id'] if e_area else None
+        old_permissions = sorted(curr_perms)
+        new_permissions = sorted(e_mods if e_rol == "LEITURA" else [])
         db_pia.update_user(us_sel['id'], e_nom, e_ape, e_doc, e_eml, area_id_val, e_rol, bool(us_sel['activo']))
         if e_rol == 'LEITURA':
             db_pia.set_user_permissions(us_sel['id'], e_mods)
         else:
             db_pia.set_user_permissions(us_sel['id'], [])
+        if old_permissions != new_permissions:
+            db_pia.log_audit_event(
+                "permissions_updated",
+                target_usuario_id=us_sel["id"],
+                detalle={"old": old_permissions, "new": new_permissions},
+            )
+        db_pia.log_audit_event(
+            "user_updated",
+            target_usuario_id=us_sel["id"],
+            detalle={
+                "email": e_eml,
+                "rol": e_rol,
+                "activo": bool(us_sel["activo"]),
+                "permisos": new_permissions,
+            },
+        )
         st.session_state.temp_message = "Módulo de permisos y usuario actualizado correctamente."
         st.rerun()
 
@@ -68,12 +160,13 @@ def modal_cambiar_pass(us_sel):
     st.info(f"Generando nueva clave para: **{us_sel['nombre']} {us_sel['apellido']}**")
     new_pw = st.text_input("Nueva Contraseña Obligatoria", type="password")
     if st.button("Actualizar y Sobreescribir", type="primary", use_container_width=True):
-        if new_pw.strip():
+        if db_pia.is_password_strong(new_pw):
             db_pia.change_password(us_sel['id'], new_pw.strip())
+            db_pia.log_audit_event("password_reset_by_admin", target_usuario_id=us_sel["id"])
             st.session_state.temp_message = "La contraseña del usuario fue sobreescrita manualmente."
             st.rerun()
         else:
-            st.error("La contraseña no puede quedar en blanco.")
+            st.error(f"La contraseña debe tener al menos {db_pia.MIN_PASSWORD_LENGTH} caracteres.")
 
 def render():
     if st.session_state.get('rol') != 'ADMIN':
@@ -141,6 +234,12 @@ def render():
                     if areas_d and u.get('area'):
                         for a in areas_d:
                             if a['nombre'] == u['area']: aid = a['id']
-                    db_pia.update_user(u['id'], u['nombre'], u['apellido'], u['documento'], u['email'], aid, u['rol'], not bool(u['activo']))
+                    new_active = not bool(u['activo'])
+                    db_pia.update_user(u['id'], u['nombre'], u['apellido'], u['documento'], u['email'], aid, u['rol'], new_active)
+                    db_pia.log_audit_event(
+                        "user_status_changed",
+                        target_usuario_id=u["id"],
+                        detalle={"activo": new_active},
+                    )
                     st.rerun()
         st.markdown("<hr style='margin: 5px 0px; border-top: 1px solid #f0f0f0;'>", unsafe_allow_html=True)

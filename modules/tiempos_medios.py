@@ -5,6 +5,15 @@ import io
 import os
 from datetime import datetime
 from utils import db_pia
+from utils.system_logging import log_exception
+from services.data.alumnos import load_current_alumnos
+from services.calculations.eficiencia_academica import (
+    COL_CATRACA,
+    COL_COHORTE,
+    COL_ID_ALUMNO,
+    COL_NOMBRE,
+    calculate_average_egress_time,
+)
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
@@ -26,57 +35,20 @@ def render():
         </style>
     """, unsafe_allow_html=True)
 
-    @st.cache_data
-    def load_data():
-        try:
-            df = pd.read_csv("assets/data/alumnos.csv", sep=",", low_memory=False)
-            df.columns = df.columns.str.strip()
-            return df
-        except FileNotFoundError:
-            st.error("Archivo de datos no encontrado.")
-            return pd.DataFrame()
-
-    df = load_data()
-    df_full = df.copy()
-    # Filtrar por CDE para os indicadores
-    df = df[df["filial_periodo_letivo"].isin(["CDE", "CDE III"])].copy()
+    df_full = load_current_alumnos(only_cde=False)
+    df = load_current_alumnos()
 
     if df.empty:
+        st.error("Archivo de datos no encontrado.")
         return
 
-    # --- Columnas ---
-    COL_COHORTE = "cohorte"
-    COL_ID_ALUMNO = "usuarios_id"
-    COL_NOMBRE = "nome_sobrenome"
-    COL_CATRACA = "numero_catraca"
-    COL_PERIODO_INGRESO = "ano_inicial_coorte"
-    COL_PERIODO_EGRESSO = "periodo_egresso_format"
-
-    # --- Lógica de Cálculo de TME ---
-    
-    # 1. Filtrar solo egresados
-    egresados_df = df.dropna(subset=[COL_PERIODO_EGRESSO, COL_PERIODO_INGRESO]).copy()
-    egresados_df = egresados_df.groupby(COL_ID_ALUMNO).first().reset_index()
-
-    def calcular_semestres(inicio, fin):
-        try:
-            # Formato esperado: "YYYY.P" (ex: "2018.1")
-            y_in, p_in = map(float, str(inicio).split('.'))
-            y_out, p_out = map(float, str(fin).split('.'))
-            return int((y_out - y_in) * 2 + (p_out - p_in) + 1)
-        except:
-            return None
-
-    egresados_df["Semestres"] = egresados_df.apply(lambda r: calcular_semestres(r[COL_PERIODO_INGRESO], r[COL_PERIODO_EGRESSO]), axis=1)
-    egresados_df = egresados_df.dropna(subset=["Semestres"])
-
-    # 2. Resumen por Cohorte
-    tme_resumen = egresados_df.groupby(COL_COHORTE).agg({
-        "Semestres": ["mean", "count", "min", "max"],
-        COL_ID_ALUMNO: "count"
-    }).reset_index()
-    tme_resumen.columns = [COL_COHORTE, "TME_Semestres", "N_Egresados", "Min_Sem", "Max_Sem", "Total_Count"]
-    tme_resumen["TME_Anos"] = tme_resumen["TME_Semestres"] / 2
+    egresados_df, tme_resumen, missing_cols = calculate_average_egress_time(df)
+    if missing_cols:
+        st.error(f"Faltan columnas requeridas en el archivo: {', '.join(missing_cols)}")
+        return
+    if egresados_df.empty or tme_resumen.empty:
+        st.warning("No hay datos suficientes para calcular los tiempos medios de egreso.")
+        return
 
     # --- Funciones PDF ---
     def agregar_encabezado_y_pie(canvas, doc):
@@ -87,7 +59,8 @@ def render():
             if os.path.exists(p): logo_path = p; break
         if logo_path:
             try: canvas.drawImage(logo_path, x=2*cm, y=height-2.5*cm, width=2*cm, height=2*cm, preserveAspectRatio=True, mask='auto')
-            except: pass
+            except Exception as exc:
+                log_exception("Error silencioso tratado en tiempos_medios.py", exc)
         canvas.setFont("Helvetica-Bold", 14)
         canvas.setFillColor(colors.HexColor("#004080"))
         canvas.drawString(5*cm, height-1.5*cm, "Universidad Central del Paraguay")

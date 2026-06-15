@@ -29,6 +29,7 @@ __pycache__/
 
 # --- Temporários ---
 tmp_cols.json
+logs/
 
 # --- Arquivo específico ---
 .antigravity

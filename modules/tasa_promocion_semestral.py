@@ -1,10 +1,20 @@
 import streamlit as st
-import pandas as pd
 import plotly.express as px
 import io
 import os
 from datetime import datetime
 from utils import db_pia
+from utils.system_logging import log_exception
+from services.data.alumnos import load_current_alumnos
+from services.calculations.tasa_promocion import (
+    COL_ANO,
+    COL_CATRACA,
+    COL_COHORTE,
+    COL_ID_ALUMNO,
+    COL_NOMBRE,
+    calculate_all_promotions,
+    prepare_promotion_source,
+)
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
@@ -27,88 +37,23 @@ def render():
         </style>
     """, unsafe_allow_html=True)
     
-    @st.cache_data
-    def load_data():
-        try:
-            df = pd.read_csv("assets/data/alumnos.csv", low_memory=False)
-            df.columns = df.columns.str.strip()
-            return df
-        except Exception:
-            return pd.DataFrame()
-
-    df_full = load_data()
+    df_full = load_current_alumnos(only_regular=True)
     if df_full.empty:
         st.error("Archivo de datos no encontrado.")
         return
 
-    # Filtro base para os indicadores de promoção (Regular + CDE)
-    df = df_full[(df_full["tipo_disciplina"] == "Regular") & (df_full["filial_periodo_letivo"].isin(["CDE", "CDE III"]))].copy()
+    df, missing_cols = prepare_promotion_source(df_full)
+    if missing_cols:
+        st.error(f"Faltan columnas requeridas en el archivo: {', '.join(missing_cols)}")
+        return
+    if df.empty:
+        st.warning("No hay datos suficientes para calcular la tasa de promoción.")
+        return
 
-    COL_ANO = "ano_periodo_letivo"
-    COL_PERIODO_SEM = "periodo_anual_periodo_letivo"
-    COL_ID_ALUMNO = "usuarios_id"
-    COL_NOMBRE = "nome_sobrenome"
-    COL_CATRACA = "numero_catraca"
-    COL_SEMESTRE = "semestre_alumno"
-    COL_COHORTE = "cohorte"
-
-    # --- Lógica de Cálculo Centralizada ---
-    df[COL_SEMESTRE] = pd.to_numeric(df[COL_SEMESTRE], errors='coerce')
-    df[COL_ANO] = pd.to_numeric(df[COL_ANO], errors='coerce')
-    df[COL_PERIODO_SEM] = pd.to_numeric(df[COL_PERIODO_SEM], errors='coerce')
-    
-    df = df.dropna(subset=[COL_SEMESTRE, COL_ID_ALUMNO, COL_ANO, COL_PERIODO_SEM, COL_COHORTE])
-    df["periodo_sort"] = df[COL_ANO] * 10 + df[COL_PERIODO_SEM]
-    
-    periodos_unicos = sorted(df["periodo_sort"].unique())
-    periodo_to_idx = {p: i for i, p in enumerate(periodos_unicos)}
-
-    # Pré-calcular todas as progressões
-    @st.cache_data
-    def calcular_todas_progressoes(df_input):
-        records = []
-        detalles = {} # { (cohorte, trans): [ids] }
-        
-        cohortes = sorted(df_input[COL_COHORTE].unique())
-        for coh in cohortes:
-            df_coh = df_input[df_input[COL_COHORTE] == coh]
-            for s in range(1, 12):
-                inscritos_s = df_coh[df_coh[COL_SEMESTRE] == s]
-                if inscritos_s.empty: continue
-                
-                eins_ids = inscritos_s[COL_ID_ALUMNO].unique()
-                eins_count = len(eins_ids)
-                epr_ids = []
-                
-                for uid in eins_ids:
-                    p_sort_actual = inscritos_s[inscritos_s[COL_ID_ALUMNO] == uid]["periodo_sort"].max()
-                    idx_actual = periodo_to_idx.get(p_sort_actual)
-                    
-                    if idx_actual is not None and idx_actual + 1 < len(periodos_unicos):
-                        p_sort_next = periodos_unicos[idx_actual + 1]
-                        promovido = df_coh[(df_coh[COL_ID_ALUMNO] == uid) & 
-                                           (df_coh[COL_SEMESTRE] == s + 1) & 
-                                           (df_coh["periodo_sort"] == p_sort_next)]
-                        if not promovido.empty:
-                            epr_ids.append(uid)
-                
-                # Rótulo padronizado: Semestre X al Y
-                trans_label = f"Semestre {s} al {s+1}"
-                
-                epr_count = len(epr_ids)
-                if eins_count > 0:
-                    records.append({
-                        "Cohorte": coh,
-                        "Transición": trans_label,
-                        "EIns": eins_count,
-                        "EPr": epr_count,
-                        "TPr (%)": (epr_count / eins_count) * 100,
-                        "Año": int(inscritos_s[COL_ANO].max())
-                    })
-                    detalles[(coh, trans_label)] = epr_ids
-        return pd.DataFrame(records), detalles
-
-    df_master, df_detalles_master = calcular_todas_progressoes(df)
+    df_master, df_detalles_master = calculate_all_promotions(df)
+    if df_master.empty:
+        st.warning("No hay datos suficientes para calcular la tasa de promoción.")
+        return
 
     # 📄 PDF FUNCTIONS
     def agregar_encabezado_y_pie(canvas, doc):
@@ -117,7 +62,8 @@ def render():
         logo_path = "assets/logo-ucp-icon.png" if os.path.exists("assets/logo-ucp-icon.png") else None
         if logo_path:
             try: canvas.drawImage(logo_path, x=2*cm, y=height-2.5*cm, width=2*cm, height=2*cm, preserveAspectRatio=True, mask='auto')
-            except: pass
+            except Exception as exc:
+                log_exception("Error silencioso tratado en tasa_promocion_semestral.py", exc)
         canvas.setFont("Helvetica-Bold", 14)
         canvas.setFillColor(colors.HexColor("#004080"))
         canvas.drawString(5*cm, height-1.5*cm, "Universidad Central del Paraguay")

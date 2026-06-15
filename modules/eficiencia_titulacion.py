@@ -5,6 +5,20 @@ import io
 import os
 from datetime import datetime
 from utils import db_pia
+from utils.system_logging import log_exception
+from services.data.alumnos import load_current_alumnos
+from services.calculations.eficiencia_academica import (
+    COL_CATRACA,
+    COL_COHORTE,
+    COL_DETALLE,
+    COL_FECHA_TITULADO,
+    COL_ID_ALUMNO,
+    COL_NOMBRE,
+    COL_PERIODO_EGRESSO,
+    COL_TITULADO,
+    build_efficiency_context,
+    calculate_titulation_efficiency,
+)
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
@@ -26,93 +40,22 @@ def render():
         </style>
     """, unsafe_allow_html=True)
     
-    @st.cache_data
-    def load_data():
-        try:
-            df = pd.read_csv("assets/data/alumnos.csv", sep=",", low_memory=False)
-            df.columns = df.columns.str.strip()
-            df = df[df["filial_periodo_letivo"].isin(["CDE", "CDE III"])].copy()
-            return df
-        except FileNotFoundError:
-            st.error("Archivo de datos no encontrado.")
-            return pd.DataFrame()
-
-    df = load_data()
-    df_full = df.copy()
+    df_full = load_current_alumnos(only_cde=False)
+    df = load_current_alumnos()
     if df.empty:
+        st.error("Archivo de datos no encontrado.")
         return
 
-    # --- Columnas ---
-    COL_COHORTE = "cohorte"
-    COL_ID_ALUMNO = "usuarios_id"
-    COL_NOMBRE = "nome_sobrenome"
-    COL_CATRACA = "numero_catraca"
-    COL_SEMESTRE_ALUMNO = "semestre_alumno"
-    COL_PERIODO_EGRESSO = "periodo_egresso_format"
-    COL_ANO_FINAL_COHORTE = "ano_final_coorte"
-    COL_TITULADO = "estado_titulacion"
-    COL_FECHA_TITUALDO = "fecha_titulacion"
-    COL_DETALLE = "detalle"
-
-    # --- Lógica de Cálculo de Eficiencia de Titulación (ETE) ---
-    
-    # 1. EIIC: Ingresantes (para definir las ventanas)
-    eiic_df = df[df[COL_SEMESTRE_ALUMNO].astype(float) == 1].groupby([COL_COHORTE, COL_ID_ALUMNO]).first().reset_index()
-    
-    # 2. Ventanas de Egreso por Cohorte
-    ventanas_coorte = eiic_df.groupby(COL_COHORTE)[COL_ANO_FINAL_COHORTE].first().reset_index()
-    ventanas_coorte[COL_ANO_FINAL_COHORTE] = pd.to_numeric(ventanas_coorte[COL_ANO_FINAL_COHORTE], errors='coerce')
-    
-    # 3. Egresados Totales
-    egresados_full = df.dropna(subset=[COL_PERIODO_EGRESSO]).groupby([COL_ID_ALUMNO]).first().reset_index()
-    egresados_full[COL_PERIODO_EGRESSO] = pd.to_numeric(egresados_full[COL_PERIODO_EGRESSO], errors='coerce')
-    
-    resumen_ete = []
-    
-    # Procesamos cada cohorte como objetivo (definidor de la ventana de egreso)
-    for _, vent in ventanas_coorte.iterrows():
-        c_objetivo = vent[COL_COHORTE]
-        t_objetivo = vent[COL_ANO_FINAL_COHORTE]
-        
-        if pd.isna(t_objetivo): continue
-        
-        # --- Universo de Egresados de esta ventana (EE) ---
-        # Regulares de la cohorte objetivo
-        ece_reg_df = pd.merge(eiic_df[eiic_df[COL_COHORTE] == c_objetivo][[COL_ID_ALUMNO]], 
-                             egresados_full, on=COL_ID_ALUMNO, how="inner")
-        ece_reg_df = ece_reg_df[ece_reg_df[COL_PERIODO_EGRESSO] <= t_objetivo]
-        
-        # No Regulares de otras cohortes que egresan en esta ventana
-        ece_nreg_df = pd.merge(eiic_df[eiic_df[COL_COHORTE] != c_objetivo][[COL_ID_ALUMNO]], 
-                              egresados_full, on=COL_ID_ALUMNO, how="inner")
-        ece_nreg_df = ece_nreg_df[ece_nreg_df[COL_PERIODO_EGRESSO] == t_objetivo]
-        
-        egresados_ventana = pd.concat([ece_reg_df, ece_nreg_df])
-        ee_count = len(egresados_ventana)
-        
-        if ee_count == 0: continue
-        
-        # --- Alumnos Titulados (ET) ---
-        # Dentro del universo de egresados, quiénes tienen 'SI' en estado_titulacion
-        titulados_df = egresados_ventana[egresados_ventana[COL_TITULADO].astype(str).str.strip().str.upper() == "SI"]
-        et_count = len(titulados_df)
-        
-        ete_porc = (et_count / ee_count) * 100
-        
-        resumen_ete.append({
-            "cohorte": c_objetivo,
-            "periodo_final": t_objetivo,
-            "EE (Egresados)": ee_count,
-            "ET (Titulados)": et_count,
-            "ETE (%)": ete_porc
-        })
-        
-    df_ete = pd.DataFrame(resumen_ete).sort_values("cohorte")
-
-    # Filtro de Cohortes Completas (12 semestres para mostrar histórico maduro)
-    max_sem = df.groupby(COL_COHORTE)[COL_SEMESTRE_ALUMNO].max()
-    cohortes_completas = max_sem[max_sem >= 12].index.tolist()
-    df_ete = df_ete[df_ete["cohorte"].isin(cohortes_completas)]
+    efficiency_context, missing_cols = build_efficiency_context(df)
+    if missing_cols:
+        st.error(f"Faltan columnas requeridas en el archivo: {', '.join(missing_cols)}")
+        return
+    eiic_df = efficiency_context["eiic_df"]
+    egresados_full = efficiency_context["egresados_full"]
+    df_ete = calculate_titulation_efficiency(efficiency_context)
+    if df_ete.empty:
+        st.warning("No hay datos suficientes para calcular la eficiencia de titulación.")
+        return
 
     # 📄 PDF FUNCTIONS
     def agregar_encabezado_y_pie(canvas, doc):
@@ -123,7 +66,8 @@ def render():
             if os.path.exists(p): logo_path = p; break
         if logo_path:
             try: canvas.drawImage(logo_path, x=2*cm, y=height-2.5*cm, width=2*cm, height=2*cm, preserveAspectRatio=True, mask='auto')
-            except: pass
+            except Exception as exc:
+                log_exception("Error silencioso tratado en eficiencia_titulacion.py", exc)
         canvas.setFont("Helvetica-Bold", 14)
         canvas.setFillColor(colors.HexColor("#004080"))
         canvas.drawString(5*cm, height-1.5*cm, "Universidad Central del Paraguay")
@@ -253,13 +197,13 @@ def render():
             ece_nreg_df = ece_nreg_df[ece_nreg_df[COL_PERIODO_EGRESSO] == t_final]
             ece_nreg_df["Tipo Egreso"] = "No Regular"
             
-            lista_full = pd.concat([ece_reg_df, ece_nreg_df])[[COL_NOMBRE, COL_CATRACA, "Tipo Egreso", COL_TITULADO, COL_FECHA_TITUALDO, COL_DETALLE, COL_ID_ALUMNO]]
+            lista_full = pd.concat([ece_reg_df, ece_nreg_df])[[COL_NOMBRE, COL_CATRACA, "Tipo Egreso", COL_TITULADO, COL_FECHA_TITULADO, COL_DETALLE, COL_ID_ALUMNO]]
             
             # Formatear fecha de titulación (YYYY-MM-DD -> DD/MM/YYYY)
-            lista_full[COL_FECHA_TITUALDO] = pd.to_datetime(lista_full[COL_FECHA_TITUALDO], errors='coerce').dt.strftime('%d/%m/%Y')
+            lista_full[COL_FECHA_TITULADO] = pd.to_datetime(lista_full[COL_FECHA_TITULADO], errors='coerce').dt.strftime('%d/%m/%Y')
             
             # Lógica de fallback: si no hay fecha, usar detalle
-            lista_full["Información"] = lista_full[COL_FECHA_TITUALDO].fillna(lista_full[COL_DETALLE])
+            lista_full["Información"] = lista_full[COL_FECHA_TITULADO].fillna(lista_full[COL_DETALLE])
             
             lista_full = lista_full.rename(columns={
                 COL_NOMBRE: "Nombre", COL_CATRACA: "Catraca",

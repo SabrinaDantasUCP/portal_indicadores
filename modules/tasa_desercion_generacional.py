@@ -1,10 +1,15 @@
 import streamlit as st
-import pandas as pd
 import plotly.express as px
 import io
 import os
 from datetime import datetime
 from utils import db_pia
+from utils.system_logging import log_exception
+from services.data.alumnos import load_current_alumnos
+from services.calculations.tasa_desercion import (
+    COL_COHORTE,
+    calculate_generational_dropout,
+)
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
@@ -26,61 +31,18 @@ def render():
         </style>
     """, unsafe_allow_html=True)
     
-    @st.cache_data
-    def load_data():
-        try:
-            df = pd.read_csv("assets/data/alumnos.csv", low_memory=False)
-            df.columns = df.columns.str.strip()
-            # Filtrar por CDE conforme padrão
-            df = df[df["filial_periodo_letivo"].isin(["CDE", "CDE III"])].copy()
-            return df
-        except Exception:
-            return pd.DataFrame()
-
-    df = load_data()
+    df = load_current_alumnos()
     if df.empty:
         st.error("Archivo de datos no encontrado.")
         return
 
-    # Colunas necesarias
-    COL_COHORTE = "cohorte"
-    COL_ID_ALUMNO = "usuarios_id"
-    COL_SEMESTRE_ALUMNO = "semestre_alumno"
-    COL_PERIODO_EGRESSO = "periodo_egresso_format"
-    COL_ANO_FINAL_COHORTE = "ano_final_coorte"
-
-    # --- Lógica de Cálculo ---
-    
-    # 1. EIIC (Ingressantes 1º semestre)
-    eiic_df = df[df[COL_SEMESTRE_ALUMNO].astype(float) == 1].groupby([COL_COHORTE, COL_ID_ALUMNO]).first().reset_index()
-    
-    # 2. ECE (Egresados en tiempo regular)
-    egressos_df = df.dropna(subset=[COL_PERIODO_EGRESSO]).groupby([COL_COHORTE, COL_ID_ALUMNO]).first().reset_index()
-    
-    ece_df = pd.merge(eiic_df[[COL_COHORTE, COL_ID_ALUMNO, COL_ANO_FINAL_COHORTE]], 
-                      egressos_df[[COL_ID_ALUMNO, COL_PERIODO_EGRESSO]], 
-                      on=COL_ID_ALUMNO, how="inner")
-    
-    ece_df[COL_PERIODO_EGRESSO] = pd.to_numeric(ece_df[COL_PERIODO_EGRESSO], errors='coerce')
-    ece_df[COL_ANO_FINAL_COHORTE] = pd.to_numeric(ece_df[COL_ANO_FINAL_COHORTE], errors='coerce')
-    ece_df = ece_df[ece_df[COL_PERIODO_EGRESSO] <= ece_df[COL_ANO_FINAL_COHORTE]]
-
-    # --- Identificar Cohortes que completaron 12 semestres ---
-    cohortes_completas = df.groupby(COL_COHORTE)[COL_SEMESTRE_ALUMNO].max()
-    cohortes_completas = cohortes_completas[cohortes_completas >= 12].index.tolist()
-
-    # 3. Agrupar Resultados
-    resumen_eiic = eiic_df.groupby(COL_COHORTE)[COL_ID_ALUMNO].count().reset_index(name="EIIC")
-    resumen_ece = ece_df.groupby(COL_COHORTE)[COL_ID_ALUMNO].count().reset_index(name="ECE")
-    
-    resumen_tdg_full = pd.merge(resumen_eiic, resumen_ece, on=COL_COHORTE, how="left").fillna(0)
-    resumen_tdg_full["EIIC"] = resumen_tdg_full["EIIC"].astype(int)
-    resumen_tdg_full["ECE"] = resumen_tdg_full["ECE"].astype(int)
-    resumen_tdg_full["ECA"] = (resumen_tdg_full["EIIC"] - resumen_tdg_full["ECE"]).astype(int)
-    resumen_tdg_full["TDG (%)"] = (resumen_tdg_full["ECA"] / resumen_tdg_full["EIIC"]) * 100
-    
-    # Solo cohortes completas para visualización principal
-    resumen_tdg = resumen_tdg_full[resumen_tdg_full[COL_COHORTE].isin(cohortes_completas)].sort_values(COL_COHORTE)
+    resumen_tdg_full, resumen_tdg, missing_cols = calculate_generational_dropout(df)
+    if missing_cols:
+        st.error(f"Faltan columnas requeridas en el archivo: {', '.join(missing_cols)}")
+        return
+    if resumen_tdg_full.empty:
+        st.warning("No hay datos suficientes para calcular la deserción generacional.")
+        return
 
     # -------------------------------------------------------------------------
     # PDF FUNCTIONS
@@ -91,7 +53,8 @@ def render():
         logo_path = "assets/logo-ucp-icon.png" if os.path.exists("assets/logo-ucp-icon.png") else None
         if logo_path:
             try: canvas.drawImage(logo_path, x=2*cm, y=height-2.5*cm, width=2*cm, height=2*cm, preserveAspectRatio=True, mask='auto')
-            except: pass
+            except Exception as exc:
+                log_exception("Error silencioso tratado en tasa_desercion_generacional.py", exc)
         canvas.setFont("Helvetica-Bold", 14)
         canvas.setFillColor(colors.HexColor("#004080"))
         canvas.drawString(5*cm, height-1.5*cm, "Universidad Central del Paraguay")

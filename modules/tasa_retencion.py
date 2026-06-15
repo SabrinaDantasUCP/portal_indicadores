@@ -5,6 +5,17 @@ import io
 import os
 from datetime import datetime
 from utils import db_pia
+from utils.system_logging import log_exception
+from services.data.alumnos import load_current_alumnos
+from services.calculations.eficiencia_academica import (
+    COL_CATRACA,
+    COL_COHORTE,
+    COL_ID_ALUMNO,
+    COL_NOMBRE,
+    COL_SEMESTRE_ALUMNO,
+    COL_TIPO_INGRESO,
+    calculate_retention,
+)
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
@@ -26,89 +37,20 @@ def render():
         </style>
     """, unsafe_allow_html=True)
 
-    @st.cache_data
-    def load_data():
-        try:
-            df = pd.read_csv("assets/data/alumnos.csv", sep=",", low_memory=False)
-            df.columns = df.columns.str.strip()
-            return df
-        except FileNotFoundError:
-            st.error("Archivo de datos no encontrado.")
-            return pd.DataFrame()
-
-    df = load_data()
-    df_full = df.copy()
-    # Filtrar por CDE para os indicadores
-    df = df[df["filial_periodo_letivo"].isin(["CDE", "CDE III"])].copy()
+    df_full = load_current_alumnos(only_cde=False)
+    df = load_current_alumnos()
 
     if df.empty:
+        st.error("Archivo de datos no encontrado.")
         return
 
-    # --- Columnas ---
-    COL_COHORTE = "cohorte"
-    COL_ID_ALUMNO = "usuarios_id"
-    COL_NOMBRE = "nome_sobrenome"
-    COL_CATRACA = "numero_catraca"
-    COL_SEMESTRE_ALUMNO = "semestre_alumno"
-    COL_TIPO_INGRESO = "tipo_ingresso"
-    
-    # --- Lógica de Cálculo de Tasa de Retención (TR) ---
-    
-    # Aseguramos tipos correctos
-    df[COL_SEMESTRE_ALUMNO] = pd.to_numeric(df[COL_SEMESTRE_ALUMNO], errors='coerce')
-
-    # 1. Identificar el universo inicial (EIIC - Semestre 1)
-    eiic_df = df[df[COL_SEMESTRE_ALUMNO] == 1].groupby([COL_COHORTE, COL_ID_ALUMNO]).first().reset_index()
-    total_por_cohorte = eiic_df.groupby(COL_COHORTE)[COL_ID_ALUMNO].count().rename("EIIC")
-    
-    # 2. Calcular inscritos por semestre (EIS) con Lógica de Continuidad
-    # Si un alumno llega al semestre 7, se asume retenido en 1,2,3,4,5,6
-    ids_eiic = eiic_df[COL_ID_ALUMNO].unique()
-    df_cohort = df[df[COL_ID_ALUMNO].isin(ids_eiic)].copy()
-    
-    # Encontrar el último semestre registrado para cada alumno
-    max_sem_per_student = df_cohort.groupby([COL_COHORTE, COL_ID_ALUMNO])[COL_SEMESTRE_ALUMNO].max().reset_index()
-    max_sem_per_student.columns = [COL_COHORTE, COL_ID_ALUMNO, "max_sem_alcanzado"]
-    
-    # Creamos un rango de semestres (1 a 12)
-    sems_range = pd.DataFrame({COL_SEMESTRE_ALUMNO: range(1, 13)})
-    
-    # Cruzamos cada alumno con todos los semestres
-    dense_df = max_sem_per_student.assign(key=1).merge(sems_range.assign(key=1), on='key').drop('key', axis=1)
-    
-    # Solo nos quedamos con los semestres menores o iguales al máximo alcanzado por el alumno
-    dense_df = dense_df[dense_df[COL_SEMESTRE_ALUMNO] <= dense_df["max_sem_alcanzado"]]
-    
-    # Ahora agrupamos para contar EIS (Estudiantes Inscritos en el Semestre)
-    retencion_df = dense_df.groupby([COL_COHORTE, COL_SEMESTRE_ALUMNO])[COL_ID_ALUMNO].nunique().reset_index()
-    retencion_df = retencion_df.rename(columns={COL_ID_ALUMNO: "EIS"})
-    
-    # Unimos con el total inicial para calcular el %
-    retencion_df = pd.merge(retencion_df, total_por_cohorte, on=COL_COHORTE)
-    
-    # --- FILTRO DINÁMICO: Capping por Fecha Actual (Marzo 2026 -> 2026.1) ---
-    def get_max_sem_valid(cohorte_str):
-        # Asumiendo formato "YYYY.P - YYYY.P" o solo "YYYY.P"
-        try:
-            inicio = cohorte_str.split(" - ")[0]
-            year_in = int(inicio.split(".")[0])
-            p_in = int(inicio.split(".")[1])
-            
-            # Referencia actual: 2026.1
-            year_now = 2026
-            p_now = 1
-            
-            # Cálculo de diferencia de semestres
-            diff = (year_now - year_in) * 2 + (p_now - p_in)
-            return diff + 1 # S1 es el primer semestre
-        except:
-            return 12 # Fallback a 12
-    
-    retencion_df["max_sem_teorico"] = retencion_df[COL_COHORTE].apply(get_max_sem_valid)
-    # Filtramos: el semestre evaluado no puede ser mayor al que la cohorte debería haber alcanzado
-    retencion_df = retencion_df[retencion_df[COL_SEMESTRE_ALUMNO] <= retencion_df["max_sem_teorico"]]
-
-    retencion_df["TR (%)"] = (retencion_df["EIS"] / retencion_df["EIIC"]) * 100
+    retencion_df, missing_cols = calculate_retention(df)
+    if missing_cols:
+        st.error(f"Faltan columnas requeridas en el archivo: {', '.join(missing_cols)}")
+        return
+    if retencion_df.empty:
+        st.warning("No hay datos suficientes para calcular la tasa de retención.")
+        return
 
     # PDF FUNCTIONS
     def agregar_encabezado_y_pie(canvas, doc):
@@ -119,7 +61,8 @@ def render():
             if os.path.exists(p): logo_path = p; break
         if logo_path:
             try: canvas.drawImage(logo_path, x=2*cm, y=height-2.5*cm, width=2*cm, height=2*cm, preserveAspectRatio=True, mask='auto')
-            except: pass
+            except Exception as exc:
+                log_exception("Error silencioso tratado en tasa_retencion.py", exc)
         canvas.setFont("Helvetica-Bold", 14)
         canvas.setFillColor(colors.HexColor("#004080"))
         canvas.drawString(5*cm, height-1.5*cm, "Universidad Central del Paraguay")

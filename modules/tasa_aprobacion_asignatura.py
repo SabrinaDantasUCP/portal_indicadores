@@ -5,6 +5,16 @@ import io
 import os
 from datetime import datetime
 from utils import db_pia
+from utils.system_logging import log_exception
+from services.data.alumnos import load_current_alumnos
+from services.calculations.tasa_aprobacion import (
+    COL_COHORTE,
+    COL_DISCIPLINA,
+    COL_SECCION,
+    calculate_section_approval,
+    calculate_subject_approval,
+    prepare_approval_source,
+)
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
@@ -14,26 +24,15 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 def render():
     st.subheader("Tasa de Aprobación por Asignatura")
     
-    @st.cache_data
-    def load_data():
-        df = pd.read_csv("assets/data/alumnos.csv", sep=",", low_memory=False)
-        df.columns = df.columns.str.strip()
-        # Filter for Regular subjects and CDE as per other modules pattern
-        df = df[(df["tipo_disciplina"] == "Regular") & (df["filial_periodo_letivo"].isin(["CDE", "CDE III"]))]
-        return df
-
-    try:
-        df = load_data()
-    except FileNotFoundError:
-        st.error("Archivo de datos no encontrado: assets/data/alumnos.csv")
+    df = load_current_alumnos(only_regular=True)
+    if df.empty:
+        st.error("Archivo de datos no encontrado para la versión seleccionada.")
         return
 
-    # Columns
-    COL_COHORTE = "cohorte"
-    COL_DISCIPLINA = "disciplina"
-    COL_SECCION = "turma" # Assuming this is the column name for Seccion/Turma based on other modules
-    COL_CALIFICACION = "calificacion_final_1a5"
-    COL_ID_ALUMNO = "usuarios_id"
+    df, missing_cols = prepare_approval_source(df)
+    if missing_cols:
+        st.error(f"Faltan columnas requeridas en el archivo: {', '.join(missing_cols)}")
+        return
 
     # Filters
     col1, col2, col3 = st.columns(3)
@@ -72,19 +71,10 @@ def render():
         st.warning("No hay datos para la selección.")
         st.stop()
 
-    # Logic: Aprobado if calificacion >= 2
-    df_filtered["aprobado"] = df_filtered[COL_CALIFICACION] >= 2
-    
-    # Group by Asignatura
-    # We group by Asignatura to show in the chart
-    resumen = df_filtered.groupby(COL_DISCIPLINA).agg(
-        Total=(COL_ID_ALUMNO, "count"),
-        Aprobados=("aprobado", "sum")
-    ).reset_index()
-    
-    resumen["Tasa Aprobación (%)"] = (resumen["Aprobados"] / resumen["Total"]) * 100
-    
-    resumen["Tasa Aprobación (%)"] = (resumen["Aprobados"] / resumen["Total"]) * 100
+    resumen, missing_cols = calculate_subject_approval(df_filtered)
+    if missing_cols:
+        st.error(f"Faltan columnas requeridas en el archivo: {', '.join(missing_cols)}")
+        return
     
     # -------------------------------------------------------------------------
     # 📄 PDF FUNCTIONS
@@ -104,8 +94,8 @@ def render():
         if logo_path:
             try:
                 canvas.drawImage(logo_path, x=2 * cm, y=height - 2.5 * cm, width=2*cm, height=2*cm, preserveAspectRatio=True, mask='auto')
-            except: pass
-
+            except Exception as exc:
+                log_exception("Error silencioso tratado en tasa_aprobacion_asignatura.py", exc)
         # --- Cabeçalho ---
         canvas.setFont("Helvetica-Bold", 14)
         canvas.setFillColor(colors.HexColor("#004080"))
@@ -193,13 +183,10 @@ def render():
         # 🔍 MODO DETALHE (Por Seção)
         # ------------------------------------------------------------
         
-        # Agrupa por SEÇÃO
-        resumen_seccion = df_filtered.groupby(COL_SECCION).agg(
-            Inscritos=(COL_ID_ALUMNO, "count"),
-            Aprobados=("aprobado", "sum")
-        ).reset_index()
-        
-        resumen_seccion["% Aprobación"] = (resumen_seccion["Aprobados"] / resumen_seccion["Inscritos"]) * 100
+        resumen_seccion, missing_cols = calculate_section_approval(df_filtered)
+        if missing_cols:
+            st.error(f"Faltan columnas requeridas en el archivo: {', '.join(missing_cols)}")
+            return
         
         # KPI KPI (Specific to selection)
         avg_approval_detail = resumen_seccion["% Aprobación"].mean()
