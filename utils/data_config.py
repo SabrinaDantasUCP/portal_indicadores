@@ -1,7 +1,7 @@
 DATASETS = {
     "indicadores_v1": {
-        "alumnos": "assets/data/v1/alumnos.csv",
-        "asistencia": "assets/data/v1/asistencia_unificada.csv"
+        "alumnos": "assets/data/v1/alumnos_v1.csv",
+        "asistencia": "assets/data/v1/asistencia_unificada_v1.csv"
     },
     "indicadores_v2": {
         "alumnos": "assets/data/v2/alumnos_v2.csv",
