@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import io
 import os
+from html import escape
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -68,7 +69,7 @@ def agregar_encabezado_y_pie(canvas, doc):
     canvas.restoreState()
 
 @st.cache_data(show_spinner="Cargando datos para exportación...")
-def gerar_pdf_asistencia(df_dados, titulo, col_widths=None):
+def gerar_pdf_asistencia(df_dados, titulo, col_widths=None, filtros_aplicados=None):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer, pagesize=landscape(A4),
@@ -139,6 +140,21 @@ def gerar_pdf_asistencia(df_dados, titulo, col_widths=None):
     ]))
     
     story.append(tabla)
+
+    if filtros_aplicados:
+        filtros_style = ParagraphStyle(
+            name='FiltrosAplicados',
+            parent=styles['Normal'],
+            fontSize=7,
+            leading=9,
+            textColor=colors.HexColor("#444444"),
+        )
+        filtros_texto = " | ".join(
+            f"<b>{escape(str(label))}:</b> {escape(str(value))}" for label, value in filtros_aplicados
+        )
+        story.append(Spacer(1, 10))
+        story.append(Paragraph(f"<b>Filtros aplicados:</b> {filtros_texto}", filtros_style))
+
     story.append(Spacer(1, 14))
     
     try:
@@ -149,11 +165,64 @@ def gerar_pdf_asistencia(df_dados, titulo, col_widths=None):
     return buffer.getvalue()
 
 @st.cache_data(show_spinner="Generando Excel...")
-def generate_excel_bytes(df, sheet_name='Sheet1'):
+def generate_excel_bytes(df, sheet_name='Sheet1', filtros_aplicados=None):
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name=sheet_name)
+        if filtros_aplicados:
+            worksheet = writer.sheets[sheet_name]
+            start_row = len(df) + 3
+            worksheet.write(start_row, 0, "Filtros aplicados")
+            for idx, (label, value) in enumerate(filtros_aplicados, start=1):
+                worksheet.write(start_row + idx, 0, label)
+                worksheet.write(start_row + idx, 1, value)
     return buffer.getvalue()
+
+
+def format_filter_values(values, suffix=None):
+    if not values:
+        return "Todos"
+    formatted = []
+    for value in sorted(values):
+        if suffix:
+            formatted.append(f"{value}{suffix}")
+        else:
+            formatted.append(str(value))
+    return ", ".join(formatted)
+
+
+def render_calculation_guide():
+    st.markdown(
+        """
+        #### Guía de cálculos y criterios aplicados
+
+        **Métricas principales**
+
+        - **Días con Clases Registradas:** cantidad de fechas únicas dentro de los filtros aplicados.
+        - **Registros de Clase Analizados:** combinaciones únicas de fecha, asignatura, sección, docente y tipo de clase.
+        - **Asignaturas Analizadas:** cantidad de asignaturas únicas dentro de los filtros aplicados.
+        - **Promedio General de Presencia:** suma de presentes dividida por suma de matriculados, multiplicado por 100.
+
+        **Resumen**
+
+        - Agrupa la información por mes.
+        - Calcula el porcentaje de presentes usando los presentes acumulados y la base de matriculados de las clases del mes.
+        - El porcentaje de ausentes se calcula como `100 - % Presentes`.
+
+        **Detalle**
+
+        - Agrupa por asignatura, sección, docente y tipo de clase.
+        - Las aulas corresponden a la cantidad de fechas únicas del grupo.
+        - El porcentaje de presentes se calcula con `Presentes / (Aulas * Matriculados) * 100`.
+        - El porcentaje de ausentes se calcula como `100 - % Presentes`.
+
+        **Por Fecha**
+
+        - Muestra el detalle por cada fecha registrada.
+        - El porcentaje de presentes se calcula con `Presentes / Matriculados * 100`.
+        - El porcentaje de ausentes se calcula con `Ausentes / Matriculados * 100`.
+        """
+    )
 
 
 
@@ -277,11 +346,13 @@ def render():
 
     # Métricas Resumen Globales (Siempre visibles o dentro de Tabs?) 
     # Generalmente metricas globales quedan bien fuera
-    total_registros, promedio_presencia = calculate_asistencia_metrics(df_filtered)
+    total_dias_clase, total_registros_clase, total_asignaturas, promedio_presencia = calculate_asistencia_metrics(df_filtered)
 
-    m1, m2 = st.columns(2)
-    m1.metric("Total de Registros de Clase", total_registros)
-    m2.metric("Promedio General de Presencia", f"{promedio_presencia:.2f}%")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Días con Clases Registradas", total_dias_clase)
+    m2.metric("Registros de Clase Analizados", total_registros_clase)
+    m3.metric("Asignaturas Analizadas", total_asignaturas)
+    m4.metric("Promedio General de Presencia", f"{promedio_presencia:.2f}%")
 
     # ---------------------------------------------------------------------
     # TABS
@@ -335,13 +406,32 @@ def render():
         
         # Prepare Table for PDF (Resumen)
         df_export_resumen = df_agrupado.copy()
-        df_export_resumen = df_export_resumen.drop(columns=[COL_ASIS_MES_NUM], errors='ignore')
+        df_export_resumen = df_export_resumen[[COL_ASIS_MES, "% Presentes", "% Ausentes"]].copy()
+        df_export_resumen = df_export_resumen.rename(columns={COL_ASIS_MES: "Mes"})
         for col in ["% Presentes", "% Ausentes"]:
             if col in df_export_resumen.columns:
                 df_export_resumen[col] = df_export_resumen[col].round(2)
+        periodos_titulo = " / ".join(
+            f"{anho}.{periodo}" for anho in sorted(anho_sel) for periodo in sorted(periodo_sel)
+        )
+        titulo_resumen = f"Evolución de Asistencia {periodos_titulo}"
+        filtros_aplicados = [
+            ("Período (Año)", format_filter_values(anho_sel)),
+            ("Subperíodo (Semestre)", format_filter_values(periodo_sel)),
+            ("Semestre de la Asignatura", format_filter_values(semestre_sel, "º Semestre")),
+            ("Asignatura", format_filter_values(asignatura_sel)),
+            ("Docente", format_filter_values(docente_sel)),
+            ("Sección", format_filter_values(seccion_sel)),
+            ("Tipo de Clase", format_filter_values(tipo_clase_sel)),
+        ]
         
         # PDF - No Chart
-        pdf_bytes = gerar_pdf_asistencia(df_export_resumen, "Evolución de Asistencia", col_widths=None)
+        pdf_bytes = gerar_pdf_asistencia(
+            df_export_resumen,
+            titulo_resumen,
+            col_widths=None,
+            filtros_aplicados=filtros_aplicados,
+        )
         if pdf_bytes:
              with c_pdf:
                  st.download_button("Descargar Reporte (PDF)", data=pdf_bytes, file_name=f"Resumen_Asistencia.pdf", mime="application/pdf", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Asistencia - Resumen", "PDF"))
@@ -350,10 +440,16 @@ def render():
                 st.warning("No se pudo generar el PDF.")
 
         # Excel - Cached
-        excel_bytes = generate_excel_bytes(df_export_resumen, sheet_name='Resumen')
+        excel_bytes = generate_excel_bytes(
+            df_export_resumen,
+            sheet_name='Resumen',
+            filtros_aplicados=filtros_aplicados,
+        )
         
         with c_xls:
             st.download_button("Descargar Datos (Excel)", data=excel_bytes, file_name=f"Resumen_Asistencia.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Asistencia - Resumen", "Excel"))
+
+        render_calculation_guide()
 
 
     # --- TAB 2: DETALLE ---
@@ -409,7 +505,13 @@ def render():
             2.5 * cm, # Tipo de Clase
         ]
 
-        pdf_bytes_2 = gerar_pdf_asistencia(df_pdf_detalle, "Detalle de Asistencia", col_widths=col_widths_detalle)
+        titulo_detalle = f"Detalle de Asistencia {periodos_titulo}"
+        pdf_bytes_2 = gerar_pdf_asistencia(
+            df_pdf_detalle,
+            titulo_detalle,
+            col_widths=col_widths_detalle,
+            filtros_aplicados=filtros_aplicados,
+        )
         
         if pdf_bytes_2:
             with c_pdf2:
@@ -419,10 +521,16 @@ def render():
                 st.warning("No se pudo generar el PDF.")
 
         # Excel - Cached
-        excel_bytes_2 = generate_excel_bytes(df_display, sheet_name='Detalle')
+        excel_bytes_2 = generate_excel_bytes(
+            df_display,
+            sheet_name='Detalle',
+            filtros_aplicados=filtros_aplicados,
+        )
 
         with c_xls2:
             st.download_button("Descargar Datos (Excel)", data=excel_bytes_2, file_name=f"Detalle_Asistencia.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", key="btn_xls_asist_2", on_click=db_pia.log_export_callback, args=("Asistencia - Detalle", "Excel"))
+
+        render_calculation_guide()
 
     # --- TAB 3: POR FECHA ---
     with tab3:
@@ -461,7 +569,13 @@ def render():
             2.0 * cm,
         ]
 
-        pdf_bytes_3 = gerar_pdf_asistencia(df_pdf_fecha, "Asistencia por Fecha", col_widths=col_widths_fecha)
+        titulo_fecha = f"Asistencia por Fecha {periodos_titulo}"
+        pdf_bytes_3 = gerar_pdf_asistencia(
+            df_pdf_fecha,
+            titulo_fecha,
+            col_widths=col_widths_fecha,
+            filtros_aplicados=filtros_aplicados,
+        )
         if pdf_bytes_3:
             with c_pdf3:
                 st.download_button("Descargar Reporte (PDF)", data=pdf_bytes_3, file_name=f"Asistencia_Por_Fecha.pdf", mime="application/pdf", icon=":material/download:", width="stretch", key="btn_pdf_asist_3", on_click=db_pia.log_export_callback, args=("Asistencia - Por Fecha", "PDF"))
@@ -469,7 +583,13 @@ def render():
             with c_pdf3:
                 st.warning("No se pudo generar el PDF.")
 
-        excel_bytes_3 = generate_excel_bytes(df_by_date, sheet_name='Por Fecha')
+        excel_bytes_3 = generate_excel_bytes(
+            df_by_date,
+            sheet_name='Por Fecha',
+            filtros_aplicados=filtros_aplicados,
+        )
         with c_xls3:
             st.download_button("Descargar Datos (Excel)", data=excel_bytes_3, file_name=f"Asistencia_Por_Fecha.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", key="btn_xls_asist_3", on_click=db_pia.log_export_callback, args=("Asistencia - Por Fecha", "Excel"))
+
+        render_calculation_guide()
 

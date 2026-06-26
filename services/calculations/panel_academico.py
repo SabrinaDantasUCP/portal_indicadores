@@ -220,6 +220,8 @@ def prepare_asistencia_source(df):
     )
     prepared = prepared[~(before_practica_period & tipo_clase_norm.eq("practica"))].copy()
     prepared[COL_ASIS_FECHA] = pd.to_datetime(prepared[COL_ASIS_FECHA], dayfirst=True, errors="coerce")
+    valid_period_year = prepared[COL_ASIS_FECHA].dt.year.eq(prepared[COL_ASIS_PERIODO])
+    prepared = prepared[valid_period_year].copy()
     for col in [COL_ASIS_MATRICULADOS, COL_ASIS_PRESENTES, COL_ASIS_AUSENTES]:
         prepared[col] = pd.to_numeric(prepared[col], errors="coerce").fillna(0)
     prepared[COL_ASIS_MES] = prepared[COL_ASIS_FECHA].dt.month.map(MESES_ES)
@@ -233,7 +235,22 @@ def prepare_asistencia_source(df):
 
 
 def calculate_asistencia_metrics(df):
-    return len(df), df[COL_ASIS_PORC_PRESENCIA].mean()
+    class_record_cols = [
+        COL_ASIS_FECHA,
+        COL_ASIS_DISCIPLINA,
+        COL_ASIS_SECCION,
+        COL_ASIS_DOCENTE,
+        COL_ASIS_TIPO_CLASE,
+    ]
+    total_registros_clase = df[class_record_cols].drop_duplicates().shape[0]
+    total_matriculados = df[COL_ASIS_MATRICULADOS].sum()
+    promedio_presencia = (df[COL_ASIS_PRESENTES].sum() / total_matriculados * 100) if total_matriculados > 0 else 0
+    return (
+        df[COL_ASIS_FECHA].nunique(),
+        total_registros_clase,
+        df[COL_ASIS_DISCIPLINA].nunique(),
+        promedio_presencia,
+    )
 
 
 def calculate_asistencia_monthly_summary(df):
@@ -254,16 +271,18 @@ def calculate_asistencia_monthly_summary(df):
         )
         .reset_index()
     )
-    class_summary["Capacidad"] = class_summary["Aulas"] * class_summary["Matriculados"]
+    class_summary["_base_asistencia"] = class_summary["Aulas"] * class_summary["Matriculados"]
 
     summary = class_summary.groupby([COL_ASIS_MES, COL_ASIS_MES_NUM], dropna=False).agg(
         Presentes=("Presentes", "sum"),
-        Capacidad=("Capacidad", "sum"),
+        _base_asistencia=("_base_asistencia", "sum"),
     ).reset_index()
-    summary["% Presentes"] = (summary["Presentes"] / summary["Capacidad"] * 100).where(
-        summary["Capacidad"] > 0, 0
+    denominator = summary["_base_asistencia"]
+    summary["% Presentes"] = (summary["Presentes"] / denominator * 100).where(
+        denominator > 0, 0
     ).clip(0, 100)
     summary["% Ausentes"] = 100 - summary["% Presentes"]
+    summary = summary.drop(columns=["_base_asistencia"], errors="ignore")
     summary = summary.sort_values(COL_ASIS_MES_NUM)
     chart_df = summary.melt(
         id_vars=[COL_ASIS_MES, COL_ASIS_MES_NUM],
