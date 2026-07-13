@@ -273,7 +273,7 @@ def render():
                 buf_ex_sel = io.BytesIO()
                 with pd.ExcelWriter(buf_ex_sel, engine='xlsxwriter') as wr:
                     pd.DataFrame([row]).to_excel(wr, index=False, sheet_name='Resumen EE')
-                    lista_full.to_excel(wr, index=False, sheet_name='Listado Egresados')
+                    lista_full.drop(columns=[COL_ID_ALUMNO]).to_excel(wr, index=False, sheet_name='Listado Egresados')
                     df_ingresantes.to_excel(wr, index=False, sheet_name='Ingresantes')
             else:
                 st.warning("No se registraron egresados en esta cohorte para el periodo analizado.")

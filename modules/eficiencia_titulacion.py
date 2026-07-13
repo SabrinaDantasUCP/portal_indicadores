@@ -257,7 +257,7 @@ def render():
             buf_ex_sel = io.BytesIO()
             with pd.ExcelWriter(buf_ex_sel, engine='xlsxwriter') as wr:
                 pd.DataFrame([row]).to_excel(wr, index=False, sheet_name='Resumen ETE')
-                lista_view.to_excel(wr, index=False, sheet_name='Listado Alumnos')
+                lista_view.drop(columns=[COL_ID_ALUMNO]).to_excel(wr, index=False, sheet_name='Listado Alumnos')
             
             c3, c4 = st.columns(2)
             c3.download_button("Descargar Reporte (PDF)", data=pdf_sel, file_name=f"Reporte_ETE_{cohorte_sel}.pdf", mime="application/pdf", key="pdf_ete_sel", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia de Titulación", "PDF"))

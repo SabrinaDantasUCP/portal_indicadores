@@ -10,6 +10,7 @@ COL_RES_SECCION = "turma"
 COL_RES_DOCENTE = "docente"
 COL_RES_CALIFICACION = "calificacion_final_1a5"
 COL_RES_ID_ALUMNO = "usuarios_id"
+COL_RES_CATRACA = "numero_catraca"
 COL_RES_NOMBRE = "nome_sobrenome"
 
 COL_ASIS_PERIODO = "anho"
@@ -54,6 +55,7 @@ def prepare_panel_resumen_source(df):
         COL_RES_DOCENTE,
         COL_RES_CALIFICACION,
         COL_RES_ID_ALUMNO,
+        COL_RES_CATRACA,
         COL_RES_NOMBRE,
     ]
     missing_cols = [col for col in required_cols if col not in df.columns]
@@ -154,7 +156,7 @@ def build_panel_resumen_view(df):
 
 def build_panel_alumnos_detail(df):
     cols_detail = [
-        COL_RES_ID_ALUMNO,
+        COL_RES_CATRACA,
         COL_RES_NOMBRE,
         COL_RES_SEMESTRE_ALUMNO,
         COL_RES_DISCIPLINA,
@@ -167,7 +169,7 @@ def build_panel_alumnos_detail(df):
         return pd.DataFrame(), missing_cols
 
     cols_map = {
-        COL_RES_ID_ALUMNO: "ID Alumno",
+        COL_RES_CATRACA: "Catraca",
         COL_RES_NOMBRE: "Nombre y Apellido",
         COL_RES_SEMESTRE_ALUMNO: "Semestre del Alumno",
         COL_RES_DISCIPLINA: "Asignatura",

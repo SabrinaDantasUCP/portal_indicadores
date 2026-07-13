@@ -314,7 +314,7 @@ def render():
             buf_ex_sel = io.BytesIO()
             with pd.ExcelWriter(buf_ex_sel, engine='xlsxwriter') as wr:
                 data_c.to_excel(wr, index=False, sheet_name='Evolución TR')
-                lista_view.to_excel(wr, index=False, sheet_name=f'Alumnos S{sem_sel}')
+                lista_view.drop(columns=[COL_ID_ALUMNO]).to_excel(wr, index=False, sheet_name=f'Alumnos S{sem_sel}')
             
             c3, c4 = st.columns(2)
             c3.download_button("Descargar Reporte (PDF)", data=pdf_sel, file_name=f"Reporte_TR_{cohorte_sel}.pdf", mime="application/pdf", key="pdf_tr_sel", width="stretch", on_click=db_pia.log_export_callback, args=("Tasa de Retención", "PDF"))

@@ -234,7 +234,7 @@ def render():
             with pd.ExcelWriter(buf_ex_sel, engine='xlsxwriter') as wr:
                 pd.DataFrame([row]).to_excel(wr, index=False, sheet_name='Resumen RE')
                 if not lista_view.empty:
-                    lista_view.to_excel(wr, index=False, sheet_name='Alumnos Rezago')
+                    lista_view.drop(columns=[COL_ID_ALUMNO]).to_excel(wr, index=False, sheet_name='Alumnos Rezago')
             
             c3, c4 = st.columns(2)
             c3.download_button("Descargar Reporte (PDF)", data=pdf_sel, file_name=f"Reporte_RE_{cohorte_sel}.pdf", mime="application/pdf", key="pdf_re_sel", width="stretch", on_click=db_pia.log_export_callback, args=("Rezago Educativo", "PDF"))

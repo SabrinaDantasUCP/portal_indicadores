@@ -8,6 +8,7 @@ from utils import db_pia
 
 
 COL_ID_ALUMNO = "usuarios_id"
+COL_CATRACA = "numero_catraca"
 COL_NOMBRE = "nome_sobrenome"
 COL_PERIODO = "ano_periodo_letivo"
 COL_SUBPERIODO = "periodo_anual_periodo_letivo"
@@ -19,7 +20,7 @@ def _format_int(value):
 
 
 def _prepare_alumnos(df):
-    required_cols = [COL_ID_ALUMNO, COL_NOMBRE, COL_PERIODO, COL_SUBPERIODO, COL_SEMESTRE]
+    required_cols = [COL_ID_ALUMNO, COL_CATRACA, COL_NOMBRE, COL_PERIODO, COL_SUBPERIODO, COL_SEMESTRE]
     missing_cols = [col for col in required_cols if col not in df.columns]
     if missing_cols:
         return pd.DataFrame(), missing_cols
@@ -78,14 +79,14 @@ def _build_alumnos_list(df):
         .drop_duplicates(subset=[COL_ID_ALUMNO], keep="last")
         .rename(
             columns={
-                COL_ID_ALUMNO: "ID Alumno",
+                COL_CATRACA: "Catraca",
                 COL_NOMBRE: "Nombre y Apellido",
                 COL_SEMESTRE: "Semestre",
             }
         )
     )
-    return latest[["ID Alumno", "Nombre y Apellido", "Periodo", "Semestre"]].sort_values(
-        ["Nombre y Apellido", "ID Alumno"]
+    return latest[["Catraca", "Nombre y Apellido", "Periodo", "Semestre"]].sort_values(
+        ["Nombre y Apellido", "Catraca"]
     )
 
 
