@@ -207,7 +207,7 @@ def render():
             # --- Listado de Egresados ---
             st.markdown("#### Listado Nominal de Egresados")
             lista_view = data_coh[[COL_NOMBRE, COL_CATRACA, "Semestres", COL_ID_ALUMNO]].rename(columns={
-                COL_NOMBRE: "Nombre", COL_CATRACA: "Catraca", "Semestres": "Duración (Sem.)"
+                COL_NOMBRE: "Nombre", COL_CATRACA: "Número de Matrícula", "Semestres": "Duración (Sem.)"
             }).sort_values("Duración (Sem.)")
             st.dataframe(lista_view.drop(columns=[COL_ID_ALUMNO]), width="stretch", hide_index=True)
 

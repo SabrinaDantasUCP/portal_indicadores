@@ -284,7 +284,7 @@ def render():
             lista_ids = df[(df[COL_COHORTE] == cohorte_sel) & (df[COL_SEMESTRE_ALUMNO] == sem_sel)][COL_ID_ALUMNO].unique()
             lista_al = df[df[COL_ID_ALUMNO].isin(lista_ids)].groupby(COL_ID_ALUMNO).first().reset_index()
             lista_view = lista_al[[COL_NOMBRE, COL_CATRACA, COL_TIPO_INGRESO, COL_ID_ALUMNO]].rename(columns={
-                COL_NOMBRE: "Nombre", COL_CATRACA: "Catraca", COL_TIPO_INGRESO: "Tipo Ingreso"
+                COL_NOMBRE: "Nombre", COL_CATRACA: "Número de Matrícula", COL_TIPO_INGRESO: "Tipo Ingreso"
             }).sort_values("Nombre")
             
             st.markdown(f"**Alumnos Retenidos en el Semestre {sem_sel}** — Total: {len(lista_view)}")

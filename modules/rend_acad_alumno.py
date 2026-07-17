@@ -137,7 +137,7 @@ def render_alumno_details(df_estudiante, df_completo):
 <div style="display:flex; gap:20px; align-items:stretch; margin:20px 0; flex-wrap:nowrap;">
 <div style="flex:1; box-sizing:border-box; border:2px solid #ddd; border-radius:10px; padding:20px 25px; background:#f9f9f9; box-shadow:0 1px 3px rgba(0,0,0,.1); display:flex; flex-direction:column; justify-content:center; min-height:160px;">
 <p style="font-size:22px; margin:0;"><span style="font-weight:600;">Estudiante:</span> {alumno_nome}</p>
-<p style="font-size:22px; margin:0;"><span style="font-weight:600;">Catraca:</span> {catraca_num}</p>
+<p style="font-size:22px; margin:0;"><span style="font-weight:600;">Número de Matrícula:</span> {catraca_num}</p>
 <p style="font-size:22px; margin:0;"><span style="font-weight:600;">Cohorte:</span> {cohorte}</p>
 {info_egreso_html}
 <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">{status_html} {tipo_html}</div>
@@ -262,7 +262,7 @@ def render():
         if "" not in catraca_opts: catraca_opts.insert(0, "")
         idx_c = catraca_opts.index(val_c) if val_c in catraca_opts else 0
         
-        new_catraca = st.selectbox("Catraca", catraca_opts, index=idx_c, key="widget_catraca")
+        new_catraca = st.selectbox("Número de Matrícula", catraca_opts, index=idx_c, key="widget_catraca")
 
     with col2:
         val_a = alumno_value if alumno_value else ""
@@ -301,9 +301,9 @@ def render():
         if catraca_value and not alumno_value:
             st.warning("Falta seleccionar el **Alumno** para continuar.")
         elif alumno_value and not catraca_value:
-            st.warning("Falta seleccionar la **Catraca** para continuar.")
+            st.warning("Falta seleccionar el **Número de Matrícula** para continuar.")
         else:
-            st.info("Seleccione **Catraca** y **Alumno** para visualizar los datos.")
+            st.info("Seleccione **Número de Matrícula** y **Alumno** para visualizar los datos.")
             
         st.stop() 
         
@@ -508,7 +508,7 @@ def render():
         # Preparar los datos en pares (Rótulo: Valor)
         info_data = [
             [Paragraph(f"<b>Estudiante:</b> {alumno_nome}", styles["Normal"]), 
-             Paragraph(f"<b>Catraca:</b> {catraca_num}", styles["Normal"])],
+             Paragraph(f"<b>Número de Matrícula:</b> {catraca_num}", styles["Normal"])],
             
             [Paragraph(f"<b>Estado:</b> {status_exibicao}", styles["Normal"]), 
              Paragraph(f"<b>Cohorte:</b> {cohorte}", styles["Normal"])],
@@ -687,7 +687,7 @@ def render():
 
     colunas_desejadas = {
         COL_ALUMNO: "Estudiante",
-        COL_CATRACA: "Catraca",
+        COL_CATRACA: "Número de Matrícula",
         COL_COHORTE: "Cohorte",
         COL_PERIODO: "Año",
         COL_SUBPERIODO: "Periodo",

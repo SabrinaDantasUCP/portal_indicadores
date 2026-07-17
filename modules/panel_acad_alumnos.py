@@ -79,14 +79,14 @@ def _build_alumnos_list(df):
         .drop_duplicates(subset=[COL_ID_ALUMNO], keep="last")
         .rename(
             columns={
-                COL_CATRACA: "Catraca",
+                COL_CATRACA: "Número de Matrícula",
                 COL_NOMBRE: "Nombre y Apellido",
                 COL_SEMESTRE: "Semestre",
             }
         )
     )
-    return latest[["Catraca", "Nombre y Apellido", "Periodo", "Semestre"]].sort_values(
-        ["Nombre y Apellido", "Catraca"]
+    return latest[["Número de Matrícula", "Nombre y Apellido", "Periodo", "Semestre"]].sort_values(
+        ["Nombre y Apellido", "Número de Matrícula"]
     )
 
 

@@ -6,6 +6,11 @@ import os
 import pandas as pd
 import io
 import extra_streamlit_components as etc
+from services.data.permanencia import (
+    VISTA_FECHA_CORTE,
+    VISTA_VISION_GENERAL,
+    get_permanencia_dataset,
+)
 from utils import db_pia
 from utils.data_loader import data_file_mtime, set_current_version
 from utils.menu_config import (
@@ -321,15 +326,25 @@ def main():
         
         # Mapeo inteligente de página actual -> archivo de datos fuente
         MAP_SOURCES = {
-            "ip_actual": [("global", "permanencia_vision_general")],
-            "ip_corte": [("global", "permanencia_fecha_corte")],
             "matriculas": [(None, "matriculas")],
             "notas": [(None, "notas")]
         }
-        
+
+        # Las páginas de permanencia dependen del periodo elegido en la propia página.
+        IP_PAGES = {
+            "ip_actual": ("actual", VISTA_VISION_GENERAL),
+            "ip_corte": ("corte", VISTA_FECHA_CORTE),
+        }
+
         # pg es el objeto retornado por st.navigation
         current_slug = pg.url_path if hasattr(pg, "url_path") else ""
-        targets = MAP_SOURCES.get(current_slug, [(None, "alumnos")])
+        if current_slug in IP_PAGES:
+            ip_suffix, ip_vista = IP_PAGES[current_slug]
+            # Mientras no se elija un indicador no hay archivo fuente que mostrar.
+            ip_periodo = st.session_state.get(f"ip_periodo_{ip_suffix}")
+            targets = [("global", get_permanencia_dataset(ip_periodo, ip_vista))] if ip_periodo else []
+        else:
+            targets = MAP_SOURCES.get(current_slug, [(None, "alumnos")])
         
         fechas_list = []
         for scope, dataset_name in targets:

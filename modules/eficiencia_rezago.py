@@ -198,7 +198,7 @@ def render():
             
             lista_view = lista_re[[COL_NOMBRE, COL_CATRACA, COL_PERIODO_EGRESSO, COL_ANO_FINAL_COHORTE, COL_ID_ALUMNO]].copy()
             lista_view = lista_view.rename(columns={
-                COL_NOMBRE: "Nombre", COL_CATRACA: "Catraca", 
+                COL_NOMBRE: "Nombre", COL_CATRACA: "Número de Matrícula",
                 COL_PERIODO_EGRESSO: "Periodo Egreso", COL_ANO_FINAL_COHORTE: "Periodo Previsto"
             }).sort_values("Nombre")
             
@@ -217,7 +217,7 @@ def render():
                 col_sel, col_btn = st.columns([2, 1])
                 # Lista de opciones basada solo en los alumnos en rezago
                 with col_sel:
-                    dic_al = {f"{r['Nombre']} ({r['Catraca']})": r[COL_ID_ALUMNO] for _, r in lista_view.iterrows()}
+                    dic_al = {f"{r['Nombre']} ({r['Número de Matrícula']})": r[COL_ID_ALUMNO] for _, r in lista_view.iterrows()}
                     sel_al = st.selectbox("Busque un alumno para ver su historial", options=list(dic_al.keys()), index=None, placeholder="Escriba el nombre del alumno...")
                 with col_btn:
                     st.markdown("<br>", unsafe_allow_html=True)

@@ -13,8 +13,12 @@ from utils.system_logging import log_exception
 # Cargar variables de entorno
 load_dotenv()
 
-def get_connection():
-    """Establece y devuelve una conexión a la base de datos MySQL usando el .env"""
+def get_connection(silent=False):
+    """Establece y devuelve una conexión a la base de datos MySQL usando el .env.
+
+    Con silent=True el fallo solo se registra en el log, sin pintar el error en
+    pantalla: para lecturas opcionales que tienen un valor por defecto.
+    """
     try:
         connection = mysql.connector.connect(
             host=os.getenv("MYSQL_HOST_PIA", "localhost"),
@@ -27,7 +31,8 @@ def get_connection():
             return connection
     except Error as e:
         log_exception("Error al conectar a MySQL", e)
-        st.error(f"Error al conectar a MySQL: {e}")
+        if not silent:
+            st.error(f"Error al conectar a MySQL: {e}")
         return None
 
 PASSWORD_HASH_ALGORITHM = "pbkdf2_sha256"
@@ -128,6 +133,17 @@ def init_db():
                     formato VARCHAR(50) NOT NULL,
                     fecha_descarga TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (usuario_id) REFERENCES pia_usuarios(id) ON DELETE SET NULL
+                )
+            """)
+
+            # Fechas de inicio de clases por periodo (Índice de Permanencia).
+            # Si un periodo no está acá, se usan los valores por defecto del código.
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pia_config_permanencia (
+                    periodo VARCHAR(10) PRIMARY KEY,
+                    limite_primer_semestre DATE NOT NULL,
+                    limite_otros_semestres DATE NOT NULL,
+                    actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
                 )
             """)
 
@@ -234,8 +250,8 @@ def get_user_permissions(usuario_id):
                 conn.close()
     return permisos
 
-def dict_fetchall(query, params=None):
-    conn = get_connection()
+def dict_fetchall(query, params=None, silent=False):
+    conn = get_connection(silent=silent)
     result = []
     if conn:
         try:
@@ -244,7 +260,8 @@ def dict_fetchall(query, params=None):
             result = cursor.fetchall()
         except Error as e:
             log_exception("Error al ejecutar dict_fetchall", e)
-            st.error(f"Error de query: {e}")
+            if not silent:
+                st.error(f"Error de query: {e}")
         finally:
             if conn and conn.is_connected():
                 cursor.close()
@@ -377,6 +394,45 @@ def set_user_permissions(user_id, modulos):
 def change_password(user_id, new_password):
     hashed = hash_password(new_password)
     execute_query("UPDATE pia_usuarios SET contrasena_hash=%s WHERE id=%s", (hashed, user_id))
+
+# ---------------- Fechas del Índice de Permanencia ---------------- #
+
+def get_permanencia_fechas():
+    """Devuelve {periodo: {limite_primer_semestre, limite_otros_semestres}} en formato ISO.
+
+    Solo trae los periodos configurados desde la pantalla de administración; el
+    resto usa los valores por defecto del código.
+    """
+    # silent: es una lectura opcional. Si la tabla o la base no responden, el
+    # indicador usa las fechas por defecto en vez de mostrarle un error al usuario.
+    rows = dict_fetchall("""
+        SELECT periodo, limite_primer_semestre, limite_otros_semestres, actualizado_en
+        FROM pia_config_permanencia
+    """, silent=True)
+    return {
+        row["periodo"]: {
+            "limite_primer_semestre": row["limite_primer_semestre"].isoformat(),
+            "limite_otros_semestres": row["limite_otros_semestres"].isoformat(),
+            "actualizado_en": row["actualizado_en"],
+        }
+        for row in rows
+    }
+
+
+def set_permanencia_fechas(periodo, limite_primer_semestre, limite_otros_semestres):
+    execute_query("""
+        INSERT INTO pia_config_permanencia (periodo, limite_primer_semestre, limite_otros_semestres)
+        VALUES (%s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+            limite_primer_semestre = VALUES(limite_primer_semestre),
+            limite_otros_semestres = VALUES(limite_otros_semestres)
+    """, (periodo, limite_primer_semestre, limite_otros_semestres))
+
+
+def delete_permanencia_fechas(periodo):
+    """Borra la configuración del periodo: vuelve a los valores por defecto del código."""
+    execute_query("DELETE FROM pia_config_permanencia WHERE periodo = %s", (periodo,))
+
 
 # ---------------- Funciones de Log de Descargas ---------------- #
 

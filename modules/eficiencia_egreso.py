@@ -221,7 +221,7 @@ def render():
                 lista_nreg["Tipo"] = "No Regular (Otras Cohortes)"
                 
                 lista_full = pd.concat([lista_reg, lista_nreg])[[COL_NOMBRE, COL_CATRACA, "Tipo", COL_PERIODO_EGRESSO, COL_ANO_FINAL_COHORTE, COL_ID_ALUMNO]]
-                lista_full = lista_full.rename(columns={COL_NOMBRE: "Nombre", COL_CATRACA: "Catraca", COL_PERIODO_EGRESSO: "Periodo Egreso", COL_ANO_FINAL_COHORTE: "Periodo Previsto"})
+                lista_full = lista_full.rename(columns={COL_NOMBRE: "Nombre", COL_CATRACA: "Número de Matrícula", COL_PERIODO_EGRESSO: "Periodo Egreso", COL_ANO_FINAL_COHORTE: "Periodo Previsto"})
                 
                 # --- Filtro por Tipo de Egreso ---
                 tipos_disp = sorted(lista_full["Tipo"].unique().tolist())
@@ -252,7 +252,7 @@ def render():
                 
                 # Lista de opciones ordenada alfabéticamente
                 with col_sel:
-                    dic_al = {f"{r['Nombre']} ({r['Catraca']})": r[COL_ID_ALUMNO] for _, r in lista_view.sort_values("Nombre").iterrows()}
+                    dic_al = {f"{r['Nombre']} ({r['Número de Matrícula']})": r[COL_ID_ALUMNO] for _, r in lista_view.sort_values("Nombre").iterrows()}
                     sel_al = st.selectbox("Busque un alumno para ver su historial", options=list(dic_al.keys()), index=None, placeholder="Escriba el nombre del alumno...")
                 
                 with col_btn:
@@ -267,7 +267,7 @@ def render():
                 
                 # Lista de Ingresantes (EIIC) para o Excel
                 df_ingresantes = eiic_df[eiic_df[COL_COHORTE] == cohorte_sel][[COL_NOMBRE, COL_CATRACA]].rename(
-                    columns={COL_NOMBRE: "Nombre", COL_CATRACA: "Catraca"}
+                    columns={COL_NOMBRE: "Nombre", COL_CATRACA: "Número de Matrícula"}
                 ).sort_values("Nombre")
 
                 buf_ex_sel = io.BytesIO()
@@ -282,7 +282,7 @@ def render():
                 
                 # Lista de Ingresantes (EIIC) para o Excel
                 df_ingresantes = eiic_df[eiic_df[COL_COHORTE] == cohorte_sel][[COL_NOMBRE, COL_CATRACA]].rename(
-                    columns={COL_NOMBRE: "Nombre", COL_CATRACA: "Catraca"}
+                    columns={COL_NOMBRE: "Nombre", COL_CATRACA: "Número de Matrícula"}
                 ).sort_values("Nombre")
 
                 buf_ex_sel = io.BytesIO()

@@ -307,8 +307,8 @@ def render():
             # Renombrar para visualización
             lista_view = lista_alumnos.rename(columns={
                 COL_NOMBRE: "Nombre y Apellido",
-                COL_CATRACA: "Catraca"
-            })[[ "Nombre y Apellido", "Catraca", "¿Egresado Regular?"]].sort_values("Nombre y Apellido")
+                COL_CATRACA: "Número de Matrícula"
+            })[[ "Nombre y Apellido", "Número de Matrícula", "¿Egresado Regular?"]].sort_values("Nombre y Apellido")
             
             st.dataframe(
                 lista_view,
@@ -359,7 +359,7 @@ def render():
                 workbook = writer.book
                 ws_list = writer.sheets['Listado Alumnos']
                 ws_list.set_column(0, 0, 40) # Nombre
-                ws_list.set_column(1, 1, 15) # Catraca
+                ws_list.set_column(1, 1, 20) # Número de Matrícula
                 ws_list.set_column(2, 2, 20) # Status
                 
             excel_bytes_sel = buffer_excel_sel.getvalue()

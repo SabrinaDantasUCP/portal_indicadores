@@ -1,5 +1,7 @@
 import pandas as pd
 
+from services.data.duckdb_engine import aggregate
+
 
 COL_PERIODO = "ano_periodo_letivo"
 COL_SUBPERIODO = "periodo_anual_periodo_letivo"
@@ -76,14 +78,29 @@ def calculate_subject_performance(df):
     if missing_cols:
         return pd.DataFrame(), missing_cols
 
+    # drop_duplicates(keep="first") depende del orden de las filas -> se mantiene
+    # en pandas para preservar la semantica exacta; solo el groupby va a DuckDB.
     df_unicos = df.drop_duplicates(
         subset=[COL_COHORTE, COL_SEMESTRE_DISCIPLINA, COL_DISCIPLINA, COL_ID_ALUMNO]
     )
-    resumen = (
-        df_unicos.groupby([COL_COHORTE, COL_SEMESTRE_DISCIPLINA, COL_DISCIPLINA])
-        .agg(TRASA=(COL_CALIFICACION, "mean"), N=(COL_ID_ALUMNO, "count"))
-        .reset_index()
+    resumen = aggregate(
+        df_unicos,
+        f'''
+        SELECT "{COL_COHORTE}" AS "{COL_COHORTE}",
+               "{COL_SEMESTRE_DISCIPLINA}" AS "{COL_SEMESTRE_DISCIPLINA}",
+               "{COL_DISCIPLINA}" AS "{COL_DISCIPLINA}",
+               AVG("{COL_CALIFICACION}") AS "TRASA",
+               COUNT("{COL_ID_ALUMNO}") AS "N"
+        FROM src
+        WHERE "{COL_COHORTE}" IS NOT NULL
+          AND "{COL_SEMESTRE_DISCIPLINA}" IS NOT NULL
+          AND "{COL_DISCIPLINA}" IS NOT NULL
+        GROUP BY 1, 2, 3
+        ''',
     )
+    resumen = resumen.sort_values(
+        [COL_COHORTE, COL_SEMESTRE_DISCIPLINA, COL_DISCIPLINA]
+    ).reset_index(drop=True)
     return resumen, []
 
 
@@ -93,16 +110,32 @@ def calculate_semester_performance(df):
     if missing_cols:
         return pd.DataFrame(), missing_cols
 
-    df_trase = (
-        df.groupby([COL_COHORTE, COL_SEMESTRE_ALUMNO, COL_ID_ALUMNO])
-        .agg(TRASE=(COL_CALIFICACION, "mean"))
-        .reset_index()
+    # Promedio de promedios en dos niveles, empujado a DuckDB:
+    #  - TRASE: promedio del alumno en el semestre
+    #  - TRAS: promedio de los TRASE de la cohorte/semestre; N: cantidad de alumnos
+    df_tras = aggregate(
+        df,
+        f'''
+        WITH trase AS (
+            SELECT "{COL_COHORTE}" AS cohorte,
+                   "{COL_SEMESTRE_ALUMNO}" AS sem,
+                   "{COL_ID_ALUMNO}" AS uid,
+                   AVG("{COL_CALIFICACION}") AS trase
+            FROM src
+            WHERE "{COL_COHORTE}" IS NOT NULL
+              AND "{COL_SEMESTRE_ALUMNO}" IS NOT NULL
+              AND "{COL_ID_ALUMNO}" IS NOT NULL
+            GROUP BY 1, 2, 3
+        )
+        SELECT cohorte AS "{COL_COHORTE}",
+               sem AS "{COL_SEMESTRE_ALUMNO}",
+               AVG(trase) AS "TRAS",
+               COUNT(uid) AS "N"
+        FROM trase
+        GROUP BY cohorte, sem
+        ''',
     )
-    df_tras = (
-        df_trase.groupby([COL_COHORTE, COL_SEMESTRE_ALUMNO])
-        .agg(TRAS=("TRASE", "mean"), N=(COL_ID_ALUMNO, "count"))
-        .reset_index()
-    )
+    df_tras = df_tras.sort_values([COL_COHORTE, COL_SEMESTRE_ALUMNO]).reset_index(drop=True)
     df_tras["TRAS"] = df_tras["TRAS"].fillna(0)
     return df_tras, []
 

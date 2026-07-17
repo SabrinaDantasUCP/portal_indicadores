@@ -26,11 +26,11 @@ def get_egresados_excel_bytes():
                 return None
             
         # Mapeo de nombres y orden solicitado:
-        # 1. Catraca, 2. Nro de Documento, 3. Nombre y Apellido, 
+        # 1. Número de Matrícula, 2. Nro de Documento, 3. Nombre y Apellido,
         # 4. Año de Egreso, 5. Periodo de Egreso, 6. Fecha de titulación, 7. Titulado, 8. Detalle (antiguo detalle)
         
         rename_map = {
-            "numero_catraca": "Catraca",
+            "numero_catraca": "Número de Matrícula",
             "detalle": "Detalle"
         }
         
@@ -38,7 +38,7 @@ def get_egresados_excel_bytes():
         df = df.rename(columns=rename_map)
         
         cols_finales = [
-            "Catraca", "Nombre y Apellido", 
+            "Número de Matrícula", "Nombre y Apellido",
             "Año de Egreso", "Periodo de Egreso", "Fecha de titulación", 
             "Titulado", "Detalle"
         ]

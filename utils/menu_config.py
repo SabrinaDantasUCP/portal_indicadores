@@ -104,6 +104,7 @@ PERMANENCIA_PAGES = [
 ADMIN_PAGES = [
     {"title": "Gestión de Usuarios", "slug": "admin_usuarios", "module": "admin_usuarios"},
     {"title": "Gestión de Áreas", "slug": "admin_areas", "module": "admin_areas"},
+    {"title": "Fechas de Inicio de Clases", "slug": "admin_permanencia", "module": "admin_permanencia"},
     {"title": "Logs y Auditoría", "slug": "admin_logs", "module": "admin_logs"},
 ]
 

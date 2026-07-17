@@ -206,7 +206,7 @@ def render():
             lista_full["Información"] = lista_full[COL_FECHA_TITULADO].fillna(lista_full[COL_DETALLE])
             
             lista_full = lista_full.rename(columns={
-                COL_NOMBRE: "Nombre", COL_CATRACA: "Catraca",
+                COL_NOMBRE: "Nombre", COL_CATRACA: "Número de Matrícula",
                 COL_TITULADO: "¿Titulado?"
             })
             
@@ -228,7 +228,7 @@ def render():
             st.divider()
             st.markdown(f"### Listado de Egresados de la Ventana ({t_final})")
             # Mostrar Información invece di Fecha Titulación
-            cols_to_show = ["Nombre", "Catraca", "Tipo Egreso", "¿Titulado?", "Información"]
+            cols_to_show = ["Nombre", "Número de Matrícula", "Tipo Egreso", "¿Titulado?", "Información"]
             st.dataframe(lista_view[cols_to_show], width="stretch", hide_index=True)
             
             # Modal Perfil
@@ -243,7 +243,7 @@ def render():
                 col_sel, col_btn = st.columns([2, 1])
                 # Lista de opciones basada solo en los alumnos filtrados
                 with col_sel:
-                    dic_al = {f"{r['Nombre']} ({r['Catraca']})": r[COL_ID_ALUMNO] for _, r in lista_view.iterrows()}
+                    dic_al = {f"{r['Nombre']} ({r['Número de Matrícula']})": r[COL_ID_ALUMNO] for _, r in lista_view.iterrows()}
                     sel_al = st.selectbox("Busque un alumno para ver su historial", options=list(dic_al.keys()), index=None, placeholder="Escriba el nombre del alumno...")
                 with col_btn:
                     st.markdown("<br>", unsafe_allow_html=True)

@@ -169,7 +169,7 @@ def build_panel_alumnos_detail(df):
         return pd.DataFrame(), missing_cols
 
     cols_map = {
-        COL_RES_CATRACA: "Catraca",
+        COL_RES_CATRACA: "Número de Matrícula",
         COL_RES_NOMBRE: "Nombre y Apellido",
         COL_RES_SEMESTRE_ALUMNO: "Semestre del Alumno",
         COL_RES_DISCIPLINA: "Asignatura",

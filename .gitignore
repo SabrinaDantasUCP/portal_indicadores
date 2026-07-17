@@ -18,6 +18,7 @@ __pycache__/
 *.csv
 *.xlsx
 *.xls
+*.parquet
 
 # --- Jupyter ---
 .ipynb_checkpoints/

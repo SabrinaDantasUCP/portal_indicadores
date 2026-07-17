@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 
 from utils.system_logging import log_exception
@@ -11,8 +12,40 @@ PERMANENCIA_INDICATORS = [
     {"nombre": "Índice de Permanencia V", "sem_origen": 5, "sem_destino": 6, "r_nivel": 5},
 ]
 
+# Periodos que se pueden analizar. "destino" es el periodo de rematrícula y los
+# "limite_*" son las fechas de inicio de clases del periodo base.
+# Las fechas de acá son solo el valor por defecto: si un admin las carga desde
+# "Fechas de Permanencia", mandan las de la base (ver services/data/permanencia.py).
+PERMANENCIA_PERIODOS = {
+    "2025.2": {
+        "anterior": "2025.1",
+        "destino": "2026.1",
+        "limite_primer_semestre": "2025-07-30",
+        "limite_otros_semestres": "2025-08-04",
+    },
+    "2026.1": {
+        "anterior": "2025.2",
+        "destino": "2026.2",
+        "limite_primer_semestre": "2026-02-04",
+        "limite_otros_semestres": "2026-02-09",
+    },
+}
 
-def definir_momento_cambio(row, periodo_ref="2025.2"):
+PERIODO_DEFAULT = "2025.2"
+
+
+def get_periodo_config(periodo):
+    try:
+        return PERMANENCIA_PERIODOS[periodo]
+    except KeyError as exc:
+        raise KeyError(f"Periodo de permanencia no configurado: {periodo}") from exc
+
+
+def listar_periodos():
+    return list(PERMANENCIA_PERIODOS)
+
+
+def definir_momento_cambio(row, periodo_ref=PERIODO_DEFAULT, config=None):
     estado = str(row.get("estado_matricula", "")).strip().lower()
     if estado == "activo":
         return "Activo"
@@ -21,18 +54,16 @@ def definir_momento_cambio(row, periodo_ref="2025.2"):
     if pd.isnull(fecha_cambio):
         return "Sin fecha de cambio"
 
-    try:
-        semestre = int(row.get("semestre_20261", 0))
-    except Exception as exc:
-        log_exception("No se pudo convertir semestre en índice de permanencia", exc)
-        semestre = 0
+    if config is None:
+        try:
+            config = get_periodo_config(periodo_ref)
+        except KeyError as exc:
+            log_exception("Periodo desconocido en índice de permanencia", exc)
+            return "Periodo desconocido"
 
-    if periodo_ref == "2026.1":
-        limite = pd.to_datetime("2026-02-04") if semestre == 1 else pd.to_datetime("2026-02-09")
-    elif periodo_ref == "2025.2":
-        limite = pd.to_datetime("2025-07-30") if semestre == 1 else pd.to_datetime("2025-08-04")
-    else:
-        return "Periodo desconocido"
+    semestre = pd.to_numeric(row.get("semestre_proximo"), errors="coerce")
+    limite_key = "limite_primer_semestre" if semestre == 1 else "limite_otros_semestres"
+    limite = pd.to_datetime(config[limite_key])
 
     fecha_dt = pd.to_datetime(fecha_cambio, errors="coerce", dayfirst=True)
     if pd.isnull(fecha_dt):
@@ -41,17 +72,49 @@ def definir_momento_cambio(row, periodo_ref="2025.2"):
     return "Antes del inicio de clases" if fecha_dt < limite else "Después del inicio de clases"
 
 
-def format_monto_pagado(monto, es_pago):
-    if not es_pago or pd.isnull(monto):
-        return ""
-    try:
-        return f"Gs. {int(float(monto)):,.0f}".replace(",", ".")
-    except Exception as exc:
-        log_exception("No se pudo formatear monto en índice de permanencia", exc)
-        return str(monto)
+# Semestres que entran en el indicador (IP 1 al 5).
+BASE_SEMESTRES = [indicator["sem_origen"] for indicator in PERMANENCIA_INDICATORS]
 
 
-def prepare_permanencia_source(df_base):
+def evaluar_base(df, incluir_convalidados=False, incluir_recursantes=False, periodo=None):
+    """Decide qué alumnos entran en la base del indicador y por qué quedan afuera.
+
+    Devuelve (mask_considerado, motivos). Es la única fuente de esta regla: la
+    tabla de resumen y la lista detallada la usan las dos, así que no pueden
+    contradecirse. Un alumno con motivo vacío es exactamente uno considerado.
+
+    `periodo` solo aclara en el texto de qué periodo es la cuota impaga; la base
+    siempre se define por el pago del periodo en curso, nunca por el siguiente.
+    """
+    motivo_impago = "No pagó la primera cuota"
+    if periodo:
+        motivo_impago += f" ({periodo})"
+
+    reglas = [
+        (~df["sem_atual"].isin(BASE_SEMESTRES), "Semestre fuera del alcance (1º a 5º)"),
+        (df["momento_cambio"] == "Antes del inicio de clases", "Baja antes del inicio de clases"),
+        (~es_pago(df, "estado_pago_atual"), motivo_impago),
+    ]
+    if not incluir_convalidados:
+        reglas.append((es_convalidado(df), "Convalidado (excluido del cálculo)"))
+    if not incluir_recursantes:
+        reglas.append((es_recursante(df), "Recursante (excluido del cálculo)"))
+
+    mask = pd.Series(True, index=df.index)
+    motivos = pd.Series("", index=df.index)
+    for cond, texto in reglas:
+        cond = cond.fillna(False).astype(bool)
+        mask &= ~cond
+        separador = np.where(motivos.eq(""), "", " · ")
+        motivos = pd.Series(np.where(cond, motivos + separador + texto, motivos), index=df.index)
+
+    return mask, motivos
+
+
+def prepare_permanencia_source(df_base, periodo=PERIODO_DEFAULT, config=None):
+    # Se resuelve una sola vez y se pasa a cada fila: las fechas pueden venir de
+    # la base y no queremos una consulta por alumno.
+    config = config or get_periodo_config(periodo)
     df_lista = df_base.copy()
 
     if "estado_matricula" in df_lista.columns:
@@ -60,71 +123,52 @@ def prepare_permanencia_source(df_base):
     if "status_academico" in df_lista.columns:
         df_lista["status_academico"] = df_lista["status_academico"].fillna("").astype(str).str.strip().str.lower()
 
-    df_lista["momento_cambio"] = df_lista.apply(lambda row: definir_momento_cambio(row, "2025.2"), axis=1)
-    df_lista["sem_252"] = pd.to_numeric(df_lista.get("semestre_20252", 0), errors="coerce").fillna(0).astype(int)
-    df_lista["sem_261"] = pd.to_numeric(df_lista.get("semestre_20261", 0), errors="coerce").fillna(0).astype(int)
+    df_lista["momento_cambio"] = df_lista.apply(lambda row: definir_momento_cambio(row, periodo, config), axis=1)
+    df_lista["sem_atual"] = pd.to_numeric(df_lista.get("semestre_atual", 0), errors="coerce").fillna(0).astype(int)
+    df_lista["sem_proximo"] = pd.to_numeric(df_lista.get("semestre_proximo", 0), errors="coerce").fillna(0).astype(int)
 
-    df_lista = df_lista[df_lista["sem_252"] != 6]
+    df_lista = df_lista[df_lista["sem_atual"] != 6]
 
     if "analise_primer_periodo" in df_lista.columns and "tipo_matricula" in df_lista.columns:
         is_primer_periodo = df_lista["analise_primer_periodo"].astype(str).str.strip() == "Primer Periodo"
         is_convalidado = df_lista["tipo_matricula"].astype(str).str.strip() == "Convalidado"
         df_lista = df_lista[~(is_primer_periodo & is_convalidado)]
 
-    monto_252_col = "monto_factura_20252" if "monto_factura_20252" in df_lista.columns else None
-    if monto_252_col:
-        df_lista["Monto Pagado 2025.2"] = df_lista.apply(
-            lambda row: format_monto_pagado(
-                row[monto_252_col],
-                pd.notna(row.get("estado_pago_20252")) and "paga" in str(row["estado_pago_20252"]).lower(),
-            ),
-            axis=1,
-        )
-    else:
-        df_lista["Monto Pagado 2025.2"] = ""
-
-    monto_261_col = "monto_factura_20261" if "monto_factura_20261" in df_lista.columns else None
-    if monto_261_col:
-        df_lista["Monto Pagado 2026.1"] = df_lista.apply(
-            lambda row: format_monto_pagado(
-                row[monto_261_col],
-                pd.notna(row.get("estado_pago_20261")) and "paga" in str(row["estado_pago_20261"]).lower(),
-            ),
-            axis=1,
-        )
-    else:
-        df_lista["Monto Pagado 2026.1"] = ""
+    for momento in ("atual", "proximo"):
+        monto_col = f"monto_factura_{momento}"
+        if monto_col in df_lista.columns:
+            # Numérico, no texto: así la tabla ordena por valor. El símbolo "Gs."
+            # lo pone la vista. Solo se muestra el monto si la cuota está paga.
+            montos = pd.to_numeric(df_lista[monto_col], errors="coerce")
+            df_lista[f"monto_pagado_{momento}"] = montos.where(es_pago(df_lista, f"estado_pago_{momento}"))
+        else:
+            df_lista[f"monto_pagado_{momento}"] = np.nan
 
     return df_lista
 
 
-def calculate_permanencia_indicators(df_lista, incluir_convalidados=False, incluir_recursantes=False):
-    is_convalid = _is_convalidado(df_lista)
-    is_recurs = _is_recursante(df_lista)
+def calculate_permanencia_indicators(
+    df_lista, incluir_convalidados=False, incluir_recursantes=False, periodo=PERIODO_DEFAULT
+):
+    periodo_destino = get_periodo_config(periodo)["destino"]
 
-    mask_resumen = pd.Series(True, index=df_lista.index)
-    if not incluir_convalidados:
-        mask_resumen &= ~is_convalid
-    if not incluir_recursantes:
-        mask_resumen &= ~is_recurs
-    mask_resumen &= df_lista["momento_cambio"] != "Antes del inicio de clases"
-
-    df_calc = df_lista[mask_resumen].copy()
-    es_paga_252 = _is_pago(df_calc, "estado_pago_20252")
-    es_paga_261 = _is_pago(df_calc, "estado_pago_20261")
+    # Misma regla que usa la lista detallada: ya filtra pago, momento de baja,
+    # semestre en alcance, convalidados y recursantes.
+    mask_base, _ = evaluar_base(df_lista, incluir_convalidados, incluir_recursantes)
+    df_calc = df_lista[mask_base].copy()
+    es_paga_proximo = es_pago(df_calc, "estado_pago_proximo")
 
     resultados_p = []
     resultados_nr = []
     df_todas_nr_list = []
 
     for indicator in PERMANENCIA_INDICATORS:
-        base_mask = (df_calc["sem_252"] == indicator["sem_origen"]) & es_paga_252
-        poblacion_base = df_calc[base_mask]
+        poblacion_base = df_calc[df_calc["sem_atual"] == indicator["sem_origen"]]
         total_base = len(poblacion_base)
 
         exito_mask = (
-            poblacion_base["sem_261"].isin([indicator["sem_origen"], indicator["sem_destino"]])
-            & es_paga_261[poblacion_base.index]
+            poblacion_base["sem_proximo"].isin([indicator["sem_origen"], indicator["sem_destino"]])
+            & es_paga_proximo[poblacion_base.index]
         )
         total_exito = len(poblacion_base[exito_mask])
         poblacion_nr = poblacion_base[~exito_mask]
@@ -160,15 +204,15 @@ def calculate_permanencia_indicators(df_lista, incluir_convalidados=False, inclu
         resultados_p.append(
             {
                 "Indicador": ip_name,
-                "Inicio 2025.2": int(total_base),
-                "Rematrícula 2026.1": int(total_exito),
+                "Inicio": int(total_base),
+                "Rematrícula": int(total_exito),
                 "% de Permanencia": f"{tasa:.0f}%",
                 "Inicio_s": f"{indicator['sem_origen']} s",
                 "Rematricula_s": f"{indicator['sem_destino']} s",
                 "Descripcion": (
-                    f"Los alumnos que inician el {indicator['sem_origen']}º semestre en el 2025.2 "
+                    f"Los alumnos que inician el {indicator['sem_origen']}º semestre en el {periodo} "
                     f"y al terminar se rematricularon para el {indicator['sem_destino']}º semestre "
-                    "en el periodo 2026.1"
+                    f"en el periodo {periodo_destino}"
                 ),
                 "tasa_num": tasa,
             }
@@ -187,19 +231,19 @@ def calculate_permanencia_indicators(df_lista, incluir_convalidados=False, inclu
     return pd.DataFrame(resultados_p), pd.DataFrame(resultados_nr), df_todas_nr_list
 
 
-def _is_convalidado(df):
+def es_convalidado(df):
     if "tipo_matricula" not in df.columns:
         return pd.Series(False, index=df.index)
     return df["tipo_matricula"].astype(str).str.lower().str.contains("convalid", na=False)
 
 
-def _is_recursante(df):
+def es_recursante(df):
     if "es_recursante" not in df.columns:
         return pd.Series(False, index=df.index)
     return df["es_recursante"].astype(str).str.strip().str.lower().isin(["si", "true", "1", "s"])
 
 
-def _is_pago(df, col):
+def es_pago(df, col):
     if col not in df.columns:
         return pd.Series(False, index=df.index)
     return df[col].astype(str).str.lower().str.contains("paga", na=False)
