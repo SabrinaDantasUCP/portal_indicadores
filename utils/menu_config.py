@@ -2,9 +2,11 @@ MI_CUENTA = "Mi Cuenta"
 VERSION_1 = "Indicadores Versión 1"
 VERSION_2 = "Indicadores Versión 2"
 INDICE_PERMANENCIA = "Índice de Permanencia"
+ENCUESTAS = "Encuesta"
 ADMINISTRACION = "Administración"
 
 INDICE_PERMANENCIA_PERMISSION = "indice_permanencia"
+ENCUESTAS_PERMISSION = "encuestas"
 VERSION_PERMISSIONS = {
     VERSION_1: "indicadores_v1",
     VERSION_2: "indicadores_v2",
@@ -101,6 +103,10 @@ PERMANENCIA_PAGES = [
     },
 ]
 
+ENCUESTAS_PAGES = [
+    {"title": "Avance de Encuesta", "slug": "encuestas_avance", "module": "encuestas"},
+]
+
 ADMIN_PAGES = [
     {"title": "Gestión de Usuarios", "slug": "admin_usuarios", "module": "admin_usuarios"},
     {"title": "Gestión de Áreas", "slug": "admin_areas", "module": "admin_areas"},
@@ -127,7 +133,11 @@ def version_permission_options():
     ]
 
 
-PERMISOS_SISTEMA = list(VERSION_PERMISSIONS.values()) + version_permission_options() + [INDICE_PERMANENCIA_PERMISSION]
+PERMISOS_SISTEMA = (
+    list(VERSION_PERMISSIONS.values())
+    + version_permission_options()
+    + [INDICE_PERMANENCIA_PERMISSION, ENCUESTAS_PERMISSION]
+)
 
 
 def page_key(category, page_title):
@@ -142,6 +152,8 @@ def iter_page_configs():
             yield indicator["target_category"], page_config
     for page_config in PERMANENCIA_PAGES:
         yield INDICE_PERMANENCIA, page_config
+    for page_config in ENCUESTAS_PAGES:
+        yield ENCUESTAS, page_config
     for page_config in ADMIN_PAGES:
         yield ADMINISTRACION, page_config
 

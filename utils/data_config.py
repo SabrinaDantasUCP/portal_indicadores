@@ -14,5 +14,6 @@ DATASETS = {
         "permanencia_20252_fecha_corte": "assets/data/global/permanencia_20252_05-04-2026.parquet",
         "permanencia_20261_vision_general": "assets/data/global/permanencia_20261.parquet",
         "permanencia_20261_fecha_corte": "assets/data/global/permanencia_20261_16-07-2026.parquet",
+        "encuestas_alumnos_al_docente_20261": "assets/data/global/indicadores_encuestas_alumnos_al_docente_20261.parquet",
     },
 }

@@ -27,6 +27,7 @@ SOURCES = [
     ("assets/data/global/permanencia_20252_05-04-2026.csv", ";", False),
     ("assets/data/global/permanencia_20261.csv", ";", False),
     ("assets/data/global/permanencia_20261_16-07-2026.csv", ";", False),
+    ("assets/data/global/indicadores_encuestas_alumnos_al_docente_20261.csv", ",", False),
 ]
 
 
