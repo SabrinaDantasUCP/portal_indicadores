@@ -4,8 +4,6 @@ from utils import db_pia
 from utils.ui import render_info_header
 from utils.system_logging import log_exception
 from utils.menu_config import (
-    ENCUESTAS,
-    ENCUESTAS_PERMISSION,
     INDICADORES_VERSION,
     INDICE_PERMANENCIA,
     INDICE_PERMANENCIA_PERMISSION,
@@ -79,14 +77,6 @@ def render_permission_inputs(prefix, current_perms=None):
             key=f"{prefix}_{INDICE_PERMANENCIA}",
         ):
             selected_perms.append(INDICE_PERMANENCIA_PERMISSION)
-
-    with st.container(border=True):
-        if st.checkbox(
-            ENCUESTAS,
-            value=ENCUESTAS_PERMISSION in current_perms,
-            key=f"{prefix}_{ENCUESTAS}",
-        ):
-            selected_perms.append(ENCUESTAS_PERMISSION)
 
     return selected_perms
 
