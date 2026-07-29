@@ -15,15 +15,18 @@ from utils import db_pia
 from utils.system_logging import log_exception
 from utils.ui import render_kpi_card
 from services.data.encuestas import (
+    TIPO_AUTOEVALUACION_DOCENTE,
     get_encuesta_nombre,
-    get_encuesta_vigencia,
     listar_carreras_encuesta,
     listar_periodos_encuestas,
     listar_sedes_encuestas,
     listar_tipos_encuesta,
+    load_autoeval_docente_detalle,
+    load_autoeval_docente_general,
     load_encuestas_alumnos,
     load_encuestas_detalle,
     load_encuestas_general,
+    load_encuestas_metadata,
 )
 
 
@@ -153,10 +156,34 @@ def select_encuesta():
     return sede, periodo, carrera, tipo
 
 
+def _render_encabezado_encuesta(nombre, vigencia, semestres_habilitados, sede, carrera):
+    vigencia_txt = vigencia if vigencia else "vigencia no disponible"
+    semestres_html = (
+        f'<div class="enc_header_sub">Semestres habilitados: {escape(str(semestres_habilitados))}</div>'
+        if semestres_habilitados
+        else ""
+    )
+    st.markdown(
+        f"""
+        <div class="enc_header">
+            <div class="enc_header_title">{escape(str(nombre))}</div>
+            <div class="enc_header_vigencia">({escape(str(vigencia_txt))})</div>
+            <div class="enc_header_sub">{escape(sede)} · {escape(carrera)}</div>
+            {semestres_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render():
     render_common_setup()
     sede, periodo, carrera, tipo = select_encuesta()
     if not sede or not periodo or not carrera or not tipo:
+        return
+
+    if tipo == TIPO_AUTOEVALUACION_DOCENTE:
+        render_autoeval_docente(sede, periodo, carrera, tipo)
         return
 
     fila_general = load_encuestas_general(sede, periodo, carrera, tipo)
@@ -168,17 +195,8 @@ def render():
         return
 
     nombre = get_encuesta_nombre(sede, periodo, carrera, tipo)
-    vigencia = get_encuesta_vigencia(sede, periodo, carrera, tipo)
-    st.markdown(
-        f"""
-        <div class="enc_header">
-            <div class="enc_header_title">{nombre}</div>
-            <div class="enc_header_vigencia">({vigencia})</div>
-            <div class="enc_header_sub">{sede} · {carrera}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    vigencia, semestres_habilitados = load_encuestas_metadata(sede, periodo, carrera, tipo)
+    _render_encabezado_encuesta(nombre, vigencia, semestres_habilitados, sede, carrera)
 
     tab_general, tab_detalle = st.tabs(["Visión General", "Detalle por Materia / Sección / Grupo"])
 
@@ -187,6 +205,37 @@ def render():
 
     with tab_detalle:
         render_detalle(df_detalle, df_alumnos, periodo, tipo)
+
+
+def render_autoeval_docente(sede, periodo, carrera, tipo):
+    fila_general = load_autoeval_docente_general(sede, periodo, carrera, tipo)
+    df_detalle_docente = load_autoeval_docente_detalle(sede, periodo, carrera, tipo)
+
+    if fila_general is None and df_detalle_docente.empty:
+        st.warning(f"No hay datos disponibles para la Encuesta {periodo} — {tipo}.")
+        return
+
+    nombre = get_encuesta_nombre(sede, periodo, carrera, tipo)
+    vigencia, semestres_habilitados = load_encuestas_metadata(sede, periodo, carrera, tipo)
+    _render_encabezado_encuesta(nombre, vigencia, semestres_habilitados, sede, carrera)
+
+    tab_general, tab_detalle = st.tabs(["Visión General", "Detalle por Materia / Sección / Grupo / Docente"])
+
+    with tab_general:
+        render_vision_general(
+            fila_general,
+            entidad="Docentes",
+            columnas={
+                "esperados": "docentes_unicos_esperados",
+                "respondieron_todas": "docentes_unicos_que_respondieron_todas",
+                "pct_todas": "porcentaje_avance_docentes_todas",
+                "respondieron_al_menos_una": "docentes_unicos_que_respondieron_al_menos_una",
+                "pct_al_menos_una": "porcentaje_avance_docentes",
+            },
+        )
+
+    with tab_detalle:
+        render_detalle_autoeval_docente(df_detalle_docente, periodo, tipo)
 
 
 def _valor_valido(valor):
@@ -268,12 +317,12 @@ def _render_total_esperados(label, value):
     )
 
 
-def _bloque_avance(titulo, cantidad, pct, esperados, key_prefix, accent, background, border):
+def _bloque_avance(titulo, cantidad, pct, esperados, key_prefix, accent, background, border, entidad="Alumnos"):
     with st.container(border=True):
         st.markdown(f"**{titulo}**")
         c1, c2 = st.columns(2)
         with c1:
-            render_kpi_card("Alumnos", _fmt_num(cantidad), accent=accent, background=background, border=border)
+            render_kpi_card(entidad, _fmt_num(cantidad), accent=accent, background=background, border=border)
         with c2:
             render_kpi_card("% de Avance", _fmt_pct(pct), accent=accent, background=background, border=border)
 
@@ -283,34 +332,52 @@ def _bloque_avance(titulo, cantidad, pct, esperados, key_prefix, accent, backgro
             _pie_placeholder()
 
 
-def render_vision_general(fila_general):
+# Mapeo por defecto de columnas de la fila general (avance_general), para
+# la encuesta de alumnos a docentes. render_vision_general recibe otro mapeo
+# para orígenes con otra entidad (p. ej. autoevaluación docente, donde la
+# entidad es "Docentes" en vez de "Alumnos" y las columnas del CSV llevan
+# el prefijo "docentes_").
+_COLUMNAS_VISION_GENERAL_ALUMNOS = {
+    "esperados": "alumnos_unicos_esperados",
+    "respondieron_todas": "alumnos_unicos_que_respondieron_todas",
+    "pct_todas": "porcentaje_avance_alumnos_todas",
+    "respondieron_al_menos_una": "alumnos_unicos_que_respondieron_al_menos_una",
+    "pct_al_menos_una": "porcentaje_avance_alumnos",
+}
+
+
+def render_vision_general(fila_general, entidad="Alumnos", columnas=None):
+    columnas = columnas or _COLUMNAS_VISION_GENERAL_ALUMNOS
+
     if fila_general is None:
         st.warning("No se encontró la fila de avance general en el archivo de la encuesta.")
         return
 
-    esperados = fila_general["alumnos_unicos_esperados"]
+    esperados = fila_general.get(columnas["esperados"])
 
-    st.markdown("#### Avance de Alumnos")
-    _render_total_esperados("Alumnos que debían responder", _fmt_num(esperados))
+    st.markdown(f"#### Avance de {entidad}")
+    _render_total_esperados(f"{entidad} que debían responder", _fmt_num(esperados))
 
     b1, b2 = st.columns(2)
     with b1:
         _bloque_avance(
             "1. Respondieron todas sus encuestas",
-            fila_general.get("alumnos_unicos_que_respondieron_todas"),
-            fila_general.get("porcentaje_avance_alumnos_todas"),
+            fila_general.get(columnas["respondieron_todas"]),
+            fila_general.get(columnas["pct_todas"]),
             esperados,
             key_prefix="enc_todas",
             accent="#385623", background="#e2efd9", border="#a9d08e",
+            entidad=entidad,
         )
     with b2:
         _bloque_avance(
             "2. Respondieron al menos una encuesta",
-            fila_general["alumnos_unicos_que_respondieron_al_menos_una"],
-            fila_general["porcentaje_avance_alumnos"],
+            fila_general.get(columnas["respondieron_al_menos_una"]),
+            fila_general.get(columnas["pct_al_menos_una"]),
             esperados,
             key_prefix="enc_al_menos_una",
             accent="#1e3a8a", background="#e8f0fe", border="#a9c6f5",
+            entidad=entidad,
         )
 
 
@@ -321,13 +388,16 @@ def render_vision_general(fila_general):
 # - "distinct": cuenta alumnos únicos (por system_id) sobre el detalle a nivel
 #   de alumno (avance_por_alumno), evitando contar dos veces a un mismo
 #   alumno cuando aparece en más de un grupo/docente de la misma materia.
-# - "crudo": usa el detalle por materia/sección/grupo/docente tal cual viene
-#   (ese grano no tiene distinct de alumno por docente disponible).
+# - "docente": según el origen (ver tiene_docente_detalle/tiene_docente_alumno
+#   en render_detalle), se resuelve con el detalle por materia/sección/grupo/
+#   docente pre-agregado cuando existe (p. ej. v1), o por distinct de alumno
+#   sobre la columna "docente" del detalle por alumno cuando sólo está ahí
+#   (p. ej. v2, que no trae ese indicador agregado).
 TABLAS_AVANCE = [
     ("Materia", ["materia"], ["Materia"], "distinct"),
     ("Sección", ["materia", "seccion"], ["Materia", "Sección"], "distinct"),
     ("Grupo", ["materia", "seccion", "grupo"], ["Materia", "Sección", "Grupo"], "distinct"),
-    ("Docente", ["materia", "seccion", "grupo", "docente"], ["Materia", "Sección", "Grupo", "Docente"], "crudo"),
+    ("Docente", ["materia", "seccion", "grupo", "docente"], ["Materia", "Sección", "Grupo", "Docente"], "docente"),
 ]
 
 
@@ -351,24 +421,47 @@ def _tabla_avance(base, cols, labels):
     return df_res.sort_values(labels).reset_index(drop=True)
 
 
-def _tabla_avance_distinct(df_alumnos, cols, labels):
-    """Igual que _tabla_avance, pero contando alumnos únicos (system_id) sobre
-    el detalle a nivel de alumno en vez de sumar conteos ya agregados por
-    docente. Necesario porque un mismo alumno puede aparecer en más de un
-    grupo/docente dentro de la misma materia/sección."""
-    esperados = df_alumnos.groupby(cols)["system_id"].nunique().rename("Alumnos Esperados")
+def _tabla_avance_distinct(df, cols, labels, id_col="system_id", entidad="Alumnos"):
+    """Igual que _tabla_avance, pero contando valores únicos de id_col
+    (p. ej. system_id de alumno o docente_id) sobre el detalle recibido en
+    vez de sumar conteos ya agregados. Necesario porque un mismo id puede
+    aparecer en más de un grupo/docente dentro de la misma materia/sección."""
+    col_esperados = f"{entidad} Esperados"
+    col_respondieron = f"{entidad} que Respondieron"
+    esperados = df.groupby(cols)[id_col].nunique().rename(col_esperados)
     respondieron = (
-        df_alumnos[df_alumnos["respondio"] == True]
-        .groupby(cols)["system_id"]
+        df[df["respondio"] == True]
+        .groupby(cols)[id_col]
         .nunique()
-        .rename("Alumnos que Respondieron")
+        .rename(col_respondieron)
     )
     df_res = pd.concat([esperados, respondieron], axis=1)
-    df_res["Alumnos que Respondieron"] = df_res["Alumnos que Respondieron"].fillna(0).astype(int)
+    df_res[col_respondieron] = df_res[col_respondieron].fillna(0).astype(int)
+    df_res["% de Avance"] = (
+        (df_res[col_respondieron] / df_res[col_esperados] * 100).round(2).fillna(0)
+    )
+    df_res = df_res.reset_index().rename(columns=dict(zip(cols, labels)))
+    return df_res.sort_values(labels).reset_index(drop=True)
+
+
+def _tabla_avance_combinada(df_alumnos, df_crudo_faltante, cols, labels):
+    """Combina _tabla_avance_distinct (grupos con detalle por alumno) con
+    _tabla_avance sobre los grupos que no tienen ese detalle (df_crudo_faltante,
+    ya deduplicado por materia/sección/grupo). Sin esto, los grupos sin
+    detalle por alumno desaparecerían de la tabla en vez de mostrarse con el
+    conteo crudo disponible."""
+    partes = []
+    if not df_alumnos.empty:
+        partes.append(_tabla_avance_distinct(df_alumnos, cols, labels))
+    if not df_crudo_faltante.empty:
+        partes.append(_tabla_avance(df_crudo_faltante, cols, labels))
+    if not partes:
+        return pd.DataFrame(columns=labels + ["Alumnos Esperados", "Alumnos que Respondieron", "% de Avance"])
+    df_res = pd.concat(partes, ignore_index=True)
+    df_res = df_res.groupby(labels, as_index=False)[["Alumnos Esperados", "Alumnos que Respondieron"]].sum()
     df_res["% de Avance"] = (
         (df_res["Alumnos que Respondieron"] / df_res["Alumnos Esperados"] * 100).round(2).fillna(0)
     )
-    df_res = df_res.reset_index().rename(columns=dict(zip(cols, labels)))
     return df_res.sort_values(labels).reset_index(drop=True)
 
 
@@ -416,16 +509,18 @@ def _agregar_encabezado_y_pie(canvas, doc):
     canvas.restoreState()
 
 
-def _tabla_pdf(titulo, df, styles, story, col_labels):
+def _tabla_pdf(titulo, df, styles, story, col_labels, entidad="Alumnos"):
+    col_esperados = f"{entidad} Esperados"
+    col_respondieron = f"{entidad} que Respondieron"
     story.append(Paragraph(f"<b>{titulo}</b>", styles["Heading3"]))
     story.append(Spacer(1, 6))
-    data_rows = [list(col_labels) + ["Alumnos Esperados", "Alumnos que Respondieron", "% de Avance"]]
+    data_rows = [list(col_labels) + [col_esperados, col_respondieron, "% de Avance"]]
     for _, r in df.iterrows():
         data_rows.append(
             [str(r[c]) for c in col_labels]
             + [
-                _fmt_num(r["Alumnos Esperados"]),
-                _fmt_num(r["Alumnos que Respondieron"]),
+                _fmt_num(r[col_esperados]),
+                _fmt_num(r[col_respondieron]),
                 f"{r['% de Avance']:.1f}%",
             ]
         )
@@ -445,7 +540,7 @@ def _tabla_pdf(titulo, df, styles, story, col_labels):
     story.append(Spacer(1, 16))
 
 
-def generar_pdf_reporte(periodo, tipo, filtros_txt, tablas):
+def generar_pdf_reporte(periodo, tipo, filtros_txt, tablas, entidad="Alumnos"):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer, pagesize=landscape(A4),
@@ -460,7 +555,7 @@ def generar_pdf_reporte(periodo, tipo, filtros_txt, tablas):
     story.append(Spacer(1, 18))
 
     for titulo, df, col_labels in tablas:
-        _tabla_pdf(titulo, df, styles, story, col_labels)
+        _tabla_pdf(titulo, df, styles, story, col_labels, entidad=entidad)
 
     doc.build(story, onFirstPage=_agregar_encabezado_y_pie, onLaterPages=_agregar_encabezado_y_pie)
     return buffer.getvalue()
@@ -486,10 +581,16 @@ def render_detalle(df_detalle, df_alumnos, periodo, tipo):
         st.warning("No hay detalle disponible para esta encuesta.")
         return
 
-    # Algunos orígenes (p. ej. v2) no traen el detalle por docente: en ese
-    # caso no hay filtro ni pestaña "Docente", y todo se calcula a partir del
-    # detalle por alumno.
-    tiene_docente = not df_detalle.empty and "docente" in df_detalle.columns
+    # El docente puede venir pre-agregado (indicador
+    # avance_por_materia_seccion_grupo, p. ej. v1) y/o como columna del
+    # detalle a nivel de alumno (p. ej. v2, que no trae ese indicador
+    # agregado). Se usa el/los que estén disponibles; cuando ambos existen se
+    # prioriza el pre-agregado para la tabla "Docente" (comportamiento
+    # histórico), pero el filtro por docente ya se aplica directo sobre el
+    # detalle por alumno si tiene esa columna.
+    tiene_docente_detalle = not df_detalle.empty and "docente" in df_detalle.columns
+    tiene_docente_alumno = not df_alumnos.empty and "docente" in df_alumnos.columns
+    tiene_docente = tiene_docente_detalle or tiene_docente_alumno
 
     # Fuente de opciones para Materia/Sección/Grupo: el detalle a nivel de
     # alumno, disponible en todos los formatos de origen. Si no existiera
@@ -524,20 +625,26 @@ def render_detalle(df_detalle, df_alumnos, periodo, tipo):
 
         flt_docente = []
         if tiene_docente:
-            df_det_scope = df_detalle
-            if flt_materia:
-                df_det_scope = df_det_scope[df_det_scope["materia"].isin(flt_materia)]
-            if flt_seccion:
-                df_det_scope = df_det_scope[df_det_scope["seccion"].isin(flt_seccion)]
-            if flt_grupo:
-                df_det_scope = df_det_scope[df_det_scope["grupo"].isin(flt_grupo)]
+            base_docente = base_grupo[base_grupo["grupo"].isin(flt_grupo)] if flt_grupo else base_grupo
+            if "docente" in base_docente.columns:
+                docente_scope = base_docente
+            else:
+                # Respaldo para orígenes donde el docente sólo está en el
+                # detalle pre-agregado, no en el detalle por alumno.
+                docente_scope = df_detalle
+                if flt_materia:
+                    docente_scope = docente_scope[docente_scope["materia"].isin(flt_materia)]
+                if flt_seccion:
+                    docente_scope = docente_scope[docente_scope["seccion"].isin(flt_seccion)]
+                if flt_grupo:
+                    docente_scope = docente_scope[docente_scope["grupo"].isin(flt_grupo)]
             with cols[3]:
-                docentes_opts = sorted(df_det_scope["docente"].dropna().unique())
+                docentes_opts = sorted(docente_scope["docente"].dropna().unique())
                 flt_docente = st.multiselect(
                     "Docente", options=docentes_opts, placeholder="Todos", key="enc_flt_docente",
                 )
 
-    # Detalle a nivel de alumno filtrado por materia/sección/grupo.
+    # Detalle a nivel de alumno filtrado por materia/sección/grupo/docente.
     df_alumnos_filt = df_alumnos
     if not df_alumnos_filt.empty:
         if flt_materia:
@@ -546,11 +653,13 @@ def render_detalle(df_detalle, df_alumnos, periodo, tipo):
             df_alumnos_filt = df_alumnos_filt[df_alumnos_filt["seccion"].isin(flt_seccion)]
         if flt_grupo:
             df_alumnos_filt = df_alumnos_filt[df_alumnos_filt["grupo"].isin(flt_grupo)]
+        if flt_docente and tiene_docente_alumno:
+            df_alumnos_filt = df_alumnos_filt[df_alumnos_filt["docente"].isin(flt_docente)]
 
-    # Detalle por docente filtrado por materia/sección/grupo/docente (sólo
-    # existe cuando tiene_docente).
+    # Detalle por docente pre-agregado, filtrado por materia/sección/grupo/
+    # docente (sólo existe cuando tiene_docente_detalle).
     df_filt = df_detalle
-    if tiene_docente:
+    if tiene_docente_detalle:
         if flt_materia:
             df_filt = df_filt[df_filt["materia"].isin(flt_materia)]
         if flt_seccion:
@@ -560,8 +669,12 @@ def render_detalle(df_detalle, df_alumnos, periodo, tipo):
         if flt_docente:
             df_filt = df_filt[df_filt["docente"].isin(flt_docente)]
             # El filtro de docente también acota el detalle por alumno, a las
-            # combinaciones materia/sección/grupo que dicta ese/esos docente(s).
-            if not df_alumnos_filt.empty:
+            # combinaciones materia/sección/grupo que dicta ese/esos
+            # docente(s). Sólo hace falta este cruce cuando el detalle por
+            # alumno no tiene su propia columna "docente" para filtrar
+            # directo (arriba) — si la tiene, el cruce por combos sería menos
+            # preciso en materias con más de un docente por grupo.
+            if not tiene_docente_alumno and not df_alumnos_filt.empty:
                 combos = df_filt[["materia", "seccion", "grupo"]].drop_duplicates()
                 df_alumnos_filt = df_alumnos_filt.merge(combos, on=["materia", "seccion", "grupo"], how="inner")
 
@@ -569,36 +682,58 @@ def render_detalle(df_detalle, df_alumnos, periodo, tipo):
         st.info("Ningún registro coincide con los filtros seleccionados.")
         return
 
-    # Fallback para encuestas antiguas sin detalle a nivel de alumno: un mismo
-    # grupo (materia+sección+grupo) puede repetirse una vez por cada docente
-    # que lo dicta, con el mismo conteo de alumnos. Para no duplicarlos al
-    # agregar por materia/sección/grupo, nos quedamos con un valor por
-    # combinación antes de sumar.
-    df_grupos_fallback = (
-        df_filt.groupby(["materia", "seccion", "grupo"], as_index=False)
-        .agg(
-            alumnos_esperados=("alumnos_esperados", "max"),
-            alumnos_que_respondieron=("alumnos_que_respondieron", "max"),
-        )
-        if tiene_docente and not df_filt.empty
-        else pd.DataFrame(columns=["materia", "seccion", "grupo", "alumnos_esperados", "alumnos_que_respondieron"])
+    # El detalle por docente puede incluir combinaciones materia/sección/grupo
+    # que NO tienen ninguna fila en el detalle por alumno (hueco del origen de
+    # datos: hay grupos con encuesta configurada pero sin exportar el detalle
+    # por alumno). Si esas combinaciones no se incluyen aparte, desaparecen
+    # por completo de las tablas y de los totales. Acá se separan del resto
+    # para agregarlas con el conteo crudo (no distinct) que sí existe para
+    # ellas, y así no perder ningún grupo.
+    combos_con_alumno = (
+        df_alumnos_filt[["materia", "seccion", "grupo"]].drop_duplicates()
+        if not df_alumnos_filt.empty
+        else pd.DataFrame(columns=["materia", "seccion", "grupo"])
     )
+    if tiene_docente_detalle and not df_filt.empty:
+        if not combos_con_alumno.empty:
+            _merged = df_filt.merge(
+                combos_con_alumno, on=["materia", "seccion", "grupo"], how="left", indicator=True
+            )
+            df_filt_sin_alumno = _merged[_merged["_merge"] == "left_only"].drop(columns="_merge")
+        else:
+            df_filt_sin_alumno = df_filt
+        df_grupos_faltantes = (
+            df_filt_sin_alumno.groupby(["materia", "seccion", "grupo"], as_index=False)
+            .agg(
+                alumnos_esperados=("alumnos_esperados", "max"),
+                alumnos_que_respondieron=("alumnos_que_respondieron", "max"),
+            )
+            if not df_filt_sin_alumno.empty
+            else pd.DataFrame(columns=["materia", "seccion", "grupo", "alumnos_esperados", "alumnos_que_respondieron"])
+        )
+    else:
+        df_grupos_faltantes = pd.DataFrame(columns=["materia", "seccion", "grupo", "alumnos_esperados", "alumnos_que_respondieron"])
 
     # Resumen según los filtros aplicados arriba (materia/sección/grupo/docente).
     # "Total de Alumnos" y "Alumnos que Respondieron" son distinct de alumno
-    # (system_id); "Encuestas Respondidas" es la cantidad de encuestas
-    # individuales completadas (un alumno puede responder a más de un
-    # docente, por eso puede ser mayor que "Alumnos que Respondieron"). Sin
-    # detalle por docente, cada fila del detalle por alumno ya representa una
-    # encuesta esperada (una por materia/sección/grupo).
+    # (system_id), coherente con Visión General. No se le suma el conteo
+    # crudo de los grupos sin detalle por alumno (df_grupos_faltantes): ese
+    # conteo no es distinct (un alumno con varias materias se contaría una
+    # vez por grupo), así que sumarlo aquí infla el total. Sólo se usa como
+    # respaldo si no hay NINGÚN detalle por alumno para el filtro aplicado.
+    # "Encuestas Respondidas" es la cantidad de encuestas individuales
+    # completadas (un alumno puede responder a más de un docente, por eso
+    # puede ser mayor que "Alumnos que Respondieron"). Sin detalle por
+    # docente, cada fila del detalle por alumno ya representa una encuesta
+    # esperada (una por materia/sección/grupo).
     if not df_alumnos_filt.empty:
         total_alumnos = int(df_alumnos_filt["system_id"].nunique())
         alumnos_respondieron = int(df_alumnos_filt.loc[df_alumnos_filt["respondio"] == True, "system_id"].nunique())
     else:
-        total_alumnos = int(df_grupos_fallback["alumnos_esperados"].sum())
-        alumnos_respondieron = int(df_grupos_fallback["alumnos_que_respondieron"].sum())
+        total_alumnos = int(df_grupos_faltantes["alumnos_esperados"].sum()) if not df_grupos_faltantes.empty else 0
+        alumnos_respondieron = int(df_grupos_faltantes["alumnos_que_respondieron"].sum()) if not df_grupos_faltantes.empty else 0
 
-    if tiene_docente:
+    if tiene_docente_detalle:
         encuestas_respondidas = int(df_filt["alumnos_que_respondieron"].sum())
     else:
         encuestas_respondidas = int((df_alumnos_filt["respondio"] == True).sum())
@@ -625,12 +760,12 @@ def render_detalle(df_detalle, df_alumnos, periodo, tipo):
     tablas_resumen = {}
     for key, cols, labels, modo in TABLAS_AVANCE:
         if modo == "distinct":
-            if not df_alumnos_filt.empty:
+            tablas_resumen[key] = _tabla_avance_combinada(df_alumnos_filt, df_grupos_faltantes, cols, labels)
+        elif modo == "docente":
+            if tiene_docente_detalle:
+                tablas_resumen[key] = _tabla_avance(df_filt, cols, labels)
+            elif tiene_docente_alumno:
                 tablas_resumen[key] = _tabla_avance_distinct(df_alumnos_filt, cols, labels)
-            else:
-                tablas_resumen[key] = _tabla_avance(df_grupos_fallback, cols, labels)
-        elif tiene_docente:
-            tablas_resumen[key] = _tabla_avance(df_filt, cols, labels)
 
     st.markdown("#### Avance por Materia / Sección / Grupo" + (" / Docente" if tiene_docente else ""))
     tab_keys = ["Materia", "Sección", "Grupo"] + (["Docente"] if tiene_docente else [])
@@ -678,6 +813,172 @@ def render_detalle(df_detalle, df_alumnos, periodo, tipo):
             mime="application/pdf",
             icon=":material/download:",
             key="enc_dl_pdf",
+            width="stretch",
+            on_click=db_pia.log_export_callback, args=("Encuesta - Detalle", "PDF"),
+        )
+
+
+# (clave de la pestaña, columnas a agrupar -acumulativas-, etiquetas de esas
+# columnas). Autoevaluación docente: cada docente ya autoevalúa cada
+# materia/sección/grupo que dicta, así que a diferencia de TABLAS_AVANCE acá
+# no hace falta distinguir un origen "crudo" pre-agregado ni combinar con
+# huecos de datos: el detalle (avance_por_docente) ya tiene, en una sola
+# fila por docente x materia/sección/grupo, todo lo necesario para contar
+# distinct de docente_id en cualquier nivel de la jerarquía.
+TABLAS_AVANCE_DOCENTE = [
+    ("Materia", ["materia"], ["Materia"]),
+    ("Sección", ["materia", "seccion"], ["Materia", "Sección"]),
+    ("Grupo", ["materia", "seccion", "grupo"], ["Materia", "Sección", "Grupo"]),
+    ("Docente", ["materia", "seccion", "grupo", "docente"], ["Materia", "Sección", "Grupo", "Docente"]),
+]
+
+
+def _limpiar_seccion_grupo_docente_autoeval():
+    st.session_state["enc_autoeval_flt_seccion"] = []
+    st.session_state["enc_autoeval_flt_grupo"] = []
+    st.session_state["enc_autoeval_flt_docente"] = []
+
+
+def _limpiar_grupo_docente_autoeval():
+    st.session_state["enc_autoeval_flt_grupo"] = []
+    st.session_state["enc_autoeval_flt_docente"] = []
+
+
+def _limpiar_docente_autoeval():
+    st.session_state["enc_autoeval_flt_docente"] = []
+
+
+def render_detalle_autoeval_docente(df_detalle, periodo, tipo):
+    if df_detalle.empty:
+        st.warning("No hay detalle disponible para esta encuesta.")
+        return
+
+    with st.container(border=True):
+        cols = st.columns(4)
+
+        with cols[0]:
+            materias_opts = sorted(df_detalle["materia"].dropna().unique())
+            flt_materia = st.multiselect(
+                "Materia", options=materias_opts, placeholder="Todas",
+                key="enc_autoeval_flt_materia", on_change=_limpiar_seccion_grupo_docente_autoeval,
+            )
+
+        base_seccion = df_detalle[df_detalle["materia"].isin(flt_materia)] if flt_materia else df_detalle
+        with cols[1]:
+            secciones_opts = sorted(base_seccion["seccion"].dropna().unique())
+            flt_seccion = st.multiselect(
+                "Sección", options=secciones_opts, placeholder="Todas",
+                key="enc_autoeval_flt_seccion", on_change=_limpiar_grupo_docente_autoeval,
+            )
+
+        base_grupo = base_seccion[base_seccion["seccion"].isin(flt_seccion)] if flt_seccion else base_seccion
+        with cols[2]:
+            grupos_opts = sorted(base_grupo["grupo"].dropna().unique())
+            flt_grupo = st.multiselect(
+                "Grupo", options=grupos_opts, placeholder="Todos",
+                key="enc_autoeval_flt_grupo", on_change=_limpiar_docente_autoeval,
+            )
+
+        base_docente = base_grupo[base_grupo["grupo"].isin(flt_grupo)] if flt_grupo else base_grupo
+        with cols[3]:
+            docentes_opts = sorted(base_docente["docente"].dropna().unique())
+            flt_docente = st.multiselect(
+                "Docente", options=docentes_opts, placeholder="Todos", key="enc_autoeval_flt_docente",
+            )
+
+    df_filt = df_detalle
+    if flt_materia:
+        df_filt = df_filt[df_filt["materia"].isin(flt_materia)]
+    if flt_seccion:
+        df_filt = df_filt[df_filt["seccion"].isin(flt_seccion)]
+    if flt_grupo:
+        df_filt = df_filt[df_filt["grupo"].isin(flt_grupo)]
+    if flt_docente:
+        df_filt = df_filt[df_filt["docente"].isin(flt_docente)]
+
+    if df_filt.empty:
+        st.info("Ningún registro coincide con los filtros seleccionados.")
+        return
+
+    # "Total de Docentes" y "Docentes que Respondieron" son distinct de
+    # docente_id, coherente con Visión General. "Encuestas Respondidas" es la
+    # cantidad de autoevaluaciones individuales completadas (un docente
+    # responde una por cada materia/sección/grupo que dicta, por eso puede
+    # ser mayor que "Docentes que Respondieron").
+    total_docentes = int(df_filt["docente_id"].nunique())
+    docentes_respondieron = int(df_filt.loc[df_filt["respondio"] == True, "docente_id"].nunique())
+    encuestas_respondidas = int((df_filt["respondio"] == True).sum())
+
+    st.markdown("##### Resumen según los filtros aplicados")
+    k1, k2, k3 = st.columns(3)
+    with k1:
+        render_kpi_card(
+            "Total de Docentes", _fmt_num(total_docentes),
+            accent="#1e3a8a", background="#e8f0fe", border="#a9c6f5",
+        )
+    with k2:
+        render_kpi_card(
+            "Encuestas Respondidas", _fmt_num(encuestas_respondidas),
+            accent="#385623", background="#e2efd9", border="#a9d08e",
+        )
+    with k3:
+        render_kpi_card(
+            "Docentes que Respondieron", _fmt_num(docentes_respondieron),
+            accent="#7c4a03", background="#fdf1de", border="#e8c07d",
+        )
+    st.divider()
+
+    tablas_resumen = {}
+    for key, cols_grp, labels in TABLAS_AVANCE_DOCENTE:
+        tablas_resumen[key] = _tabla_avance_distinct(df_filt, cols_grp, labels, id_col="docente_id", entidad="Docentes")
+
+    st.markdown("#### Avance por Materia / Sección / Grupo / Docente")
+    tab_keys = ["Materia", "Sección", "Grupo", "Docente"]
+    tab_key_slugs = {"Materia": "materia", "Sección": "seccion", "Grupo": "grupo", "Docente": "docente"}
+    tabs = st.tabs([f"Por {key}" for key in tab_keys])
+    for tab, key in zip(tabs, tab_keys):
+        with tab:
+            _mostrar_tabla_avance(tablas_resumen[key], key=f"enc_autoeval_tabla_{tab_key_slugs[key]}")
+
+    st.divider()
+
+    filtros_activos = []
+    if flt_materia:
+        filtros_activos.append(f"Materia: {', '.join(flt_materia)}")
+    if flt_seccion:
+        filtros_activos.append(f"Sección: {', '.join(flt_seccion)}")
+    if flt_grupo:
+        filtros_activos.append(f"Grupo: {', '.join(flt_grupo)}")
+    if flt_docente:
+        filtros_activos.append(f"Docente: {', '.join(flt_docente)}")
+    filtros_txt = " | ".join(filtros_activos) if filtros_activos else "Ninguno (todos los datos)"
+
+    tipo_archivo = tipo.replace(" ", "_")
+    c_dl1, c_dl2 = st.columns(2)
+    with c_dl1:
+        st.download_button(
+            "Descargar Reporte Completo (Excel)",
+            data=excel_bytes_reporte(tablas_resumen),
+            file_name=f"Encuesta_{periodo}_{tipo_archivo}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            icon=":material/download:",
+            key="enc_autoeval_dl_excel",
+            width="stretch",
+            on_click=db_pia.log_export_callback, args=("Encuesta - Detalle", "Excel"),
+        )
+    with c_dl2:
+        pdf_data = generar_pdf_reporte(
+            periodo, tipo, filtros_txt,
+            [(f"Avance por {key}", tablas_resumen[key], labels) for key, _, labels in TABLAS_AVANCE_DOCENTE],
+            entidad="Docentes",
+        )
+        st.download_button(
+            "Descargar Reporte Completo (PDF)",
+            data=pdf_data,
+            file_name=f"Encuesta_{periodo}_{tipo_archivo}.pdf",
+            mime="application/pdf",
+            icon=":material/download:",
+            key="enc_autoeval_dl_pdf",
             width="stretch",
             on_click=db_pia.log_export_callback, args=("Encuesta - Detalle", "PDF"),
         )

@@ -9,7 +9,11 @@ INDICADOR_GENERAL = "avance_general"
 INDICADOR_DETALLE = "avance_por_materia_seccion_grupo"
 INDICADOR_ALUMNO = "avance_por_alumno"
 
+INDICADOR_GENERAL_DOCENTE = "avance_general_docente"
+INDICADOR_DOCENTE_DETALLE = "avance_por_docente"
+
 TIPO_ALUMNOS_DOCENTE = "ENCUESTA ALUMNOS A DOCENTES"
+TIPO_AUTOEVALUACION_DOCENTE = "ENCUESTA AUTOEVALUACIÓN DOCENTE"
 
 SEDE_ASUNCION = "Asunción"
 SEDE_CIUDAD_DEL_ESTE = "Ciudad del Este"
@@ -19,12 +23,17 @@ SEDE_CIUDAD_DEL_ESTE = "Ciudad del Este"
 SEDES = [SEDE_ASUNCION, SEDE_CIUDAD_DEL_ESTE]
 
 # Cada nueva encuesta se agrega acá: sede -> periodo -> carrera -> tipo ->
-# {"dataset": nombre registrado en utils/data_config.py bajo "indicadores_v1"
-# y "indicadores_v2" (cada versión apunta a su propio parquet), "nombre":
-# nombre de la encuesta, "vigencia": rango de fechas mostrado aparte}.
-# El archivo real que se lee depende de la versión activa en ese momento
-# (utils.data_loader.get_current_version()), fijada por el menú lateral
-# antes de entrar a la página.
+# {"dataset": nombre registrado en utils/data_config.py, "nombre": nombre de
+# la encuesta, "scope" opcional: si se omite, el dataset se busca bajo la
+# versión activa en ese momento (indicadores_v1/v2, fijada por el menú
+# lateral vía utils.data_loader.get_current_version()); si se indica (p. ej.
+# "global"), siempre se lee de ahí sin importar la versión activa — para
+# encuestas que no dependen de la versión v1/v2 de asistencia/matrícula,
+# como la autoevaluación docente.
+# La vigencia y los semestres habilitados NO se hardcodean acá: se leen del
+# CSV/parquet de origen (columnas "vigencia" y "semestres_habilitados") vía
+# load_encuestas_metadata, para que reflejen siempre el dato real y no
+# queden desactualizados respecto al archivo.
 ENCUESTAS_DATASETS = {
     SEDE_CIUDAD_DEL_ESTE: {
         "2026.1": {
@@ -32,7 +41,11 @@ ENCUESTAS_DATASETS = {
                 TIPO_ALUMNOS_DOCENTE: {
                     "dataset": "encuestas_alumnos_al_docente_20261",
                     "nombre": "ENCUESTA ALUMNOS A DOCENTES 2026-1",
-                    "vigencia": "22/06/2026 - 25/07/2026",
+                },
+                TIPO_AUTOEVALUACION_DOCENTE: {
+                    "dataset": "encuestas_docente_autoeval_20261",
+                    "nombre": "ENCUESTA AUTOEVALUACIÓN DOCENTE 2026-1",
+                    "scope": "global",
                 },
             },
         },
@@ -53,8 +66,19 @@ COLUMNAS_ALUMNO = [
     "materia",
     "seccion",
     "grupo",
+    "docente",
     "system_id",
     "alumno",
+    "planificacion_id",
+    "respondio",
+]
+
+COLUMNAS_DOCENTE_DETALLE = [
+    "materia",
+    "seccion",
+    "grupo",
+    "docente",
+    "docente_id",
     "planificacion_id",
     "respondio",
 ]
@@ -75,10 +99,12 @@ def listar_carreras_encuesta(sede, periodo):
 def listar_tipos_encuesta(sede, periodo, carrera):
     """Devuelve [(tipo, label), ...] disponibles para sede/periodo/carrera."""
     tipos = ENCUESTAS_DATASETS.get(sede, {}).get(periodo, {}).get(carrera, {})
-    return [
-        (tipo, f"{info['nombre']} ({info['vigencia']})")
-        for tipo, info in tipos.items()
-    ]
+    resultado = []
+    for tipo, info in tipos.items():
+        vigencia, _ = load_encuestas_metadata(sede, periodo, carrera, tipo)
+        label = f"{info['nombre']} ({vigencia})" if vigencia else info["nombre"]
+        resultado.append((tipo, label))
+    return resultado
 
 
 def _get_encuesta_info(sede, periodo, carrera, tipo):
@@ -95,12 +121,16 @@ def get_encuesta_nombre(sede, periodo, carrera, tipo):
     return _get_encuesta_info(sede, periodo, carrera, tipo)["nombre"]
 
 
-def get_encuesta_vigencia(sede, periodo, carrera, tipo):
-    return _get_encuesta_info(sede, periodo, carrera, tipo)["vigencia"]
-
-
 def get_encuestas_dataset(sede, periodo, carrera, tipo):
     return _get_encuesta_info(sede, periodo, carrera, tipo)["dataset"]
+
+
+def get_encuesta_scope(sede, periodo, carrera, tipo):
+    """Scope bajo el que vive el dataset en utils/data_config.py: el fijado
+    en ENCUESTAS_DATASETS (p. ej. "global"), o si no hay ninguno, la versión
+    activa en ese momento (indicadores_v1/v2)."""
+    info = _get_encuesta_info(sede, periodo, carrera, tipo)
+    return info.get("scope") or get_current_version()
 
 
 @st.cache_data(show_spinner=False)
@@ -114,10 +144,34 @@ def _read_encuestas_parquet(dataset_name, version):
 
 def load_encuestas_raw(sede, periodo, carrera, tipo):
     dataset_name = get_encuestas_dataset(sede, periodo, carrera, tipo)
-    # La versión se pasa explícita como parte de la clave de caché de
-    # _read_encuestas_parquet: sin esto, cambiar de V1 a V2 con la misma
-    # sede/periodo/carrera/tipo devolvería datos cacheados de la otra versión.
-    return _read_encuestas_parquet(dataset_name, get_current_version())
+    # El scope (versión activa o "global") se pasa explícito como parte de la
+    # clave de caché de _read_encuestas_parquet: sin esto, cambiar de V1 a V2
+    # con la misma sede/periodo/carrera/tipo devolvería datos cacheados de la
+    # otra versión.
+    return _read_encuestas_parquet(dataset_name, get_encuesta_scope(sede, periodo, carrera, tipo))
+
+
+def load_encuestas_metadata(sede, periodo, carrera, tipo):
+    """(vigencia, semestres_habilitados) tal como vienen en el CSV/parquet de
+    origen (columnas "vigencia" y "semestres_habilitados"), no hardcodeados
+    en ENCUESTAS_DATASETS, para que reflejen siempre el dato real cargado."""
+    df = load_encuestas_raw(sede, periodo, carrera, tipo)
+    if df.empty:
+        return None, None
+    fila = df.iloc[0]
+    vigencia = fila.get("vigencia")
+    semestres_habilitados = fila.get("semestres_habilitados")
+    return (
+        vigencia if _valor_valido_metadata(vigencia) else None,
+        semestres_habilitados if _valor_valido_metadata(semestres_habilitados) else None,
+    )
+
+
+def _valor_valido_metadata(valor):
+    try:
+        return valor is not None and not pd.isna(valor)
+    except TypeError:
+        return valor is not None
 
 
 def _compute_general_from_alumnos(df_alu):
@@ -172,3 +226,25 @@ def load_encuestas_alumnos(sede, periodo, carrera, tipo):
     df_alu = df[df["indicador"] == INDICADOR_ALUMNO]
     cols = [c for c in COLUMNAS_ALUMNO if c in df_alu.columns]
     return df_alu[cols].reset_index(drop=True)
+
+
+def load_autoeval_docente_general(sede, periodo, carrera, tipo):
+    """Fila única con los totales generales de avance de la autoevaluación
+    docente (docentes únicos esperados / que respondieron), o None."""
+    df = load_encuestas_raw(sede, periodo, carrera, tipo)
+    if df.empty:
+        return None
+    df_gen = df[df["indicador"] == INDICADOR_GENERAL_DOCENTE]
+    return df_gen.iloc[0] if not df_gen.empty else None
+
+
+def load_autoeval_docente_detalle(sede, periodo, carrera, tipo):
+    """Detalle de autoevaluación docente: 1 fila por docente x materia/
+    sección/grupo que dicta, con si respondió o no su autoevaluación para
+    ese grupo."""
+    df = load_encuestas_raw(sede, periodo, carrera, tipo)
+    if df.empty:
+        return pd.DataFrame(columns=COLUMNAS_DOCENTE_DETALLE)
+    df_det = df[df["indicador"] == INDICADOR_DOCENTE_DETALLE]
+    cols = [c for c in COLUMNAS_DOCENTE_DETALLE if c in df_det.columns]
+    return df_det[cols].reset_index(drop=True)

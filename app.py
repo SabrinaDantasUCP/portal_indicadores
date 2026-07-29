@@ -7,7 +7,7 @@ import os
 import pandas as pd
 import io
 import extra_streamlit_components as etc
-from services.data.encuestas import get_encuestas_dataset
+from services.data.encuestas import get_encuesta_scope, get_encuestas_dataset
 from services.data.permanencia import (
     VISTA_FECHA_CORTE,
     VISTA_VISION_GENERAL,
@@ -530,7 +530,10 @@ def main():
             enc_carrera = st.session_state.get("encuestas_carrera")
             enc_tipo = st.session_state.get("encuestas_tipo")
             targets = (
-                [("global", get_encuestas_dataset(enc_sede, enc_periodo, enc_carrera, enc_tipo))]
+                [(
+                    get_encuesta_scope(enc_sede, enc_periodo, enc_carrera, enc_tipo),
+                    get_encuestas_dataset(enc_sede, enc_periodo, enc_carrera, enc_tipo),
+                )]
                 if enc_sede and enc_periodo and enc_carrera and enc_tipo
                 else []
             )
