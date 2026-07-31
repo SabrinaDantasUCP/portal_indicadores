@@ -10,6 +10,11 @@
 #
 # Si el proceso de Streamlit corre como otro usuario, cambie "biocde" por
 # ese usuario. La ruta del script debe ser exactamente la de este proyecto.
+#
+# Incluye reglas para producción (sistema_relatorios) y para el entorno de
+# pruebas (sistema_relatorios_test), ya que ambos pueden ejecutar el ETL.
 
+biocde ALL=(root) NOPASSWD: /home/biocde/streamlit/sistema_relatorios/scripts/vpn_ctl.sh connect
+biocde ALL=(root) NOPASSWD: /home/biocde/streamlit/sistema_relatorios/scripts/vpn_ctl.sh disconnect
 biocde ALL=(root) NOPASSWD: /home/biocde/streamlit/sistema_relatorios_test/scripts/vpn_ctl.sh connect
 biocde ALL=(root) NOPASSWD: /home/biocde/streamlit/sistema_relatorios_test/scripts/vpn_ctl.sh disconnect
