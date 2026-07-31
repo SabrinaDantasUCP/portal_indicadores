@@ -1,7 +1,10 @@
+import os
+
 import pandas as pd
 import streamlit as st
 
-from utils.data_loader import get_current_version, get_data_path
+from utils import data_config, db_pia
+from utils.data_loader import get_current_version, get_data_path, data_file_mtime
 from utils.system_logging import log_exception
 
 
@@ -14,6 +17,7 @@ INDICADOR_DOCENTE_DETALLE = "avance_por_docente"
 
 TIPO_ALUMNOS_DOCENTE = "ENCUESTA ALUMNOS A DOCENTES"
 TIPO_AUTOEVALUACION_DOCENTE = "ENCUESTA AUTOEVALUACIÓN DOCENTE"
+TIPO_EVALUACION_PARES = "ENCUESTA EVALUACIÓN DE PARES"
 
 SEDE_ASUNCION = "Asunción"
 SEDE_CIUDAD_DEL_ESTE = "Ciudad del Este"
@@ -22,35 +26,83 @@ SEDE_CIUDAD_DEL_ESTE = "Ciudad del Este"
 # para alguna de ellas (por ahora sólo Ciudad del Este tiene encuestas).
 SEDES = [SEDE_ASUNCION, SEDE_CIUDAD_DEL_ESTE]
 
-# Cada nueva encuesta se agrega acá: sede -> periodo -> carrera -> tipo ->
-# {"dataset": nombre registrado en utils/data_config.py, "nombre": nombre de
-# la encuesta, "scope" opcional: si se omite, el dataset se busca bajo la
-# versión activa en ese momento (indicadores_v1/v2, fijada por el menú
-# lateral vía utils.data_loader.get_current_version()); si se indica (p. ej.
-# "global"), siempre se lee de ahí sin importar la versión activa — para
-# encuestas que no dependen de la versión v1/v2 de asistencia/matrícula,
-# como la autoevaluación docente.
-# La vigencia y los semestres habilitados NO se hardcodean acá: se leen del
-# CSV/parquet de origen (columnas "vigencia" y "semestres_habilitados") vía
-# load_encuestas_metadata, para que reflejen siempre el dato real y no
-# queden desactualizados respecto al archivo.
-ENCUESTAS_DATASETS = {
-    SEDE_CIUDAD_DEL_ESTE: {
-        "2026.1": {
-            "Medicina": {
-                TIPO_ALUMNOS_DOCENTE: {
-                    "dataset": "encuestas_alumnos_al_docente_20261",
-                    "nombre": "ENCUESTA ALUMNOS A DOCENTES 2026-1",
-                },
-                TIPO_AUTOEVALUACION_DOCENTE: {
-                    "dataset": "encuestas_docente_autoeval_20261",
-                    "nombre": "ENCUESTA AUTOEVALUACIÓN DOCENTE 2026-1",
-                    "scope": "global",
-                },
-            },
-        },
-    },
+# Traduce el código guardado en pia_encuesta_etl_config.tipo_encuesta (ver
+# utils/db_pia.py) a la etiqueta usada acá y en modules/encuestas.py. Se
+# mantiene esta capa para no tener que cambiar el resto del módulo (ni
+# modules/encuestas.py, que importa estas constantes directamente).
+_TIPO_CODE_TO_LABEL = {
+    "ALUMNO_DOCENTE": TIPO_ALUMNOS_DOCENTE,
+    "AUTOEVAL_DOCENTE": TIPO_AUTOEVALUACION_DOCENTE,
+    "EVALUACION_PARES": TIPO_EVALUACION_PARES,
 }
+
+DATASETS_DIR = "assets/data/encuestas"
+
+
+def _dataset_parquet_path(dataset_name):
+    return f"{DATASETS_DIR}/{dataset_name}.parquet"
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _construir_registro():
+    """Arma sede -> periodo -> carrera -> tipo -> {dataset, nombre, scope} a
+    partir de pia_encuesta_etl_config (antes era un dict ENCUESTAS_DATASETS
+    hardcodeado acá; ahora se cadastra en Administración > Encuestas - ETL).
+
+    De paso, sincroniza utils.data_config.DATASETS (en memoria, no se toca el
+    archivo) con el path de cada dataset ya generado, para que
+    utils.data_loader.get_data_path/data_file_mtime (usados también por
+    app.py para el pie de "última actualización") sigan funcionando sin
+    ningún cambio.
+
+    Una config solo aparece acá si ya tiene al menos un parquet generado
+    (v1 o v2, según el tipo) — pausar una config (activo=False) no la saca de
+    acá; solo deja de recibir actualizaciones automáticas.
+
+    Para scope_mode=GLOBAL hay un único archivo ({dataset_name}.parquet).
+    Para SEGUE_VERSION (ALUMNO_DOCENTE) hay dos archivos separados
+    ({dataset_name}_v1 / _v2) — v2 es la variante filtrada por
+    assets/data/global/base_datos_activos.csv (ver services/etl/encuesta_runner.py).
+    Si todavía no existe el v2 (por ej. el CSV de activos no fue subido), la
+    config igual aparece acá con solo v1 disponible.
+    """
+    registro = {}
+    for cfg in db_pia.get_encuesta_etl_configs():
+        tipo_label = _TIPO_CODE_TO_LABEL.get(cfg["tipo_encuesta"])
+        if tipo_label is None:
+            continue
+
+        dataset_name = cfg["dataset_name"]
+
+        if cfg["scope_mode"] == "GLOBAL":
+            dataset_path = _dataset_parquet_path(dataset_name)
+            if not os.path.exists(dataset_path):
+                continue
+            data_config.DATASETS.setdefault("global", {})[dataset_name] = dataset_path
+            scope = "global"
+        else:
+            path_v1 = _dataset_parquet_path(f"{dataset_name}_v1")
+            path_v2 = _dataset_parquet_path(f"{dataset_name}_v2")
+            if not os.path.exists(path_v1) and not os.path.exists(path_v2):
+                continue
+            if os.path.exists(path_v1):
+                data_config.DATASETS.setdefault("indicadores_v1", {})[dataset_name] = path_v1
+            if os.path.exists(path_v2):
+                data_config.DATASETS.setdefault("indicadores_v2", {})[dataset_name] = path_v2
+            scope = None
+
+        (
+            registro
+            .setdefault(cfg["sede"], {})
+            .setdefault(cfg["periodo"], {})
+            .setdefault(cfg["carrera"], {})
+        )[tipo_label] = {
+            "dataset": dataset_name,
+            "nombre": f"{tipo_label} {cfg['periodo']}",
+            "scope": scope,
+        }
+    return registro
+
 
 COLUMNAS_DETALLE = [
     "materia",
@@ -89,16 +141,16 @@ def listar_sedes_encuestas():
 
 
 def listar_periodos_encuestas(sede):
-    return sorted(ENCUESTAS_DATASETS.get(sede, {}).keys())
+    return sorted(_construir_registro().get(sede, {}).keys())
 
 
 def listar_carreras_encuesta(sede, periodo):
-    return sorted(ENCUESTAS_DATASETS.get(sede, {}).get(periodo, {}).keys())
+    return sorted(_construir_registro().get(sede, {}).get(periodo, {}).keys())
 
 
 def listar_tipos_encuesta(sede, periodo, carrera):
     """Devuelve [(tipo, label), ...] disponibles para sede/periodo/carrera."""
-    tipos = ENCUESTAS_DATASETS.get(sede, {}).get(periodo, {}).get(carrera, {})
+    tipos = _construir_registro().get(sede, {}).get(periodo, {}).get(carrera, {})
     resultado = []
     for tipo, info in tipos.items():
         vigencia, _ = load_encuestas_metadata(sede, periodo, carrera, tipo)
@@ -109,7 +161,7 @@ def listar_tipos_encuesta(sede, periodo, carrera):
 
 def _get_encuesta_info(sede, periodo, carrera, tipo):
     try:
-        return ENCUESTAS_DATASETS[sede][periodo][carrera][tipo]
+        return _construir_registro()[sede][periodo][carrera][tipo]
     except KeyError as exc:
         raise KeyError(
             f"Encuesta no configurada para sede={sede} / periodo={periodo} "
@@ -126,15 +178,15 @@ def get_encuestas_dataset(sede, periodo, carrera, tipo):
 
 
 def get_encuesta_scope(sede, periodo, carrera, tipo):
-    """Scope bajo el que vive el dataset en utils/data_config.py: el fijado
-    en ENCUESTAS_DATASETS (p. ej. "global"), o si no hay ninguno, la versión
-    activa en ese momento (indicadores_v1/v2)."""
+    """Scope bajo el que vive el dataset en utils/data_config.py: "global"
+    si la config tiene scope_mode=GLOBAL, o si no, la versión activa en ese
+    momento (indicadores_v1/v2)."""
     info = _get_encuesta_info(sede, periodo, carrera, tipo)
     return info.get("scope") or get_current_version()
 
 
 @st.cache_data(show_spinner=False)
-def _read_encuestas_parquet(dataset_name, version):
+def _read_encuestas_parquet(dataset_name, version, mtime):
     try:
         return pd.read_parquet(get_data_path(dataset_name, version))
     except Exception as exc:
@@ -147,8 +199,12 @@ def load_encuestas_raw(sede, periodo, carrera, tipo):
     # El scope (versión activa o "global") se pasa explícito como parte de la
     # clave de caché de _read_encuestas_parquet: sin esto, cambiar de V1 a V2
     # con la misma sede/periodo/carrera/tipo devolvería datos cacheados de la
-    # otra versión.
-    return _read_encuestas_parquet(dataset_name, get_encuesta_scope(sede, periodo, carrera, tipo))
+    # otra versión. El mtime del archivo también entra en la clave: sin esto,
+    # el cron regenerando el parquet mientras el proceso de Streamlit sigue
+    # corriendo dejaría el dashboard mostrando datos viejos hasta reiniciar.
+    scope = get_encuesta_scope(sede, periodo, carrera, tipo)
+    mtime = data_file_mtime(dataset_name, scope)
+    return _read_encuestas_parquet(dataset_name, scope, mtime)
 
 
 def load_encuestas_metadata(sede, periodo, carrera, tipo):

@@ -99,12 +99,13 @@ INDICADORES_VERSION = [
         ],
     },
     {
-        "name": "Encuesta",
+        "name": "Encuestas",
         "permission": "encuestas",
-        "target_category": "Encuesta",
+        "target_category": "Encuestas",
         "icon": "poll",
         "pages": [
             {"title": "Avance de Encuesta", "slug": "encuestas_avance", "module": "encuestas", "icon": "fact_check"},
+            {"title": "Indicadores", "slug": "encuestas_indicadores", "module": "indicadores_encuestas", "icon": "insights"},
         ],
     },
 ]
@@ -137,6 +138,7 @@ ADMIN_PAGES = [
     {"title": "Gestión de Áreas", "slug": "admin_areas", "module": "admin_areas", "icon": "apartment"},
     {"title": "Fechas de Inicio de Clases", "slug": "admin_permanencia", "module": "admin_permanencia", "icon": "event"},
     {"title": "Logs y Auditoría", "slug": "admin_logs", "module": "admin_logs", "icon": "history"},
+    {"title": "Encuestas - Configuración ETL", "slug": "admin_encuestas_etl", "module": "encuestas_config_etl", "icon": "sync"},
 ]
 
 

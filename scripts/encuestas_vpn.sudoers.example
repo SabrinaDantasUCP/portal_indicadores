@@ -1,0 +1,15 @@
+# Permite que el usuario que corre el proceso de Streamlit (por defecto
+# "biocde") conecte/desconecte la VPN PPTP del ERP sin contraseña, pero
+# restringido EXACTAMENTE a este script y a estos dos argumentos — no da
+# acceso a sudo genérico ni a otros comandos como root.
+#
+# Instalación (requiere una sesión con sudo):
+#   sudo cp scripts/encuestas_vpn.sudoers.example /etc/sudoers.d/encuestas_vpn
+#   sudo chmod 440 /etc/sudoers.d/encuestas_vpn
+#   sudo visudo -c   # valida la sintaxis antes de confiar en el archivo
+#
+# Si el proceso de Streamlit corre como otro usuario, cambie "biocde" por
+# ese usuario. La ruta del script debe ser exactamente la de este proyecto.
+
+biocde ALL=(root) NOPASSWD: /home/biocde/streamlit/sistema_relatorios_test/scripts/vpn_ctl.sh connect
+biocde ALL=(root) NOPASSWD: /home/biocde/streamlit/sistema_relatorios_test/scripts/vpn_ctl.sh disconnect

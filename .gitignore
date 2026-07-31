@@ -31,6 +31,8 @@ __pycache__/
 # --- Temporários ---
 tmp_cols.json
 logs/
+.vpn-runtime/
+output/
 
 # --- Arquivo específico ---
 .antigravity

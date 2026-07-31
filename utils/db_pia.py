@@ -159,7 +159,45 @@ def init_db():
                     FOREIGN KEY (target_usuario_id) REFERENCES pia_usuarios(id) ON DELETE SET NULL
                 )
             """)
-            
+
+            # Configuración del ETL de encuestas (qué tipo/periodo/carrera se
+            # actualiza automáticamente y con qué id de Academico.Encuesta).
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pia_encuesta_etl_config (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    tipo_encuesta ENUM('ALUMNO_DOCENTE', 'AUTOEVAL_DOCENTE', 'EVALUACION_PARES') NOT NULL,
+                    sede VARCHAR(100) NOT NULL,
+                    periodo VARCHAR(20) NOT NULL,
+                    carrera VARCHAR(100) NOT NULL,
+                    id_encuesta_externa INT NOT NULL,
+                    dataset_name VARCHAR(150) NOT NULL UNIQUE,
+                    scope_mode ENUM('GLOBAL', 'SEGUE_VERSION') NOT NULL DEFAULT 'GLOBAL',
+                    activo BOOLEAN DEFAULT TRUE,
+                    creado_por INT,
+                    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    FOREIGN KEY (creado_por) REFERENCES pia_usuarios(id) ON DELETE SET NULL,
+                    UNIQUE KEY unique_encuesta_config (tipo_encuesta, sede, periodo, carrera)
+                )
+            """)
+
+            # Historial de ejecuciones del ETL de encuestas (manual o cron).
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pia_encuesta_etl_run (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    config_id INT NOT NULL,
+                    disparado_por ENUM('MANUAL', 'CRON') NOT NULL,
+                    actor_usuario_id INT,
+                    iniciado_en TIMESTAMP NOT NULL,
+                    finalizado_en TIMESTAMP NOT NULL,
+                    status ENUM('OK', 'ERROR') NOT NULL,
+                    filas_generadas INT,
+                    mensaje_error TEXT,
+                    FOREIGN KEY (config_id) REFERENCES pia_encuesta_etl_config(id) ON DELETE CASCADE,
+                    FOREIGN KEY (actor_usuario_id) REFERENCES pia_usuarios(id) ON DELETE SET NULL
+                )
+            """)
+
             # Crear un administrador por defecto si no existe ninguno
             cursor.execute("SELECT COUNT(*) FROM pia_usuarios")
             if cursor.fetchone()[0] == 0:
@@ -455,3 +493,98 @@ def get_export_logs():
 def log_export_callback(indicador, formato):
     if "user_id" in st.session_state and st.session_state.user_id:
         log_export(st.session_state.user_id, indicador, formato)
+
+
+# ---------------- Configuración ETL de Encuestas ---------------- #
+# "anho"/"subperiodo"/"semestre_bio" NO se guardan como columnas propias: se
+# derivan siempre a partir de "periodo" (ej. "2026.1") vía
+# services.etl.encuestas_etl.derivar_parametros_periodo, para que no puedan
+# quedar desincronizados de "periodo" por una edición manual.
+
+def get_encuesta_etl_configs():
+    return dict_fetchall("""
+        SELECT id, tipo_encuesta, sede, periodo, carrera,
+               id_encuesta_externa, dataset_name, scope_mode, activo,
+               creado_en, actualizado_en
+        FROM pia_encuesta_etl_config
+        ORDER BY periodo DESC, sede, carrera, tipo_encuesta
+    """)
+
+
+def get_encuesta_etl_config(config_id):
+    rows = dict_fetchall("""
+        SELECT id, tipo_encuesta, sede, periodo, carrera,
+               id_encuesta_externa, dataset_name, scope_mode, activo
+        FROM pia_encuesta_etl_config
+        WHERE id = %s
+    """, (config_id,))
+    return rows[0] if rows else None
+
+
+def get_encuesta_etl_configs_activos():
+    return dict_fetchall("""
+        SELECT id, tipo_encuesta, sede, periodo, carrera,
+               id_encuesta_externa, dataset_name, scope_mode
+        FROM pia_encuesta_etl_config
+        WHERE activo = TRUE
+    """)
+
+
+def add_encuesta_etl_config(tipo_encuesta, sede, periodo, carrera,
+                             id_encuesta_externa, dataset_name, scope_mode, creado_por=None):
+    return execute_query("""
+        INSERT INTO pia_encuesta_etl_config
+            (tipo_encuesta, sede, periodo, carrera,
+             id_encuesta_externa, dataset_name, scope_mode, creado_por)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+    """, (tipo_encuesta, sede, periodo, carrera,
+          id_encuesta_externa, dataset_name, scope_mode, creado_por))
+
+
+def update_encuesta_etl_config(config_id, sede, periodo, carrera,
+                                id_encuesta_externa, dataset_name, scope_mode):
+    execute_query("""
+        UPDATE pia_encuesta_etl_config
+        SET sede=%s, periodo=%s, carrera=%s,
+            id_encuesta_externa=%s, dataset_name=%s, scope_mode=%s
+        WHERE id=%s
+    """, (sede, periodo, carrera, id_encuesta_externa,
+          dataset_name, scope_mode, config_id))
+
+
+def toggle_encuesta_etl_config_activo(config_id, activo):
+    execute_query(
+        "UPDATE pia_encuesta_etl_config SET activo=%s WHERE id=%s",
+        (activo, config_id),
+    )
+
+
+def delete_encuesta_etl_config(config_id):
+    execute_query("DELETE FROM pia_encuesta_etl_config WHERE id = %s", (config_id,))
+
+
+def registrar_encuesta_etl_run(config_id, disparado_por, status, iniciado_en, finalizado_en,
+                                filas_generadas=None, mensaje_error=None, actor_usuario_id=None):
+    execute_query("""
+        INSERT INTO pia_encuesta_etl_run
+            (config_id, disparado_por, actor_usuario_id, iniciado_en, finalizado_en,
+             status, filas_generadas, mensaje_error)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+    """, (config_id, disparado_por, actor_usuario_id, iniciado_en, finalizado_en,
+          status, filas_generadas, mensaje_error))
+
+
+def get_ultimo_run_por_config():
+    """Devuelve {config_id: {status, filas_generadas, mensaje_error, iniciado_en,
+    finalizado_en, disparado_por}} solo con la ejecución más reciente de cada config."""
+    rows = dict_fetchall("""
+        SELECT r.config_id, r.disparado_por, r.iniciado_en, r.finalizado_en,
+               r.status, r.filas_generadas, r.mensaje_error
+        FROM pia_encuesta_etl_run r
+        INNER JOIN (
+            SELECT config_id, MAX(id) AS max_id
+            FROM pia_encuesta_etl_run
+            GROUP BY config_id
+        ) ultimo ON ultimo.config_id = r.config_id AND ultimo.max_id = r.id
+    """)
+    return {row["config_id"]: row for row in rows}
