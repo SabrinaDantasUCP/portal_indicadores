@@ -27,6 +27,8 @@ __pycache__/
 .vscode/
 .idea/
 .DS_Store
+desktop.ini
+Thumbs.db
 
 # --- Temporários ---
 tmp_cols.json
