@@ -10,6 +10,7 @@ from utils import db_pia
 from utils.system_logging import log_exception
 from services.etl.alumnos_etl import validar_egresados_columnas
 from services.etl.alumnos_runner import ejecutar_alumnos_etl, EGRESADOS_XLSX_PATH
+from utils.excel_export import get_egresados_excel_bytes
 
 
 STATUS_ICONOS = {"OK": "✅", "ERROR": "❌", "CANCELADO": "⏹️"}
@@ -258,6 +259,7 @@ def _render_egresados_section():
                 "egresados_actualizado",
                 detalle={"fecha_envio": str(fecha_envio), "filas": len(df_nuevo)},
             )
+            get_egresados_excel_bytes.clear()  # si no, la planilla exportada quedaría con datos viejos
         except Exception as e:
             log_exception("Error al guardar el nuevo archivo de egresados", e)
             st.error(f"Error al guardar el archivo: {e}")
