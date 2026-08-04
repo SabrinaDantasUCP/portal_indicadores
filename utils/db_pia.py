@@ -198,6 +198,225 @@ def init_db():
                 )
             """)
 
+            # Configuración del ETL de alumnos (matriculas/notas -> alumnos_v1/v2).
+            # Config única (singleton, id=1): a diferencia de encuestas, no hay
+            # combinación sede/periodo/carrera — solo qué años entran en el loop
+            # de extracción (cada año es una query MySQL separada, ver
+            # services/etl/alumnos_etl.py) y si el cron nocturno (04:00) está
+            # activo. "anos" se guarda como CSV de enteros (ej. "2017,2018,...").
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pia_alumnos_etl_config (
+                    id INT PRIMARY KEY DEFAULT 1,
+                    anos VARCHAR(500) NOT NULL,
+                    activo BOOLEAN DEFAULT TRUE,
+                    actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                )
+            """)
+
+            # Historial de ejecuciones del ETL de alumnos (manual o cron).
+            # status incluye 'CANCELADO' porque el botón "Detener" del admin
+            # (modules/alumnos_config_etl.py) puede cortar la ejecución entre
+            # años (ver services/etl/alumnos_etl.procesar_anos).
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pia_alumnos_etl_run (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    disparado_por ENUM('MANUAL', 'CRON') NOT NULL,
+                    actor_usuario_id INT,
+                    iniciado_en TIMESTAMP NOT NULL,
+                    finalizado_en TIMESTAMP NOT NULL,
+                    status ENUM('OK', 'ERROR', 'CANCELADO') NOT NULL,
+                    filas_v1 INT,
+                    filas_v2 INT,
+                    anos_procesados VARCHAR(500),
+                    mensaje_error TEXT,
+                    FOREIGN KEY (actor_usuario_id) REFERENCES pia_usuarios(id) ON DELETE SET NULL
+                )
+            """)
+            # Migración defensiva: si la tabla ya existía de antes (creada en
+            # una versión sin 'CANCELADO'), agrega el valor al ENUM.
+            try:
+                cursor.execute("""
+                    ALTER TABLE pia_alumnos_etl_run
+                    MODIFY status ENUM('OK', 'ERROR', 'CANCELADO') NOT NULL
+                """)
+            except Error:
+                pass
+
+            # Lock (singleton, id=1) para evitar que dos ejecuciones del ETL de
+            # alumnos corran al mismo tiempo (ej. el cron de las 04:00 y un
+            # "Ejecutar ahora" manual pisándose, o dos pestañas/sesiones del
+            # admin). Se adquiere de forma atómica (ver
+            # try_acquire_alumnos_etl_lock) y se libera siempre al terminar
+            # (OK, ERROR o CANCELADO).
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pia_alumnos_etl_lock (
+                    id INT PRIMARY KEY DEFAULT 1,
+                    en_ejecucion BOOLEAN NOT NULL DEFAULT FALSE,
+                    disparado_por ENUM('MANUAL', 'CRON'),
+                    actor_usuario_id INT,
+                    iniciado_en TIMESTAMP NULL,
+                    FOREIGN KEY (actor_usuario_id) REFERENCES pia_usuarios(id) ON DELETE SET NULL
+                )
+            """)
+            cursor.execute("SELECT COUNT(*) FROM pia_alumnos_etl_lock")
+            if cursor.fetchone()[0] == 0:
+                cursor.execute("""
+                    INSERT INTO pia_alumnos_etl_lock (id, en_ejecucion) VALUES (1, FALSE)
+                """)
+
+            # Configuración del ETL de asistencias (coord_aula/syseduca +
+            # attendance/biometria -> asistencia_unificada_v1/v2). Config
+            # única (singleton, id=1): "anos_syseduca" es una lista de años
+            # (CSV de enteros) para la fuente vieja (MySQL, antes de 2025.2);
+            # "periodos_biometria" es una lista de periodos tipo "2025.2"
+            # (CSV de strings) para la fuente nueva (Postgres, desde 2025.2),
+            # reutilizando el mismo formato/parseo que encuestas
+            # (derivar_parametros_periodo).
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pia_asistencias_etl_config (
+                    id INT PRIMARY KEY DEFAULT 1,
+                    anos_syseduca VARCHAR(500) NOT NULL,
+                    periodos_biometria VARCHAR(500) NOT NULL,
+                    activo BOOLEAN DEFAULT TRUE,
+                    actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("SELECT COUNT(*) FROM pia_asistencias_etl_config")
+            if cursor.fetchone()[0] == 0:
+                anos_default = ",".join(str(a) for a in range(2021, 2026))
+                cursor.execute("""
+                    INSERT INTO pia_asistencias_etl_config (id, anos_syseduca, periodos_biometria, activo)
+                    VALUES (1, %s, '2025.2', TRUE)
+                """, (anos_default,))
+
+            # Historial de ejecuciones del ETL de asistencias (manual o cron).
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pia_asistencias_etl_run (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    disparado_por ENUM('MANUAL', 'CRON') NOT NULL,
+                    actor_usuario_id INT,
+                    iniciado_en TIMESTAMP NOT NULL,
+                    finalizado_en TIMESTAMP NOT NULL,
+                    status ENUM('OK', 'ERROR', 'CANCELADO') NOT NULL,
+                    filas_v1 INT,
+                    filas_v2 INT,
+                    anos_syseduca_procesados VARCHAR(500),
+                    periodos_biometria_procesados VARCHAR(500),
+                    mensaje_error TEXT,
+                    FOREIGN KEY (actor_usuario_id) REFERENCES pia_usuarios(id) ON DELETE SET NULL
+                )
+            """)
+
+            # Lock (singleton, id=1) del ETL de asistencias — mismo patrón que
+            # pia_alumnos_etl_lock, tabla separada porque son pipelines
+            # independientes (pueden correr uno mientras el otro corre, solo
+            # no dos ejecuciones del MISMO pipeline a la vez).
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pia_asistencias_etl_lock (
+                    id INT PRIMARY KEY DEFAULT 1,
+                    en_ejecucion BOOLEAN NOT NULL DEFAULT FALSE,
+                    disparado_por ENUM('MANUAL', 'CRON'),
+                    actor_usuario_id INT,
+                    iniciado_en TIMESTAMP NULL,
+                    FOREIGN KEY (actor_usuario_id) REFERENCES pia_usuarios(id) ON DELETE SET NULL
+                )
+            """)
+            cursor.execute("SELECT COUNT(*) FROM pia_asistencias_etl_lock")
+            if cursor.fetchone()[0] == 0:
+                cursor.execute("""
+                    INSERT INTO pia_asistencias_etl_lock (id, en_ejecucion) VALUES (1, FALSE)
+                """)
+
+            # Configuración del ETL de Índice de Permanencia. A diferencia de
+            # alumnos/asistencias (singleton), acá hay UNA fila por periodo
+            # (ej. "2025.2", "2026.1") porque cada periodo tiene su propia
+            # fecha_corte y su propio estado de "ya se congeló o no".
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pia_permanencia_etl_config (
+                    periodo VARCHAR(10) PRIMARY KEY,
+                    fecha_corte DATE NOT NULL,
+                    corte_generado BOOLEAN DEFAULT FALSE,
+                    activo BOOLEAN DEFAULT TRUE,
+                    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("SELECT COUNT(*) FROM pia_permanencia_etl_config")
+            if cursor.fetchone()[0] == 0:
+                # Semilla con los 2 periodos ya existentes en el sistema.
+                # 2025.2 ya tenía su snapshot de corte generado (manualmente,
+                # antes de este ETL) -- se marca corte_generado=TRUE y
+                # activo=FALSE (periodo cerrado, no hace falta recalcular
+                # todos los días). 2026.1 es el periodo vigente: activo=TRUE,
+                # corte_generado=FALSE (la fecha es un valor de partida --el
+                # admin la redefine en la pantalla de Configuración ETL).
+                cursor.execute("""
+                    INSERT INTO pia_permanencia_etl_config (periodo, fecha_corte, corte_generado, activo)
+                    VALUES ('2025.2', '2026-04-05', TRUE, FALSE),
+                           ('2026.1', '2026-07-16', FALSE, TRUE)
+                """)
+
+            # Historial de ejecuciones del ETL de permanencia (manual o cron).
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pia_permanencia_etl_run (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    periodo VARCHAR(10) NOT NULL,
+                    disparado_por ENUM('MANUAL', 'CRON') NOT NULL,
+                    actor_usuario_id INT,
+                    iniciado_en TIMESTAMP NOT NULL,
+                    finalizado_en TIMESTAMP NOT NULL,
+                    status ENUM('OK', 'ERROR', 'CANCELADO') NOT NULL,
+                    filas INT,
+                    corte_generado_en_este_run BOOLEAN DEFAULT FALSE,
+                    mensaje_error TEXT,
+                    FOREIGN KEY (actor_usuario_id) REFERENCES pia_usuarios(id) ON DELETE SET NULL
+                )
+            """)
+
+            # Lock (singleton, id=1) del ETL de permanencia -- global entre
+            # periodos: solo una ejecución (de cualquier periodo) a la vez.
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pia_permanencia_etl_lock (
+                    id INT PRIMARY KEY DEFAULT 1,
+                    en_ejecucion BOOLEAN NOT NULL DEFAULT FALSE,
+                    disparado_por ENUM('MANUAL', 'CRON'),
+                    actor_usuario_id INT,
+                    periodo VARCHAR(10),
+                    iniciado_en TIMESTAMP NULL,
+                    FOREIGN KEY (actor_usuario_id) REFERENCES pia_usuarios(id) ON DELETE SET NULL
+                )
+            """)
+            cursor.execute("SELECT COUNT(*) FROM pia_permanencia_etl_lock")
+            if cursor.fetchone()[0] == 0:
+                cursor.execute("""
+                    INSERT INTO pia_permanencia_etl_lock (id, en_ejecucion) VALUES (1, FALSE)
+                """)
+
+            # Metadatos del archivo egresados.xlsx (usado por el cruce en
+            # generar_alumnos_v1): guarda la fecha en que el área de origen
+            # envió/actualizó la planilla, distinta de "cuándo se subió al
+            # sistema" (actualizado_en), para poder mostrar en el dashboard
+            # cuán vieja es la información de egreso/titulación.
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pia_egresados_meta (
+                    id INT PRIMARY KEY DEFAULT 1,
+                    fecha_envio DATE NOT NULL,
+                    filas INT,
+                    actualizado_por INT,
+                    actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    FOREIGN KEY (actualizado_por) REFERENCES pia_usuarios(id) ON DELETE SET NULL
+                )
+            """)
+
+            # Semilla de la config de alumnos (rango histórico por defecto).
+            cursor.execute("SELECT COUNT(*) FROM pia_alumnos_etl_config")
+            if cursor.fetchone()[0] == 0:
+                anos_default = ",".join(str(a) for a in range(2017, 2027))
+                cursor.execute("""
+                    INSERT INTO pia_alumnos_etl_config (id, anos, activo)
+                    VALUES (1, %s, TRUE)
+                """, (anos_default,))
+
             # Crear un administrador por defecto si no existe ninguno
             cursor.execute("SELECT COUNT(*) FROM pia_usuarios")
             if cursor.fetchone()[0] == 0:
@@ -588,3 +807,345 @@ def get_ultimo_run_por_config():
         ) ultimo ON ultimo.config_id = r.config_id AND ultimo.max_id = r.id
     """)
     return {row["config_id"]: row for row in rows}
+
+
+# ---------------- Configuración ETL de Alumnos ---------------- #
+# Config singleton (id=1, sembrada en init_db): a diferencia de encuestas no
+# hay tipo/sede/periodo/carrera, solo la lista de años del loop de extracción
+# (ver services/etl/alumnos_etl.py) y si el cron nocturno (04:00) está activo.
+
+def get_alumnos_etl_config():
+    rows = dict_fetchall("""
+        SELECT id, anos, activo, actualizado_en
+        FROM pia_alumnos_etl_config
+        WHERE id = 1
+    """)
+    if not rows:
+        return None
+    row = rows[0]
+    row["anos"] = [int(a) for a in row["anos"].split(",") if a.strip()]
+    return row
+
+
+def update_alumnos_etl_config(anos, activo):
+    """anos: lista de enteros (años a incluir en el loop de extracción)."""
+    anos_csv = ",".join(str(int(a)) for a in sorted(anos))
+    execute_query("""
+        UPDATE pia_alumnos_etl_config
+        SET anos=%s, activo=%s
+        WHERE id=1
+    """, (anos_csv, activo))
+
+
+def registrar_alumnos_etl_run(disparado_por, status, iniciado_en, finalizado_en,
+                               anos_procesados=None, filas_v1=None, filas_v2=None,
+                               mensaje_error=None, actor_usuario_id=None):
+    anos_csv = ",".join(str(int(a)) for a in anos_procesados) if anos_procesados else None
+    execute_query("""
+        INSERT INTO pia_alumnos_etl_run
+            (disparado_por, actor_usuario_id, iniciado_en, finalizado_en,
+             status, filas_v1, filas_v2, anos_procesados, mensaje_error)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """, (disparado_por, actor_usuario_id, iniciado_en, finalizado_en,
+          status, filas_v1, filas_v2, anos_csv, mensaje_error))
+
+
+def get_ultimo_alumnos_etl_run():
+    rows = dict_fetchall("""
+        SELECT disparado_por, iniciado_en, finalizado_en, status,
+               filas_v1, filas_v2, anos_procesados, mensaje_error
+        FROM pia_alumnos_etl_run
+        ORDER BY id DESC
+        LIMIT 1
+    """)
+    return rows[0] if rows else None
+
+
+# ---------------- Lock de ejecución del ETL de Alumnos ---------------- #
+
+def try_acquire_alumnos_etl_lock(disparado_por, actor_usuario_id=None):
+    """Intenta tomar el lock de forma atómica: el UPDATE solo afecta la fila
+    si todavía estaba libre (WHERE en_ejecucion=FALSE), así que dos llamadas
+    concurrentes nunca pueden creer ambas que ganaron. Devuelve True si se
+    consiguió el lock, False si ya había una ejecución en curso.
+
+    Usa cursor.rowcount directo (no execute_query/dict_fetchall) porque la
+    corrección acá depende de saber exactamente cuántas filas afectó ESTE
+    UPDATE, no de releer el estado después (que sería ambiguo entre "gané yo"
+    y "ganó otra sesión con los mismos disparado_por/actor_usuario_id)."""
+    conn = get_connection()
+    if not conn:
+        return False
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE pia_alumnos_etl_lock
+            SET en_ejecucion=TRUE, disparado_por=%s, actor_usuario_id=%s, iniciado_en=NOW()
+            WHERE id=1 AND en_ejecucion=FALSE
+        """, (disparado_por, actor_usuario_id))
+        conn.commit()
+        return cursor.rowcount > 0
+    except Error as e:
+        log_exception("Error al intentar tomar el lock del ETL de alumnos", e)
+        return False
+    finally:
+        if conn and conn.is_connected():
+            cursor.close()
+            conn.close()
+
+
+def release_alumnos_etl_lock():
+    execute_query("""
+        UPDATE pia_alumnos_etl_lock
+        SET en_ejecucion=FALSE
+        WHERE id=1
+    """)
+
+
+def get_alumnos_etl_lock_status():
+    rows = dict_fetchall("""
+        SELECT en_ejecucion, disparado_por, actor_usuario_id, iniciado_en
+        FROM pia_alumnos_etl_lock
+        WHERE id = 1
+    """)
+    return rows[0] if rows else None
+
+
+# ---------------- Configuración ETL de Asistencias ---------------- #
+
+def get_asistencias_etl_config():
+    rows = dict_fetchall("""
+        SELECT id, anos_syseduca, periodos_biometria, activo, actualizado_en
+        FROM pia_asistencias_etl_config
+        WHERE id = 1
+    """)
+    if not rows:
+        return None
+    row = rows[0]
+    row["anos_syseduca"] = [int(a) for a in row["anos_syseduca"].split(",") if a.strip()]
+    row["periodos_biometria"] = [p.strip() for p in row["periodos_biometria"].split(",") if p.strip()]
+    return row
+
+
+def update_asistencias_etl_config(anos_syseduca, periodos_biometria, activo):
+    anos_csv = ",".join(str(int(a)) for a in sorted(anos_syseduca))
+    periodos_csv = ",".join(sorted(periodos_biometria))
+    execute_query("""
+        UPDATE pia_asistencias_etl_config
+        SET anos_syseduca=%s, periodos_biometria=%s, activo=%s
+        WHERE id=1
+    """, (anos_csv, periodos_csv, activo))
+
+
+def registrar_asistencias_etl_run(disparado_por, status, iniciado_en, finalizado_en,
+                                   anos_syseduca_procesados=None, periodos_biometria_procesados=None,
+                                   filas_v1=None, filas_v2=None, mensaje_error=None, actor_usuario_id=None):
+    anos_csv = ",".join(str(int(a)) for a in anos_syseduca_procesados) if anos_syseduca_procesados else None
+    periodos_csv = ",".join(periodos_biometria_procesados) if periodos_biometria_procesados else None
+    execute_query("""
+        INSERT INTO pia_asistencias_etl_run
+            (disparado_por, actor_usuario_id, iniciado_en, finalizado_en,
+             status, filas_v1, filas_v2, anos_syseduca_procesados,
+             periodos_biometria_procesados, mensaje_error)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """, (disparado_por, actor_usuario_id, iniciado_en, finalizado_en,
+          status, filas_v1, filas_v2, anos_csv, periodos_csv, mensaje_error))
+
+
+def get_ultimo_asistencias_etl_run():
+    rows = dict_fetchall("""
+        SELECT disparado_por, iniciado_en, finalizado_en, status,
+               filas_v1, filas_v2, anos_syseduca_procesados,
+               periodos_biometria_procesados, mensaje_error
+        FROM pia_asistencias_etl_run
+        ORDER BY id DESC
+        LIMIT 1
+    """)
+    return rows[0] if rows else None
+
+
+def try_acquire_asistencias_etl_lock(disparado_por, actor_usuario_id=None):
+    """Ver try_acquire_alumnos_etl_lock -- misma lógica atómica, tabla separada."""
+    conn = get_connection()
+    if not conn:
+        return False
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE pia_asistencias_etl_lock
+            SET en_ejecucion=TRUE, disparado_por=%s, actor_usuario_id=%s, iniciado_en=NOW()
+            WHERE id=1 AND en_ejecucion=FALSE
+        """, (disparado_por, actor_usuario_id))
+        conn.commit()
+        return cursor.rowcount > 0
+    except Error as e:
+        log_exception("Error al intentar tomar el lock del ETL de asistencias", e)
+        return False
+    finally:
+        if conn and conn.is_connected():
+            cursor.close()
+            conn.close()
+
+
+def release_asistencias_etl_lock():
+    execute_query("""
+        UPDATE pia_asistencias_etl_lock
+        SET en_ejecucion=FALSE
+        WHERE id=1
+    """)
+
+
+def get_asistencias_etl_lock_status():
+    rows = dict_fetchall("""
+        SELECT en_ejecucion, disparado_por, actor_usuario_id, iniciado_en
+        FROM pia_asistencias_etl_lock
+        WHERE id = 1
+    """)
+    return rows[0] if rows else None
+
+
+# ---------------- Configuración ETL de Índice de Permanencia ---------------- #
+# A diferencia de alumnos/asistencias (singleton), acá hay una fila por
+# periodo (ver init_db) -- pia_permanencia_etl_config.periodo es la PK.
+
+def get_permanencia_etl_configs():
+    return dict_fetchall("""
+        SELECT periodo, fecha_corte, corte_generado, activo, creado_en, actualizado_en
+        FROM pia_permanencia_etl_config
+        ORDER BY periodo DESC
+    """)
+
+
+def get_permanencia_etl_config(periodo):
+    rows = dict_fetchall("""
+        SELECT periodo, fecha_corte, corte_generado, activo, creado_en, actualizado_en
+        FROM pia_permanencia_etl_config
+        WHERE periodo = %s
+    """, (periodo,))
+    return rows[0] if rows else None
+
+
+def add_permanencia_etl_config(periodo, fecha_corte, activo=True):
+    execute_query("""
+        INSERT INTO pia_permanencia_etl_config (periodo, fecha_corte, corte_generado, activo)
+        VALUES (%s, %s, FALSE, %s)
+    """, (periodo, fecha_corte, activo))
+
+
+def update_permanencia_etl_config(periodo, fecha_corte, activo):
+    """No toca corte_generado -- eso solo lo cambia marcar_permanencia_corte_generado
+    (cuando el ETL efectivamente congela el snapshot) o un reset manual explícito."""
+    execute_query("""
+        UPDATE pia_permanencia_etl_config
+        SET fecha_corte=%s, activo=%s
+        WHERE periodo=%s
+    """, (fecha_corte, activo, periodo))
+
+
+def resetear_permanencia_corte_generado(periodo):
+    """Vuelve a permitir que el ETL congele el snapshot de corte de este
+    periodo (por si se configuró mal la fecha y hay que rehacerlo)."""
+    execute_query("""
+        UPDATE pia_permanencia_etl_config
+        SET corte_generado=FALSE
+        WHERE periodo=%s
+    """, (periodo,))
+
+
+def marcar_permanencia_corte_generado(periodo):
+    execute_query("""
+        UPDATE pia_permanencia_etl_config
+        SET corte_generado=TRUE
+        WHERE periodo=%s
+    """, (periodo,))
+
+
+def delete_permanencia_etl_config(periodo):
+    execute_query("DELETE FROM pia_permanencia_etl_config WHERE periodo = %s", (periodo,))
+
+
+def registrar_permanencia_etl_run(periodo, disparado_por, status, iniciado_en, finalizado_en,
+                                   filas=None, corte_generado_en_este_run=False,
+                                   mensaje_error=None, actor_usuario_id=None):
+    execute_query("""
+        INSERT INTO pia_permanencia_etl_run
+            (periodo, disparado_por, actor_usuario_id, iniciado_en, finalizado_en,
+             status, filas, corte_generado_en_este_run, mensaje_error)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """, (periodo, disparado_por, actor_usuario_id, iniciado_en, finalizado_en,
+          status, filas, corte_generado_en_este_run, mensaje_error))
+
+
+def get_ultimo_permanencia_etl_run(periodo):
+    rows = dict_fetchall("""
+        SELECT disparado_por, iniciado_en, finalizado_en, status, filas,
+               corte_generado_en_este_run, mensaje_error
+        FROM pia_permanencia_etl_run
+        WHERE periodo = %s
+        ORDER BY id DESC
+        LIMIT 1
+    """, (periodo,))
+    return rows[0] if rows else None
+
+
+def try_acquire_permanencia_etl_lock(disparado_por, periodo, actor_usuario_id=None):
+    """Ver try_acquire_alumnos_etl_lock -- misma lógica atómica, tabla
+    separada, y es GLOBAL entre periodos (solo un periodo a la vez)."""
+    conn = get_connection()
+    if not conn:
+        return False
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE pia_permanencia_etl_lock
+            SET en_ejecucion=TRUE, disparado_por=%s, actor_usuario_id=%s, periodo=%s, iniciado_en=NOW()
+            WHERE id=1 AND en_ejecucion=FALSE
+        """, (disparado_por, actor_usuario_id, periodo))
+        conn.commit()
+        return cursor.rowcount > 0
+    except Error as e:
+        log_exception("Error al intentar tomar el lock del ETL de permanencia", e)
+        return False
+    finally:
+        if conn and conn.is_connected():
+            cursor.close()
+            conn.close()
+
+
+def release_permanencia_etl_lock():
+    execute_query("""
+        UPDATE pia_permanencia_etl_lock
+        SET en_ejecucion=FALSE
+        WHERE id=1
+    """)
+
+
+def get_permanencia_etl_lock_status():
+    rows = dict_fetchall("""
+        SELECT en_ejecucion, disparado_por, actor_usuario_id, periodo, iniciado_en
+        FROM pia_permanencia_etl_lock
+        WHERE id = 1
+    """)
+    return rows[0] if rows else None
+
+
+# ---------------- Metadatos de Egresados (egressados.xlsx) ---------------- #
+
+def get_egresados_meta():
+    rows = dict_fetchall("""
+        SELECT fecha_envio, filas, actualizado_por, actualizado_en
+        FROM pia_egresados_meta
+        WHERE id = 1
+    """)
+    return rows[0] if rows else None
+
+
+def update_egresados_meta(fecha_envio, filas, actor_usuario_id=None):
+    execute_query("""
+        INSERT INTO pia_egresados_meta (id, fecha_envio, filas, actualizado_por)
+        VALUES (1, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+            fecha_envio=VALUES(fecha_envio),
+            filas=VALUES(filas),
+            actualizado_por=VALUES(actualizado_por)
+    """, (fecha_envio, filas, actor_usuario_id))

@@ -2,6 +2,30 @@ from html import escape
 
 import streamlit as st
 
+from utils import db_pia
+
+
+def render_egresados_fuente_caption():
+    """Leyenda de origen de los datos de titulados/egresados, mostrada al pie
+    de los indicadores que cruzan con egressados.xlsx (eficiencia_egreso,
+    eficiencia_terminal, eficiencia_titulacion, tasa_retencion,
+    eficiencia_rezago, tiempos_medios). La fecha viene de
+    pia_egresados_meta.fecha_envio (fecha en que la Secretaría General
+    Académica envió la planilla, actualizada en Alumnos - Configuración ETL),
+    no de la fecha de hoy ni de cuándo se subió el archivo al sistema."""
+    meta = db_pia.get_egresados_meta()
+    if meta and meta.get("fecha_envio"):
+        fecha = meta["fecha_envio"]
+        fecha_str = fecha.strftime("%d/%m/%Y") if hasattr(fecha, "strftime") else str(fecha)
+    else:
+        fecha_str = "fecha no informada"
+    st.markdown(
+        f'<p style="color: #4f4f4f; font-size: 0.85rem; margin-bottom: 0;">'
+        f'Los datos de titulados y egresados están basados en los datos enviados por la '
+        f'Secretaria General Académica el día {fecha_str}.</p>',
+        unsafe_allow_html=True,
+    )
+
 
 def render_info_header(title, description=None, accent="#003366", background="#f3f7fb"):
     st.markdown(f"### {escape(str(title))}")

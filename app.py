@@ -18,6 +18,7 @@ from utils.data_loader import data_file_mtime, get_current_version, set_current_
 from utils.menu_config import (
     ACCOUNT_PAGES,
     ADMINISTRACION,
+    ADMIN_ETL_GROUP,
     ADMIN_PAGES,
     CATEGORY_ICONS,
     INDICADORES_VERSION,
@@ -367,6 +368,8 @@ def main():
                 opened.add("permanencia")
             elif active_category == ADMINISTRACION:
                 opened.add("admin")
+                if active_title in {p["title"] for p in ADMIN_ETL_GROUP["pages"]}:
+                    opened.add("admin_etl_group")
 
         def _nav_container(indent):
             if not indent:
@@ -491,6 +494,21 @@ def main():
                         f"leaf_admin_{page_config['title']}",
                         active=(current_slug == page_config["slug"]),
                     )
+
+                etl_group_open = _render_toggle(
+                    ADMIN_ETL_GROUP["title"], ADMIN_ETL_GROUP.get("icon", "folder"), 1, "admin_etl_group"
+                )
+                if etl_group_open:
+                    for page_config in ADMIN_ETL_GROUP["pages"]:
+                        lookup_key = page_key(ADMINISTRACION, page_config["title"])
+                        _render_leaf(
+                            ALL_PAGES.get(lookup_key),
+                            page_config["title"],
+                            page_config.get("icon", PAGE_ICON_DEFAULT),
+                            2,
+                            f"leaf_admin_etl_{page_config['title']}",
+                            active=(current_slug == page_config["slug"]),
+                        )
 
     # Execução da Página (st.navigation)
     pg.run()

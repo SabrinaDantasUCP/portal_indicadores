@@ -136,10 +136,27 @@ PERMANENCIA_PAGES = [
 ADMIN_PAGES = [
     {"title": "Gestión de Usuarios", "slug": "admin_usuarios", "module": "admin_usuarios", "icon": "person"},
     {"title": "Gestión de Áreas", "slug": "admin_areas", "module": "admin_areas", "icon": "apartment"},
-    {"title": "Fechas de Inicio de Clases", "slug": "admin_permanencia", "module": "admin_permanencia", "icon": "event"},
     {"title": "Logs y Auditoría", "slug": "admin_logs", "module": "admin_logs", "icon": "history"},
-    {"title": "Encuestas - Configuración ETL", "slug": "admin_encuestas_etl", "module": "encuestas_config_etl", "icon": "sync"},
 ]
+
+# "Configuración ETL" es un submenú (no una página propia): al hacer click se
+# despliegan sus páginas (Encuestas, Alumnos, Asistencias, Índice de
+# Permanencia), cada una con su propio módulo/slug — mismo patrón
+# toggle+leaf que INDICADORES_VERSION, ver app.py. "Fechas de Inicio de
+# Clases" (antes una página propia de ADMIN_PAGES) ahora vive como sub-tab
+# dentro de "Índice de Permanencia" (ver modules/permanencia_config_etl.py).
+ADMIN_ETL_GROUP = {
+    "title": "Configuración ETL",
+    "icon": "sync",
+    # Resumen siempre primero; el resto en orden alfabético.
+    "pages": [
+        {"title": "Resumen", "slug": "admin_etl_resumen", "module": "etl_resumen", "icon": "dashboard"},
+        {"title": "Alumnos", "slug": "admin_etl_alumnos", "module": "alumnos_config_etl", "icon": "groups"},
+        {"title": "Asistencias", "slug": "admin_etl_asistencias", "module": "asistencias_config_etl", "icon": "event_available"},
+        {"title": "Encuestas", "slug": "admin_etl_encuestas", "module": "encuestas_config_etl", "icon": "poll"},
+        {"title": "Índice de Permanencia", "slug": "admin_etl_permanencia", "module": "permanencia_config_etl", "icon": "timeline"},
+    ],
+}
 
 
 def permission_key(version, indicator):
@@ -180,6 +197,8 @@ def iter_page_configs():
     for page_config in PERMANENCIA_PAGES:
         yield INDICE_PERMANENCIA, page_config
     for page_config in ADMIN_PAGES:
+        yield ADMINISTRACION, page_config
+    for page_config in ADMIN_ETL_GROUP["pages"]:
         yield ADMINISTRACION, page_config
 
 

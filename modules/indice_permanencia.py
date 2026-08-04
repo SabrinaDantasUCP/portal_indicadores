@@ -169,10 +169,16 @@ def render_permanence_module(suffix="", periodo=PERIODO_DEFAULT):
         return
 
     # === Título del indicador que se está viendo ===
+    vista_label = VISTA_LABELS.get(suffix, suffix)
+    if suffix == "corte":
+        corte_cfg = db_pia.get_permanencia_etl_config(periodo)
+        if corte_cfg and corte_cfg.get("fecha_corte"):
+            vista_label = f"{vista_label} ({corte_cfg['fecha_corte'].strftime('%d/%m/%Y')})"
+
     st.markdown(f"""
         <div class="ip_header">
             <div class="ip_header_title">Índice de Permanencia {p_base}</div>
-            <div class="ip_header_sub">{VISTA_LABELS.get(suffix, suffix)} · Inicio {p_base} → Rematrícula {p_dest}</div>
+            <div class="ip_header_sub">{vista_label} · Inicio {p_base} → Rematrícula {p_dest}</div>
         </div>
     """, unsafe_allow_html=True)
 

@@ -13,9 +13,9 @@ DATASETS = {
         "egressados": "assets/data/global/egressados.xlsx",
         "egressados_copy": "assets/data/global/egressados_copy.xlsx",
         "permanencia_20252_vision_general": "assets/data/global/permanencia_20252.parquet",
-        "permanencia_20252_fecha_corte": "assets/data/global/permanencia_20252_05-04-2026.parquet",
+        "permanencia_20252_fecha_corte": "assets/data/global/permanencia_20252_corte.parquet",
         "permanencia_20261_vision_general": "assets/data/global/permanencia_20261.parquet",
-        "permanencia_20261_fecha_corte": "assets/data/global/permanencia_20261_16-07-2026.parquet",
+        "permanencia_20261_fecha_corte": "assets/data/global/permanencia_20261_corte.parquet",
         "encuestas_docente_autoeval_20261": "assets/data/global/avance_encuestas_docente_autoeval_20261.parquet",
     },
 }
