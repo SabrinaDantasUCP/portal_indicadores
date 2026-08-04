@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 from utils import db_pia
 from utils.system_logging import log_exception
+from utils.ui import render_egresados_fuente_caption
 from services.data.alumnos import load_current_alumnos
 from services.calculations.eficiencia_academica import (
     COL_CATRACA,
@@ -244,7 +245,7 @@ def render():
     col_inf, col_btn = st.columns([3, 1], vertical_alignment="center")
     
     with col_inf:
-        st.markdown('<p style="color: #4f4f4f; font-size: 0.85rem; margin-bottom: 0;">Los datos de titulados y egresados están basados en los datos enviados por la Secretaria General Académica el día 09/01/2026.</p>', unsafe_allow_html=True)
+        render_egresados_fuente_caption()
     
     with col_btn:
         from utils.excel_export import get_egresados_excel_bytes

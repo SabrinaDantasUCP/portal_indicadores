@@ -183,8 +183,14 @@ def render():
     if st.session_state.get("rol") != "ADMIN":
         st.error("Acceso Denegado. Solo administradores pueden ver esta pantalla.", icon=":material/lock:")
         return
-
     st.subheader("Encuestas - Configuración ETL")
+    render_body()
+
+
+def render_body():
+    """Cuerpo de la pantalla, sin el chequeo de rol ni el subheader propio —
+    pensado para ser embebido dentro de una pestaña (ver modules/config_etl.py),
+    que ya hace el chequeo de ADMIN una sola vez para todas las pestañas."""
     st.markdown(
         "Cadastre qué tipo de encuesta, periodo y carrera deben actualizarse "
         "automáticamente (cron 3x al día). El botón **Ejecutar ahora** dispara "
