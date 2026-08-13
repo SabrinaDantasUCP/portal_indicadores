@@ -667,6 +667,8 @@ La permanencia mide cuántos alumnos que estudiaron en el periodo **{p_base}** c
   - Pagó su primera cuota en {p_dest}, y
   - El alumno avanzó de semestre o permaneció en el mismo (recursante).
 
+  *Nota: el caso "permaneció en el mismo semestre (recursante)" solo se contabiliza en este criterio cuando el filtro de Recursantes (ver punto 4) está activo — si está desactivado, esos alumnos ya quedan fuera de la base y no llegan a evaluarse acá.*
+
 ---
 
 #### 2. Fechas importantes (bajas de matrícula)

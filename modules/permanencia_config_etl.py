@@ -6,7 +6,7 @@ import streamlit as st
 from utils import db_pia
 from utils.system_logging import log_exception
 from services.calculations.permanencia import get_periodo_config
-from services.data.permanencia import fechas_configuradas, limpiar_cache_fechas
+from services.data.permanencia import fechas_configuradas, limpiar_cache_fechas, load_permanencia, load_permanencia_lista
 from services.etl.permanencia_etl import derivar_ids_periodo
 from services.etl.permanencia_runner import ejecutar_permanencia_etl
 
@@ -184,6 +184,11 @@ def _render_progreso_ejecucion():
         "filas": None, "corte_generado_ahora": False,
     }
     if resultado["status"] == "OK":
+        # Si no, el dashboard sigue mostrando el parquet viejo (cacheado en
+        # memoria) hasta que se reinicie el server -- mismo problema que
+        # get_egresados_excel_bytes en modules/alumnos_config_etl.py.
+        load_permanencia.clear()
+        load_permanencia_lista.clear()
         msg = f"Ejecución completada: {resultado['filas']} filas."
         if resultado["corte_generado_ahora"]:
             msg += " Snapshot de fecha de corte CONGELADO en este run."

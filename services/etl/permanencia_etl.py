@@ -178,11 +178,14 @@ def montar_query(anos, periodos, com_recursante=True, ano_recursante=None, perio
     where_md = "AND md.status = 1" if requer_matricula_disciplina else ""
 
     return f"""
-    WITH FaturasValidas AS (
+    WITH FaturasCandidatas AS (
         SELECT
-            f.usuarios_id, f.periodo_letivo_id, f.id as factura_id, f.valor,
+            f.usuarios_id, f.periodo_letivo_id, f.parcela, f.id as factura_id, f.valor,
             f.status as factura_status, f.data_pagamento, f.negociacao_id,
-            ROW_NUMBER() OVER (PARTITION BY f.usuarios_id, f.periodo_letivo_id ORDER BY f.created ASC) as linha_num
+            ROW_NUMBER() OVER (
+                PARTITION BY f.usuarios_id, f.periodo_letivo_id, f.parcela
+                ORDER BY f.created ASC
+            ) as linha_num_parcela
         FROM ucp.faturas f
         LEFT JOIN ucp.finan_oferta fo ON fo.id = f.finan_oferta_id
         LEFT JOIN ucp.finan_centro_custo fcc ON fcc.id = fo.finan_centro_custo_id
@@ -190,6 +193,16 @@ def montar_query(anos, periodos, com_recursante=True, ano_recursante=None, perio
         WHERE f.status NOT IN (3, 4)
           AND (f.parcela = 1 OR f.parcela = 2)
           AND (fd.nome LIKE '%%Contrato%%' OR fcc.nome LIKE '%%Recursada%%')
+    ),
+    -- Se a fatura de uma parcela foi cancelada (status 4, já excluída acima),
+    -- linha_num_parcela=1 pega a fatura válida mais antiga da MESMA parcela --
+    -- ou seja, a que foi gerada em substituição (reemissão) e pode já estar paga.
+    FaturasValidas AS (
+        SELECT
+            usuarios_id, periodo_letivo_id, factura_id, valor, factura_status, data_pagamento, negociacao_id,
+            ROW_NUMBER() OVER (PARTITION BY usuarios_id, periodo_letivo_id ORDER BY parcela ASC) as linha_num
+        FROM FaturasCandidatas
+        WHERE linha_num_parcela = 1
     ),
     HistoricoAnterior AS (
         SELECT

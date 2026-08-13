@@ -86,7 +86,7 @@ def canonicalizar_columnas(df, periodo):
     return df.rename(columns=rename_map) if rename_map else df
 
 
-@st.cache_data
+@st.cache_data(ttl=3600)
 def load_permanencia(dataset_name):
     try:
         return pd.read_parquet(get_global_data_path(dataset_name))
@@ -110,7 +110,7 @@ def load_permanencia_fecha_corte(periodo=PERIODO_DEFAULT):
     return load_permanencia_periodo(periodo, VISTA_FECHA_CORTE)
 
 
-@st.cache_data(show_spinner=False, max_entries=8)
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
 def load_permanencia_lista(periodo, vista, limite_primer_semestre, limite_otros_semestres):
     """Datos ya preparados para el indicador.
 
