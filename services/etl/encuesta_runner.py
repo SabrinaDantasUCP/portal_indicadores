@@ -9,11 +9,12 @@ lugar de donde services/data/encuestas.py los lee.
 
 Para ALUMNO_DOCENTE se generan DOS archivos:
   - {dataset_name}_v1: todos los alumnos (según QUERY_CONTACTO).
-  - {dataset_name}_v2: igual, pero avance_por_alumno restringido a los que
-    también aparecen en assets/data/global/base_datos_activos.csv (mismo
-    filtro que existía antes vía exportar_avance_por_alumno_activos). Si ese
-    CSV todavía no fue subido, se genera solo el v1 y se deja el v2 como
-    estaba (no se borra), con un warning en el log.
+  - {dataset_name}_v2: igual, pero avance_por_alumno restringido a los ids
+    subidos en la pantalla de admin "Alumnos Activos" (ver
+    services/etl/activos_ids.py, que reemplazó el antiguo
+    assets/data/global/base_datos_activos.csv). Si todavía no se subió
+    ningún archivo, se genera solo el v1 y se deja el v2 como estaba (no se
+    borra), con un warning en el log.
 Para AUTOEVAL_DOCENTE se genera un único archivo {dataset_name} (scope
 GLOBAL, no depende del toggle v1/v2).
 
@@ -27,6 +28,7 @@ import os
 import pandas as pd
 
 from services.etl import encuestas_etl as etl
+from services.etl.activos_ids import cargar_ids_activos
 from scripts.csv_to_parquet import BASE_DIR, convert as convertir_a_parquet
 from utils.system_logging import get_logger
 
@@ -38,7 +40,6 @@ TIPO_EVALUACION_PARES = "EVALUACION_PARES"
 
 DATASET_DIR_REL = os.path.join("assets", "data", "encuestas")
 RAW_OUTPUT_DIR = os.path.join(BASE_DIR, "output")
-ACTIVOS_CSV_PATH = os.path.join(BASE_DIR, "assets", "data", "global", "base_datos_activos.csv")
 
 
 class PipelineNoImplementado(Exception):
@@ -86,18 +87,19 @@ def _ejecutar_alumno_docente(config: dict) -> int:
     df_v1 = _combinar_exports(exports)
     _escribir_dataset(f"{dataset_name}_v1", df_v1)
 
-    if os.path.exists(ACTIVOS_CSV_PATH):
+    ids_activos = cargar_ids_activos()
+    if ids_activos:
         exports_v2 = dict(exports)
         exports_v2["avance_por_alumno"] = etl.filtrar_avance_por_alumno_activos(
-            exports["avance_por_alumno"], ACTIVOS_CSV_PATH
+            exports["avance_por_alumno"], ids_activos
         )
         df_v2 = _combinar_exports(exports_v2)
         _escribir_dataset(f"{dataset_name}_v2", df_v2)
     else:
         log.warning(
-            "No se encontró %s: no se generó la variante v2 (filtrada por alumnos activos) "
-            "para dataset=%s. El dashboard sigue mostrando el v2 anterior (si existía).",
-            ACTIVOS_CSV_PATH, dataset_name,
+            "No hay ningún archivo de ids activos subido (pantalla admin 'Alumnos Activos'): "
+            "no se generó la variante v2 para dataset=%s. El dashboard sigue mostrando el v2 anterior (si existía).",
+            dataset_name,
         )
 
     return len(df_v1)
@@ -137,7 +139,7 @@ def ejecutar_config(config: dict) -> dict:
 
     try:
         if tipo == TIPO_ALUMNO_DOCENTE:
-            # Genera v1 y (si hay base_datos_activos.csv) v2 internamente.
+            # Genera v1 y (si hay un archivo de ids activos subido) v2 internamente.
             filas = _ejecutar_alumno_docente(config)
         elif tipo == TIPO_AUTOEVAL_DOCENTE:
             exports = _ejecutar_autoeval_docente(config)

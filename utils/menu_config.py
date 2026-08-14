@@ -151,6 +151,7 @@ ADMIN_ETL_GROUP = {
     # Resumen siempre primero; el resto en orden alfabético.
     "pages": [
         {"title": "Resumen", "slug": "admin_etl_resumen", "module": "etl_resumen", "icon": "dashboard"},
+        {"title": "Alumnos Activos", "slug": "admin_etl_activos", "module": "activos_config_etl", "icon": "how_to_reg"},
         {"title": "Alumnos", "slug": "admin_etl_alumnos", "module": "alumnos_config_etl", "icon": "groups"},
         {"title": "Asistencias", "slug": "admin_etl_asistencias", "module": "asistencias_config_etl", "icon": "event_available"},
         {"title": "Encuestas", "slug": "admin_etl_encuestas", "module": "encuestas_config_etl", "icon": "poll"},

@@ -408,6 +408,23 @@ def init_db():
                 )
             """)
 
+            # Metadatos del archivo de ids activos (services/etl/activos_ids.py):
+            # reemplaza assets/data/global/base_datos_activos.csv como fuente del
+            # filtro v2 en los ETL de Alumnos, Asistencias y Encuestas
+            # (Alumno→Docente). El archivo en sí vive en el filesystem
+            # (ACTIVOS_TXT_PATH) y siempre se sobrescribe; esta tabla solo guarda
+            # metadatos para mostrar en la pantalla de admin.
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pia_activos_ids_meta (
+                    id INT PRIMARY KEY DEFAULT 1,
+                    nombre_archivo VARCHAR(255),
+                    cantidad_ids INT,
+                    actualizado_por INT,
+                    actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    FOREIGN KEY (actualizado_por) REFERENCES pia_usuarios(id) ON DELETE SET NULL
+                )
+            """)
+
             # Semilla de la config de alumnos (rango histórico por defecto).
             cursor.execute("SELECT COUNT(*) FROM pia_alumnos_etl_config")
             if cursor.fetchone()[0] == 0:
@@ -1149,3 +1166,25 @@ def update_egresados_meta(fecha_envio, filas, actor_usuario_id=None):
             filas=VALUES(filas),
             actualizado_por=VALUES(actualizado_por)
     """, (fecha_envio, filas, actor_usuario_id))
+
+
+# ---------------- Metadatos de Alumnos Activos (services/etl/activos_ids.py) ---------------- #
+
+def get_activos_ids_meta():
+    rows = dict_fetchall("""
+        SELECT nombre_archivo, cantidad_ids, actualizado_por, actualizado_en
+        FROM pia_activos_ids_meta
+        WHERE id = 1
+    """)
+    return rows[0] if rows else None
+
+
+def update_activos_ids_meta(nombre_archivo, cantidad_ids, actor_usuario_id=None):
+    execute_query("""
+        INSERT INTO pia_activos_ids_meta (id, nombre_archivo, cantidad_ids, actualizado_por)
+        VALUES (1, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+            nombre_archivo=VALUES(nombre_archivo),
+            cantidad_ids=VALUES(cantidad_ids),
+            actualizado_por=VALUES(actualizado_por)
+    """, (nombre_archivo, cantidad_ids, actor_usuario_id))

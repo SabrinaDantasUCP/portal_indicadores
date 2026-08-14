@@ -18,9 +18,10 @@ directo a MYSQL_HOST_SYS (host externo).
 Uso manual:
 
     from services.etl.alumnos_etl import procesar_anos, generar_alumnos_v1, generar_alumnos_v2
+    from services.etl.activos_ids import cargar_ids_activos
     df_consolidado, errores = procesar_anos([2025, 2026], pasta_temp="assets/data/temp_years")
     df_v1 = generar_alumnos_v1(df_consolidado, egresados_xlsx_path="assets/data/global/egressados.xlsx")
-    df_v2 = generar_alumnos_v2(df_v1, "assets/data/global/base_datos_activos.csv")
+    df_v2 = generar_alumnos_v2(df_v1, cargar_ids_activos())
 
 O, para correr el pipeline completo (incluyendo escritura de CSV+parquet en
 las rutas que usa el dashboard, assets/data/v1 y assets/data/v2):

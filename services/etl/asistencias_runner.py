@@ -19,6 +19,7 @@ resultado vía utils/db_pia.registrar_asistencias_etl_run.
 import os
 
 from services.etl import asistencias_etl as etl
+from services.etl.activos_ids import cargar_ids_activos
 from scripts.csv_to_parquet import BASE_DIR, convert as convertir_a_parquet
 from utils.system_logging import get_logger
 
@@ -26,7 +27,6 @@ log = get_logger()
 
 V1_CSV_REL = os.path.join("assets", "data", "v1", "asistencia_unificada_v1.csv")
 V2_CSV_REL = os.path.join("assets", "data", "v2", "asistencia_unificada_v2.csv")
-ACTIVOS_CSV_PATH = os.path.join(BASE_DIR, "assets", "data", "global", "base_datos_activos.csv")
 
 
 class SinDatosError(Exception):
@@ -39,12 +39,6 @@ def _escribir_dataset(csv_path_rel, df):
     df.to_csv(csv_path_abs, index=False, encoding="utf-8-sig")
     convertir_a_parquet(csv_path_rel, ",", True, force=True)
     return csv_path_abs
-
-
-def _cargar_ids_activos():
-    import pandas as pd
-    activos = pd.read_csv(ACTIVOS_CSV_PATH, encoding="utf-8-sig")
-    return set(activos["ID_Alumno"].dropna().astype("int64"))
 
 
 def ejecutar_asistencias_etl(anos_syseduca: list, periodos_biometria: list, on_progress=None, cancel_check=None) -> dict:
@@ -101,8 +95,8 @@ def ejecutar_asistencias_etl(anos_syseduca: list, periodos_biometria: list, on_p
         filas_v1 = len(df_v1)
 
         filas_v2 = None
-        if os.path.exists(ACTIVOS_CSV_PATH):
-            ids_activos = _cargar_ids_activos()
+        ids_activos = cargar_ids_activos()
+        if ids_activos:
             df_v2_sys = etl.agregar_syseduca(detalle_sys, df_matriculados, ids_activos=ids_activos)
             df_v2_bio = etl.agregar_biometria(df_crudo_bio, df_matriculados, ids_activos=ids_activos)
             df_v2 = etl.unificar_asistencias(df_v2_sys, df_v2_bio)
@@ -110,9 +104,8 @@ def ejecutar_asistencias_etl(anos_syseduca: list, periodos_biometria: list, on_p
             filas_v2 = len(df_v2)
         else:
             log.warning(
-                "No se encontró %s: no se generó asistencia_unificada_v2 (filtrado por activos). "
-                "El dashboard sigue mostrando el v2 anterior (si existía).",
-                ACTIVOS_CSV_PATH,
+                "No hay ningún archivo de ids activos subido (pantalla admin 'Alumnos Activos'): "
+                "no se generó asistencia_unificada_v2. El dashboard sigue mostrando el v2 anterior (si existía)."
             )
 
         partes_error = []

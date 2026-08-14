@@ -20,9 +20,10 @@ Flujo:
   2. generar_alumnos_v1(df)   -> aplica mapeos de disciplina, cálculo de
                                   aprobación/escala, cohortes, trayectoria
                                   académica y cruce con egresados.
-  3. generar_alumnos_v2(df_v1) -> restringe a los alumnos presentes en
-                                  assets/data/global/base_datos_activos.csv y
-                                  aplica correcciones puntuales conocidas.
+  3. generar_alumnos_v2(df_v1) -> restringe a los ids activos subidos en la
+                                  pantalla de admin "Alumnos Activos" (ver
+                                  services/etl/activos_ids.py) y aplica
+                                  correcciones puntuales conocidas.
 """
 
 import os
@@ -825,21 +826,15 @@ def generar_alumnos_v1(df_consolidado, egresados_xlsx_path=None, fecha_envio_egr
 # ETL - ALUMNOS CON CORTE (alumnos_v2)
 # ─────────────────────────────────────────────
 
-def generar_alumnos_v2(df_v1, base_activos_csv_path, correcciones=None):
-    """A partir de alumnos_v1, restringe a los alumnos presentes en
-    base_datos_activos.csv (match por ID_Alumno == usuarios_id) y aplica las
-    correcciones puntuales conocidas (CORRECOES_V2_DEFAULT si no se pasa
-    otra lista)."""
+def generar_alumnos_v2(df_v1, ids_activos, correcciones=None):
+    """A partir de alumnos_v1, restringe a los alumnos cuyo usuarios_id está
+    en ids_activos (ver services/etl/activos_ids.cargar_ids_activos) y
+    aplica las correcciones puntuales conocidas (CORRECOES_V2_DEFAULT si no
+    se pasa otra lista)."""
     if correcciones is None:
         correcciones = CORRECOES_V2_DEFAULT
 
-    base_activos = pd.read_csv(base_activos_csv_path, encoding="utf-8-sig")
-    df_v2 = df_v1.merge(
-        base_activos[['ID_Alumno']],
-        left_on='usuarios_id',
-        right_on='ID_Alumno',
-        how='inner',
-    ).drop(columns=['ID_Alumno'])
+    df_v2 = df_v1[df_v1['usuarios_id'].isin(ids_activos)].copy()
 
     for correcao in correcciones:
         id_alumno = correcao['usuarios_id']

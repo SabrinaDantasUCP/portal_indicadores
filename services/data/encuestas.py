@@ -61,10 +61,11 @@ def _construir_registro():
 
     Para scope_mode=GLOBAL hay un único archivo ({dataset_name}.parquet).
     Para SEGUE_VERSION (ALUMNO_DOCENTE) hay dos archivos separados
-    ({dataset_name}_v1 / _v2) — v2 es la variante filtrada por
-    assets/data/global/base_datos_activos.csv (ver services/etl/encuesta_runner.py).
-    Si todavía no existe el v2 (por ej. el CSV de activos no fue subido), la
-    config igual aparece acá con solo v1 disponible.
+    ({dataset_name}_v1 / _v2) — v2 es la variante filtrada por los ids
+    activos subidos en la pantalla de admin "Alumnos Activos" (ver
+    services/etl/activos_ids.py y services/etl/encuesta_runner.py).
+    Si todavía no existe el v2 (por ej. no se subió ningún archivo de ids
+    activos), la config igual aparece acá con solo v1 disponible.
     """
     registro = {}
     for cfg in db_pia.get_encuesta_etl_configs():

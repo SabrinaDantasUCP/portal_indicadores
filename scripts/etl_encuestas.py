@@ -57,6 +57,7 @@ from services.etl.encuestas_etl import (
     generar_indicadores,
     generar_indicadores_docente_autoeval,
 )
+from services.etl.activos_ids import cargar_ids_activos
 
 
 def main():
@@ -156,10 +157,11 @@ exports = generar_indicadores(
 
 
 # Celula 5 - gera o segundo CSV, filtrado so pelos alumnos ativos
-# (usa o `exports` gerado na celula anterior)
+# (usa o `exports` gerado na celula anterior). ids_activos vem do ultimo
+# .txt subido na tela de admin "Alumnos Activos" (ver services/etl/activos_ids.py).
 exportar_avance_por_alumno_activos(
     exports,
-    activos_csv=r"C:\Users\USUARIO\OneDrive - Central\BI\sistema_relatorios\sistema indicadores ETL\assets\data\base_datos_activos.csv",
+    ids_activos=cargar_ids_activos(),
     output_dir="./output",
 )
 

@@ -21,9 +21,10 @@ alcanzables directo, igual que MYSQL_HOST_SYS en el ETL de alumnos).
 Para uso manual/notebook, ver scripts/etl_asistencias.py.
 
 Patrón v1/v2 (igual a alumnos): los datos crudos (detalle por alumno) se
-extraen UNA sola vez; v1 (todos los alumnos) y v2 (solo activos, según
-assets/data/global/base_datos_activos.csv) se calculan ambos a partir de esa
-misma extracción, sin repetir las consultas a las fuentes.
+extraen UNA sola vez; v1 (todos los alumnos) y v2 (solo activos, según los
+ids subidos en la pantalla de admin "Alumnos Activos" -- ver
+services/etl/activos_ids.py) se calculan ambos a partir de esa misma
+extracción, sin repetir las consultas a las fuentes.
 """
 
 import json

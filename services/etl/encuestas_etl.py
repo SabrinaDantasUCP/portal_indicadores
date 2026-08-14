@@ -52,9 +52,10 @@ IMPORTANTE - confirmar antes de rodar em produção:
     system_id). Isso é aplicado ANTES de calcular qualquer indicador
     (avance_por_materia_seccion_grupo, avance_general, avance_por_alumno)
     e é o que gera o primeiro CSV combinado.
-    O filtro por base_datos_activos.csv continua existindo, mas como uma
-    restrição ADICIONAL em cima dessa (só afeta o segundo CSV,
-    avance_por_alumno_activos — ver exportar_avance_por_alumno_activos).
+    O filtro por ids ativos (ver services/etl/activos_ids.py) continua
+    existindo, mas como uma restrição ADICIONAL em cima dessa (só afeta o
+    segundo CSV, avance_por_alumno_activos — ver
+    exportar_avance_por_alumno_activos).
 
 Como usar (VPNs separadas — bio e SQL Server não estão acessíveis ao mesmo tempo):
 
@@ -1265,31 +1266,28 @@ def generar_indicadores_docente_autoeval(
 
 
 # --------------------------------------------------------------------------
-# FILTRO POR ALUMNOS ATIVOS (base_datos_activos.csv)
+# FILTRO POR ALUMNOS ATIVOS (ver services/etl/activos_ids.py)
 # --------------------------------------------------------------------------
 # Gera um segundo CSV, alem do "com todos os dados" que generar_indicadores()
-# ja produz: o mesmo indicador avance_por_alumno, mas restrito aos alumnos
-# que aparecem em base_datos_activos.csv (match por ID_Alumno == system_id).
+# ja produz: o mesmo indicador avance_por_alumno, mas restrito ao conjunto
+# de ids ativos (subido via a tela de admin "Alumnos Activos" -- ver
+# services/etl/activos_ids.py, que substituiu o antigo base_datos_activos.csv).
 # Os demais indicadores (avance_general, avance_por_materia_seccion_grupo)
 # sao agregados e nao tem 1 linha por alumno, entao nao sao recalculados
 # aqui - o filtro vale so para avance_por_alumno.
 
 def filtrar_avance_por_alumno_activos(
-    df_avance_por_alumno: pd.DataFrame, activos_csv: str, id_col: str = "ID_Alumno"
+    df_avance_por_alumno: pd.DataFrame, ids_activos: set
 ) -> pd.DataFrame:
-    """Retorna so as linhas de avance_por_alumno cujo system_id esta
-    presente em base_datos_activos.csv (coluna id_col, default
-    'ID_Alumno')."""
-    activos = pd.read_csv(activos_csv, encoding="utf-8-sig")
-    ids_activos = set(activos[id_col].dropna().astype("int64"))
-
+    """Retorna so as linhas de avance_por_alumno cujo system_id esta em
+    ids_activos (ver services/etl/activos_ids.cargar_ids_activos)."""
     df = df_avance_por_alumno.copy()
     df["system_id"] = df["system_id"].astype("int64")
     return df[df["system_id"].isin(ids_activos)].reset_index(drop=True)
 
 
 def exportar_avance_por_alumno_activos(
-    exports: dict, activos_csv: str, output_dir: str = None, id_col: str = "ID_Alumno"
+    exports: dict, ids_activos: set, output_dir: str = None
 ) -> str:
     """Recebe o dict retornado por generar_indicadores(), filtra
     avance_por_alumno pelos alumnos ativos e salva num CSV separado
@@ -1298,7 +1296,7 @@ def exportar_avance_por_alumno_activos(
     os.makedirs(output_dir, exist_ok=True)
 
     df_total = exports["avance_por_alumno"]
-    df_filtrado = filtrar_avance_por_alumno_activos(df_total, activos_csv, id_col)
+    df_filtrado = filtrar_avance_por_alumno_activos(df_total, ids_activos)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     path = os.path.join(output_dir, f"avance_por_alumno_activos_{timestamp}.csv")

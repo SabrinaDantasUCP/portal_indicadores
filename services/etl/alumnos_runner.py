@@ -21,6 +21,7 @@ pia_alumnos_etl_run vía utils/db_pia.registrar_alumnos_etl_run.
 import os
 
 from services.etl import alumnos_etl as etl
+from services.etl.activos_ids import cargar_ids_activos
 from scripts.csv_to_parquet import BASE_DIR, convert as convertir_a_parquet
 from utils import db_pia
 from utils.system_logging import get_logger
@@ -30,7 +31,6 @@ log = get_logger()
 V1_CSV_REL = os.path.join("assets", "data", "v1", "alumnos_v1.csv")
 V2_CSV_REL = os.path.join("assets", "data", "v2", "alumnos_v2.csv")
 EGRESADOS_XLSX_PATH = os.path.join(BASE_DIR, "assets", "data", "global", "egressados.xlsx")
-ACTIVOS_CSV_PATH = os.path.join(BASE_DIR, "assets", "data", "global", "base_datos_activos.csv")
 TEMP_YEARS_DIR = os.path.join(BASE_DIR, "assets", "data", "temp_years")
 
 
@@ -90,15 +90,15 @@ def ejecutar_alumnos_etl(anos: list, on_progress=None, cancel_check=None) -> dic
         filas_v1 = len(df_v1)
 
         filas_v2 = None
-        if os.path.exists(ACTIVOS_CSV_PATH):
-            df_v2 = etl.generar_alumnos_v2(df_v1, ACTIVOS_CSV_PATH)
+        ids_activos = cargar_ids_activos()
+        if ids_activos:
+            df_v2 = etl.generar_alumnos_v2(df_v1, ids_activos)
             _escribir_dataset(V2_CSV_REL, df_v2)
             filas_v2 = len(df_v2)
         else:
             log.warning(
-                "No se encontró %s: no se generó alumnos_v2 (filtrado por alumnos activos). "
-                "El dashboard sigue mostrando el v2 anterior (si existía).",
-                ACTIVOS_CSV_PATH,
+                "No hay ningún archivo de ids activos subido (pantalla admin 'Alumnos Activos'): "
+                "no se generó alumnos_v2. El dashboard sigue mostrando el v2 anterior (si existía)."
             )
 
         mensaje_error = (
