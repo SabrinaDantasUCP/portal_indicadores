@@ -110,6 +110,7 @@ import os
 import sys
 import argparse
 import logging
+import unicodedata
 from datetime import datetime
 
 import pandas as pd
@@ -704,74 +705,109 @@ def indicador_avance_general(
 #
 # Diferenças-chave em relação ao fluxo alumno (_marcar_respondio /
 # indicador_avance_por_alumno):
-#   - Em RespuestaUsuario, para encuestas de docente, IdDocenteExterno já
-#     vem preenchido corretamente (confirmado para produção) — não precisa
-#     do enriquecimento via Contacto que o fluxo alumno precisa para
-#     IdAlumnoExterno.
 #   - Não se aplica filtrar_planificacion_por_contacto: a obrigação do
 #     docente de se autoavaliar não depende de quantos alunos ativos ele
 #     tem matriculados.
-#   - Em produção, PlanificacionId sempre vem preenchido em
-#     RespuestaUsuario (confirmado), então o join por planificacion_id é
-#     seguro igual ao fluxo alumno.
+#   - NÃO usa PlanificacionId: confirmado em produção (encuesta id=5,
+#     respuestas_docente_raw_5.csv, 2691 linhas) que essa coluna vem 100%
+#     nula em RespuestaUsuario para autoevaluación docente.
+#   - NÃO usa IdDocenteExterno/IdGrupoExterno/IdAsignaturaExterno/
+#     IdSeccionExterno tampouco: essa era a suposição anterior (que esses
+#     IDs "externos" da Academico corresponderiam a docente_id/grupo_id/
+#     course_id/seccion_id_bio da planificación no bio), mas confirmado
+#     contra os dados reais que é FALSA — 0% de overlap nos 4 campos entre
+#     df_plan e df_resp. A causa raiz: QUERY_PLANIFICACION usa
+#     `p2.teacher_id AS docente_id`, que é o PK interno do attendee na bio
+#     (não um id externo sincronizado, diferente de `a3.system_id` usado
+#     pro alumno) — grupo_id/course_id/seccion_id_bio são PKs internos do
+#     bio da mesma forma. Sem acesso ao schema do bio pra confirmar se
+#     existe uma coluna de id externo equivalente pro docente, o join usado
+#     aqui é por NOME normalizado (docente + materia + sección + grupo),
+#     usando as colunas *Nombre que já vêm em RespuestaUsuario. Validado
+#     contra os dados reais: sección e grupo batem 100% após normalizar
+#     (maiúsculas, sem acento, espaços colapsados); materia precisa também
+#     normalizar variantes de traço (ex: "GINECO–OBSTETRICIA I" vs
+#     "GINECO - OBSTETRICIA I"); docente às vezes vem truncado em
+#     DocenteNombre (só um subconjunto dos nomes/apellidos completos da
+#     planificación) — ver _resolver_docente_truncado.
 
-def _completado_pairs_docente(df_resp: pd.DataFrame) -> pd.DataFrame:
-    """Pares únicos (PlanificacionId, IdDocenteExterno, IdGrupoExterno) que
-    já têm ao menos uma resposta registrada (autoevaluación do docente).
-
-    IdGrupoExterno entra na chave porque um mesmo planificacion_id é
-    compartilhado entre a Teórica e os grupos prácticos, e um docente pode
-    estar alocado em mais de um desses grupos dentro da mesma planificación
-    — sem o grupo na chave, responder a autoevaluación de UM desses grupos
-    marcaria incorretamente TODOS os grupos daquele docente como
-    respondidos."""
-    df = df_resp.dropna(
-        subset=["PlanificacionId", "IdDocenteExterno", "IdGrupoExterno"]
-    ).copy()
-    df["PlanificacionId"] = df["PlanificacionId"].astype("int64")
-    df["IdDocenteExterno"] = df["IdDocenteExterno"].astype("int64")
-    df["IdGrupoExterno"] = df["IdGrupoExterno"].astype("int64")
-    return df[
-        ["PlanificacionId", "IdDocenteExterno", "IdGrupoExterno"]
-    ].drop_duplicates()
+def _normalizar_texto(series: pd.Series) -> pd.Series:
+    """Normaliza texto pra matching cross-banco (bio x Academico): maiúsculas,
+    sem acento, variantes de traço (– — -) unificadas, espaços colapsados."""
+    s = series.astype(str).str.strip().str.upper()
+    s = s.apply(
+        lambda x: "".join(
+            c for c in unicodedata.normalize("NFD", x) if unicodedata.category(c) != "Mn"
+        )
+    )
+    s = s.str.replace(r"[‐-―]", "-", regex=True)
+    s = s.str.replace(r"\s*-\s*", "-", regex=True)
+    s = s.str.replace(r"\s+", " ", regex=True)
+    return s
 
 
-def _marcar_respondio_docente(
-    df_plan: pd.DataFrame, df_resp: pd.DataFrame, join_key: str = "planificacion_id"
-) -> pd.DataFrame:
+def _resolver_docente_truncado(nombres_resp: pd.Series, nombres_plan: pd.Series) -> dict:
+    """RespuestaUsuario.DocenteNombre às vezes vem truncado (ex: "GUSTAVO
+    JAVIER BENITEZ" em vez de "GUSTAVO JAVIER BENITEZ ALCARAZ" na
+    planificación). Resolve por superset de tokens: se os tokens do nome
+    truncado são subconjunto exato dos tokens de UM único nome completo na
+    planificación, mapeia pra esse nome completo. Ambíguo (0 ou >1
+    candidatos) fica sem match — mais seguro que casar errado (ex: um typo
+    real tipo "POMAROLA" vs "PALMEROLA" fica intencionalmente sem match)."""
+    plan_unicos = [(p, set(p.split())) for p in nombres_plan.dropna().unique()]
+    plan_set = set(nombres_plan.dropna().unique())
+    mapa = {}
+    for nombre in nombres_resp.dropna().unique():
+        if nombre in plan_set:
+            continue
+        toks = set(nombre.split())
+        candidatos = [p for p, ptoks in plan_unicos if toks <= ptoks]
+        if len(candidatos) == 1:
+            mapa[nombre] = candidatos[0]
+    return mapa
+
+
+def _completado_pairs_docente(df_resp: pd.DataFrame, mapa_docente: dict) -> pd.DataFrame:
+    """Pares únicos (docente, materia, sección, grupo — nomes normalizados)
+    que já têm ao menos uma resposta registrada (autoevaluación do
+    docente).
+
+    Grupo entra na chave porque um mesmo docente/materia/sección é
+    compartilhado entre a Teórica e os grupos prácticos — sem o grupo na
+    chave, responder a autoevaluación de UM desses grupos marcaria
+    incorretamente TODOS os grupos daquele docente como respondidos."""
+    df = df_resp.copy()
+    df["docente_n"] = _normalizar_texto(df["DocenteNombre"]).replace(mapa_docente)
+    df["asignatura_n"] = _normalizar_texto(df["AsignaturaNombre"])
+    df["seccion_n"] = _normalizar_texto(df["SeccionNombre"])
+    df["grupo_n"] = _normalizar_texto(df["GrupoNombre"])
+    cols = ["docente_n", "asignatura_n", "seccion_n", "grupo_n"]
+    return df.dropna(subset=cols)[cols].drop_duplicates()
+
+
+def _marcar_respondio_docente(df_plan: pd.DataFrame, df_resp: pd.DataFrame) -> pd.DataFrame:
     """Análogo a _marcar_respondio, mas a nível docente (autoevaluación):
-    liga por (planificacion_id, docente_id, grupo_id) em vez de
-    (planificacion_id, system_id). grupo_id (bio) é assumido como o mesmo
-    valor de IdGrupoExterno (Academico) — mesmo padrão de IdAsignaturaExterno
-    ~ course_id e IdSeccionExterno ~ seccion_id_bio já usado nas encuestas
-    de docente."""
+    liga por nome normalizado (docente, materia, sección, grupo) em vez de
+    planificacion_id/IDs externos (ver comentário da seção acima sobre por
+    que nenhum dos dois pode ser usado aqui)."""
     plan = df_plan.copy()
-    plan["docente_id"] = plan["docente_id"].astype("int64")
-    plan["planificacion_id"] = plan["planificacion_id"].astype("int64")
-    plan["grupo_id"] = plan["grupo_id"].astype("int64")
+    plan["docente_n"] = _normalizar_texto(plan["docente"])
+    plan["asignatura_n"] = _normalizar_texto(plan["asignatura"])
+    plan["seccion_n"] = _normalizar_texto(plan["seccion"])
+    plan["grupo_n"] = _normalizar_texto(plan["grupo"])
 
-    if join_key == "planificacion_id":
-        pares = _completado_pairs_docente(df_resp)
-        merged = plan.merge(
-            pares,
-            left_on=["planificacion_id", "docente_id", "grupo_id"],
-            right_on=["PlanificacionId", "IdDocenteExterno", "IdGrupoExterno"],
-            how="left",
-            indicator=True,
-        )
-        plan["respondio"] = (merged["_merge"] == "both").values
-    else:
-        docentes_que_respondieron = set(
-            df_resp["IdDocenteExterno"].dropna().astype("int64")
-        )
-        plan["respondio"] = plan["docente_id"].isin(docentes_que_respondieron)
+    mapa_docente = _resolver_docente_truncado(
+        _normalizar_texto(df_resp["DocenteNombre"]), plan["docente_n"]
+    )
+    pares = _completado_pairs_docente(df_resp, mapa_docente)
 
+    merge_cols = ["docente_n", "asignatura_n", "seccion_n", "grupo_n"]
+    merged = plan.merge(pares, on=merge_cols, how="left", indicator=True)
+    plan["respondio"] = (merged["_merge"] == "both").values
     return plan
 
 
-def indicador_avance_por_docente(
-    df_plan: pd.DataFrame, df_resp: pd.DataFrame, join_key: str = "planificacion_id"
-) -> pd.DataFrame:
+def indicador_avance_por_docente(df_plan: pd.DataFrame, df_resp: pd.DataFrame) -> pd.DataFrame:
     """Grano de docente individual (autoevaluación): 1 línea por (docente x
     materia/sección/grupo, es decir, por planificación x grupo), con el
     booleano `respondio`. Dedup por (docente_id, planificacion_id, grupo)
@@ -779,7 +815,7 @@ def indicador_avance_por_docente(
     compartilhado entre grupos teóricos e prácticos, e um docente pode
     estar alocado em mais de um desses grupos."""
 
-    plan = _marcar_respondio_docente(df_plan, df_resp, join_key)
+    plan = _marcar_respondio_docente(df_plan, df_resp)
 
     out = (
         plan.drop_duplicates(subset=["docente_id", "planificacion_id", "grupo"])[
@@ -800,9 +836,7 @@ def indicador_avance_por_docente(
     return out
 
 
-def indicador_avance_general_docente(
-    df_plan: pd.DataFrame, df_resp: pd.DataFrame, join_key: str = "planificacion_id"
-) -> pd.DataFrame:
+def indicador_avance_general_docente(df_plan: pd.DataFrame, df_resp: pd.DataFrame) -> pd.DataFrame:
     """Resumo único (autoevaluación docente), análogo a
     indicador_avance_general mas no grão de docente:
       - encuestas_esperadas/respondidas: conta pares (docente x
@@ -813,7 +847,7 @@ def indicador_avance_general_docente(
         autoavaliaram TODAS as suas materias/secciones/grupos pendentes.
     """
 
-    plan = _marcar_respondio_docente(df_plan, df_resp, join_key)
+    plan = _marcar_respondio_docente(df_plan, df_resp)
     pares = plan.drop_duplicates(subset=["docente_id", "planificacion_id", "grupo"])
 
     encuestas_esperadas = len(pares)
@@ -1188,8 +1222,8 @@ def generar_indicadores_docente_autoeval(
         log.warning("Las respuestas (docente) llegaron vacías. Revisar IdEncuesta o la conexión a Academico.")
 
     # -------------------- Cálculo de indicadores --------------------
-    avance_general_docente = indicador_avance_general_docente(df_plan, df_resp, CONFIG["JOIN_KEY"])
-    avance_por_docente = indicador_avance_por_docente(df_plan, df_resp, CONFIG["JOIN_KEY"])
+    avance_general_docente = indicador_avance_general_docente(df_plan, df_resp)
+    avance_por_docente = indicador_avance_por_docente(df_plan, df_resp)
 
     periodo = _inferir_periodo(df_plan, anho, semestre)
     meta_encuesta = _extraer_metadatos_encuesta(df_encuesta)
