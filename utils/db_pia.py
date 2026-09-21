@@ -425,6 +425,146 @@ def init_db():
                 )
             """)
 
+            # Configuración del ETL de "Alumnos Activos por Criterios"
+            # (services/etl/activos_criterios_etl.py): calcula automáticamente
+            # quién cuenta como "activo" (7 criterios de negocio + listas de
+            # egresados/TFG/RUES + ajuste de período para convalidados),
+            # reemplazando el upload manual de usuarios_activos_ids.txt. El
+            # resultado se sigue escribiendo en ese mismo archivo (vía
+            # services/etl/activos_ids.guardar_ids_activos), así que Alumnos,
+            # Asistencias y Encuestas no necesitan ningún cambio.
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pia_activos_criterios_config (
+                    id INT PRIMARY KEY DEFAULT 1,
+                    periodos VARCHAR(1000) NOT NULL,
+                    activo BOOLEAN DEFAULT TRUE,
+                    actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                )
+            """)
+
+            # Historial de ejecuciones del ETL de activos por criterios.
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pia_activos_criterios_run (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    disparado_por ENUM('MANUAL', 'CRON') NOT NULL,
+                    actor_usuario_id INT,
+                    iniciado_en TIMESTAMP NOT NULL,
+                    finalizado_en TIMESTAMP NOT NULL,
+                    status ENUM('OK', 'ERROR', 'CANCELADO') NOT NULL,
+                    cantidad_ids INT,
+                    periodos_procesados VARCHAR(1000),
+                    mensaje_error TEXT,
+                    FOREIGN KEY (actor_usuario_id) REFERENCES pia_usuarios(id) ON DELETE SET NULL
+                )
+            """)
+
+            # Lock (singleton, id=1) del ETL de activos por criterios — mismo
+            # patrón que pia_alumnos_etl_lock.
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pia_activos_criterios_lock (
+                    id INT PRIMARY KEY DEFAULT 1,
+                    en_ejecucion BOOLEAN NOT NULL DEFAULT FALSE,
+                    disparado_por ENUM('MANUAL', 'CRON'),
+                    actor_usuario_id INT,
+                    iniciado_en TIMESTAMP NULL,
+                    FOREIGN KEY (actor_usuario_id) REFERENCES pia_usuarios(id) ON DELETE SET NULL
+                )
+            """)
+            cursor.execute("SELECT COUNT(*) FROM pia_activos_criterios_lock")
+            if cursor.fetchone()[0] == 0:
+                cursor.execute("""
+                    INSERT INTO pia_activos_criterios_lock (id, en_ejecucion) VALUES (1, FALSE)
+                """)
+
+            # Metadatos del archivo de Defensa de TFG (fuerza "activo" sin
+            # pasar por los 7 criterios) — mismo patrón que pia_egresados_meta.
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pia_tfg_meta (
+                    id INT PRIMARY KEY DEFAULT 1,
+                    fecha_envio DATE NOT NULL,
+                    filas INT,
+                    actualizado_por INT,
+                    actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    FOREIGN KEY (actualizado_por) REFERENCES pia_usuarios(id) ON DELETE SET NULL
+                )
+            """)
+
+            # Metadatos del archivo de RUES (ingresos vía convenio, fuerza
+            # "activo" sin pasar por los 7 criterios) — mismo patrón que
+            # pia_egresados_meta.
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pia_rues_meta (
+                    id INT PRIMARY KEY DEFAULT 1,
+                    fecha_envio DATE NOT NULL,
+                    filas INT,
+                    actualizado_por INT,
+                    actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    FOREIGN KEY (actualizado_por) REFERENCES pia_usuarios(id) ON DELETE SET NULL
+                )
+            """)
+
+            # Tabla de referencia (periodo x semestre) usada para el ajuste
+            # por amostragem en los periodos 2018.2-2020.2 (donde los 7
+            # criterios solos no alcanzan por cobertura de datos incompleta
+            # de la época) — ver services/etl/activos_criterios_etl.py. Para
+            # periodos 2021.1 en adelante solo se usa como referencia de
+            # validación (log de diferencia), sin descartar a nadie. Editable
+            # desde la pantalla de admin (grilla periodo x semestre).
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pia_activos_criterios_referencia (
+                    periodo VARCHAR(10) NOT NULL,
+                    semestre TINYINT NOT NULL,
+                    cantidad_esperada INT NOT NULL,
+                    PRIMARY KEY (periodo, semestre)
+                )
+            """)
+            cursor.execute("SELECT COUNT(*) FROM pia_activos_criterios_referencia")
+            if cursor.fetchone()[0] == 0:
+                referencia_seed = {
+                    "2018.2": [192, 300, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    "2019.1": [477, 236, 206, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    "2019.2": [225, 475, 223, 190, 0, 0, 0, 0, 0, 0, 0, 0],
+                    "2020.1": [610, 288, 357, 164, 178, 0, 0, 0, 0, 0, 0, 0],
+                    "2020.2": [159, 398, 240, 319, 165, 164, 54, 0, 0, 0, 0, 0],
+                    "2021.1": [602, 311, 521, 312, 402, 199, 170, 44, 0, 0, 0, 0],
+                    "2021.2": [280, 563, 293, 508, 298, 387, 189, 166, 48, 0, 0, 0],
+                    "2022.1": [594, 283, 522, 265, 522, 296, 376, 181, 159, 44, 0, 0],
+                    "2022.2": [392, 569, 281, 493, 279, 521, 277, 373, 174, 148, 35, 0],
+                    "2023.1": [673, 389, 569, 275, 499, 270, 513, 285, 350, 190, 112, 34],
+                    "2023.2": [478, 640, 405, 546, 275, 496, 268, 505, 279, 369, 162, 98],
+                    "2024.1": [918, 462, 632, 376, 542, 277, 445, 277, 503, 307, 297, 173],
+                    "2024.2": [739, 904, 493, 623, 362, 540, 265, 439, 271, 518, 264, 304],
+                    "2025.1": [1287, 783, 1010, 548, 689, 379, 524, 266, 439, 297, 427, 270],
+                    "2025.2": [725, 1251, 802, 1002, 539, 683, 339, 516, 269, 499, 283, 434],
+                    "2026.1": [847, 671, 1256, 786, 939, 543, 638, 346, 501, 301, 430, 321],
+                }
+                valores_seed = [
+                    (periodo, semestre, cantidad)
+                    for periodo, cantidades in referencia_seed.items()
+                    for semestre, cantidad in enumerate(cantidades, start=1)
+                    if cantidad > 0
+                ]
+                cursor.executemany("""
+                    INSERT INTO pia_activos_criterios_referencia (periodo, semestre, cantidad_esperada)
+                    VALUES (%s, %s, %s)
+                """, valores_seed)
+
+            # Semilla de la config de activos por criterios (2018.2 hasta
+            # 2027.2 por defecto -- mismo rango que usaba el script original,
+            # extendido un poco más hacia adelante).
+            cursor.execute("SELECT COUNT(*) FROM pia_activos_criterios_config")
+            if cursor.fetchone()[0] == 0:
+                periodos_default = ",".join(
+                    f"{ano}.{sem}"
+                    for ano in range(2018, 2028)
+                    for sem in (1, 2)
+                    if not (ano == 2018 and sem == 1)
+                )
+                cursor.execute("""
+                    INSERT INTO pia_activos_criterios_config (id, periodos, activo)
+                    VALUES (1, %s, TRUE)
+                """, (periodos_default,))
+
             # Semilla de la config de alumnos (rango histórico por defecto).
             cursor.execute("SELECT COUNT(*) FROM pia_alumnos_etl_config")
             if cursor.fetchone()[0] == 0:
@@ -928,6 +1068,98 @@ def get_alumnos_etl_lock_status():
     return rows[0] if rows else None
 
 
+# ---------------- Configuración ETL de Activos por Criterios ---------------- #
+
+def get_activos_criterios_config():
+    rows = dict_fetchall("""
+        SELECT id, periodos, activo, actualizado_en
+        FROM pia_activos_criterios_config
+        WHERE id = 1
+    """)
+    if not rows:
+        return None
+    row = rows[0]
+    row["periodos"] = [p for p in row["periodos"].split(",") if p.strip()]
+    return row
+
+
+def update_activos_criterios_config(periodos, activo):
+    """periodos: lista de strings "AAAA.S" (ej. "2018.2")."""
+    periodos_csv = ",".join(sorted(set(periodos)))
+    execute_query("""
+        UPDATE pia_activos_criterios_config
+        SET periodos=%s, activo=%s
+        WHERE id=1
+    """, (periodos_csv, activo))
+
+
+def registrar_activos_criterios_run(disparado_por, status, iniciado_en, finalizado_en,
+                                     periodos_procesados=None, cantidad_ids=None,
+                                     mensaje_error=None, actor_usuario_id=None):
+    periodos_csv = ",".join(periodos_procesados) if periodos_procesados else None
+    execute_query("""
+        INSERT INTO pia_activos_criterios_run
+            (disparado_por, actor_usuario_id, iniciado_en, finalizado_en,
+             status, cantidad_ids, periodos_procesados, mensaje_error)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+    """, (disparado_por, actor_usuario_id, iniciado_en, finalizado_en,
+          status, cantidad_ids, periodos_csv, mensaje_error))
+
+
+def get_ultimo_activos_criterios_run():
+    rows = dict_fetchall("""
+        SELECT disparado_por, iniciado_en, finalizado_en, status,
+               cantidad_ids, periodos_procesados, mensaje_error
+        FROM pia_activos_criterios_run
+        ORDER BY id DESC
+        LIMIT 1
+    """)
+    return rows[0] if rows else None
+
+
+# ---------------- Lock de ejecución del ETL de Activos por Criterios ---------------- #
+
+def try_acquire_activos_criterios_lock(disparado_por, actor_usuario_id=None):
+    """Mismo patrón atómico que try_acquire_alumnos_etl_lock -- ver ahí el
+    detalle de por qué se usa cursor.rowcount en vez de releer el estado."""
+    conn = get_connection()
+    if not conn:
+        return False
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE pia_activos_criterios_lock
+            SET en_ejecucion=TRUE, disparado_por=%s, actor_usuario_id=%s, iniciado_en=NOW()
+            WHERE id=1 AND en_ejecucion=FALSE
+        """, (disparado_por, actor_usuario_id))
+        conn.commit()
+        return cursor.rowcount > 0
+    except Error as e:
+        log_exception("Error al intentar tomar el lock del ETL de activos por criterios", e)
+        return False
+    finally:
+        if conn and conn.is_connected():
+            cursor.close()
+            conn.close()
+
+
+def release_activos_criterios_lock():
+    execute_query("""
+        UPDATE pia_activos_criterios_lock
+        SET en_ejecucion=FALSE
+        WHERE id=1
+    """)
+
+
+def get_activos_criterios_lock_status():
+    rows = dict_fetchall("""
+        SELECT en_ejecucion, disparado_por, actor_usuario_id, iniciado_en
+        FROM pia_activos_criterios_lock
+        WHERE id = 1
+    """)
+    return rows[0] if rows else None
+
+
 # ---------------- Configuración ETL de Asistencias ---------------- #
 
 def get_asistencias_etl_config():
@@ -1188,3 +1420,91 @@ def update_activos_ids_meta(nombre_archivo, cantidad_ids, actor_usuario_id=None)
             cantidad_ids=VALUES(cantidad_ids),
             actualizado_por=VALUES(actualizado_por)
     """, (nombre_archivo, cantidad_ids, actor_usuario_id))
+
+
+# ---------------- Metadatos de Defensa de TFG (services/etl/activos_criterios_etl.py) ---------------- #
+
+def get_tfg_meta():
+    rows = dict_fetchall("""
+        SELECT fecha_envio, filas, actualizado_por, actualizado_en
+        FROM pia_tfg_meta
+        WHERE id = 1
+    """)
+    return rows[0] if rows else None
+
+
+def update_tfg_meta(fecha_envio, filas, actor_usuario_id=None):
+    execute_query("""
+        INSERT INTO pia_tfg_meta (id, fecha_envio, filas, actualizado_por)
+        VALUES (1, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+            fecha_envio=VALUES(fecha_envio),
+            filas=VALUES(filas),
+            actualizado_por=VALUES(actualizado_por)
+    """, (fecha_envio, filas, actor_usuario_id))
+
+
+# ---------------- Metadatos de RUES (services/etl/activos_criterios_etl.py) ---------------- #
+
+def get_rues_meta():
+    rows = dict_fetchall("""
+        SELECT fecha_envio, filas, actualizado_por, actualizado_en
+        FROM pia_rues_meta
+        WHERE id = 1
+    """)
+    return rows[0] if rows else None
+
+
+def update_rues_meta(fecha_envio, filas, actor_usuario_id=None):
+    execute_query("""
+        INSERT INTO pia_rues_meta (id, fecha_envio, filas, actualizado_por)
+        VALUES (1, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+            fecha_envio=VALUES(fecha_envio),
+            filas=VALUES(filas),
+            actualizado_por=VALUES(actualizado_por)
+    """, (fecha_envio, filas, actor_usuario_id))
+
+
+# ---------------- Tabla de referencia periodo x semestre (ajuste 2018.2-2020.2) ---------------- #
+
+def get_activos_criterios_referencia():
+    """Devuelve {(periodo, semestre): cantidad_esperada} para todas las filas
+    guardadas (incluye los periodos 2021.1+ que solo se usan como referencia
+    de validación, no de descarte -- ver services/etl/activos_criterios_etl.py)."""
+    rows = dict_fetchall("""
+        SELECT periodo, semestre, cantidad_esperada
+        FROM pia_activos_criterios_referencia
+    """)
+    return {(r["periodo"], int(r["semestre"])): int(r["cantidad_esperada"]) for r in rows}
+
+
+def update_activos_criterios_referencia(valores):
+    """valores: iterable de (periodo, semestre, cantidad_esperada). Reemplaza
+    la tabla entera (borra todo y reinserta) -- se llama desde la grilla
+    editable del admin, que siempre manda el estado completo."""
+    conn = get_connection()
+    if not conn:
+        return
+    try:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM pia_activos_criterios_referencia")
+        datos = [
+            (str(periodo), int(semestre), int(cantidad))
+            for periodo, semestre, cantidad in valores
+            if cantidad is not None and int(cantidad) > 0
+        ]
+        if datos:
+            cursor.executemany("""
+                INSERT INTO pia_activos_criterios_referencia (periodo, semestre, cantidad_esperada)
+                VALUES (%s, %s, %s)
+            """, datos)
+        conn.commit()
+    except Error as e:
+        log_exception("Error al guardar la tabla de referencia de activos por criterios", e)
+        st.error(f"Error al guardar la tabla de referencia: {e}")
+        raise
+    finally:
+        if conn and conn.is_connected():
+            cursor.close()
+            conn.close()

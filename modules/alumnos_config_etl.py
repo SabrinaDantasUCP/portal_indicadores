@@ -1,16 +1,13 @@
-import os
-import shutil
 import threading
-from datetime import date, datetime
+from datetime import datetime
 
-import pandas as pd
 import streamlit as st
 
 from utils import db_pia
-from utils.system_logging import log_exception
-from services.etl.alumnos_etl import validar_egresados_columnas
+from services.etl.alumnos_etl import EGRESADOS_COLUMNAS_REQUERIDAS, normalizar_egresados_columnas
 from services.etl.alumnos_runner import ejecutar_alumnos_etl, EGRESADOS_XLSX_PATH
 from utils.excel_export import get_egresados_excel_bytes
+from utils.ui_uploads import render_upload_meta_section
 
 
 STATUS_ICONOS = {"OK": "✅", "ERROR": "❌", "CANCELADO": "⏹️"}
@@ -206,70 +203,23 @@ def _render_egresados_section():
     de aceptar el archivo y guarda la fecha de envío (fecha en que la
     Secretaría General Académica mandó la planilla, no la de hoy) en
     pia_egresados_meta — esa fecha es la que se muestra en el pie de los
-    indicadores que cruzan con egresados (ver utils/ui.render_egresados_fuente_caption)."""
-    st.markdown("### Actualizar Egresados (egressados.xlsx)")
+    indicadores que cruzan con egresados (ver utils/ui.render_egresados_fuente_caption).
 
-    meta = db_pia.get_egresados_meta()
-    if meta:
-        st.caption(
-            f"Archivo actual: enviado por Secretaría el {_formatear_fecha_simple(meta['fecha_envio'])} "
-            f"({meta['filas']} filas) · Subido al sistema el {_formatear_fecha(meta['actualizado_en'])}"
-        )
-    else:
-        st.caption("Todavía no se registró ninguna actualización de egresados desde esta pantalla.")
-
-    archivo = st.file_uploader("Nueva planilla de egresados (.xlsx)", type=["xlsx"], key="egresados_uploader")
-    fecha_envio = st.date_input(
-        "Fecha de envío del archivo *",
-        value=date.today(),
-        format="DD/MM/YYYY",
-        help="Fecha en la que la Secretaría General Académica envió/actualizó esta planilla (no necesariamente hoy).",
-        key="egresados_fecha_envio_input",
+    Implementada sobre utils/ui_uploads.render_upload_meta_section (mismo
+    helper que usan Defensa de TFG y RUES en modules/activos_config_etl.py)."""
+    render_upload_meta_section(
+        titulo="Actualizar Egresados (egressados.xlsx)",
+        file_path=EGRESADOS_XLSX_PATH,
+        columnas_requeridas=EGRESADOS_COLUMNAS_REQUERIDAS,
+        get_meta_fn=db_pia.get_egresados_meta,
+        update_meta_fn=db_pia.update_egresados_meta,
+        evento_audit="egresados_actualizado",
+        key_prefix="egresados",
+        ayuda="Usado en el cruce de alumnos_v1 y como lista de inclusión incondicional del ETL de Alumnos Activos.",
+        on_saved=get_egresados_excel_bytes.clear,  # si no, la planilla exportada quedaría con datos viejos
+        db_pia=db_pia,
+        normalizador=normalizar_egresados_columnas,
     )
-
-    if st.button("Subir archivo", icon=":material/upload:", disabled=archivo is None):
-        try:
-            df_nuevo = pd.read_excel(archivo)
-        except Exception as e:
-            log_exception("Error al leer el archivo de egresados subido", e)
-            st.error(f"No se pudo leer el archivo: {e}")
-            return
-
-        faltantes = validar_egresados_columnas(df_nuevo)
-        if faltantes:
-            st.error(f"El archivo no tiene las columnas esperadas. Faltan: {faltantes}")
-            return
-
-        try:
-            if os.path.exists(EGRESADOS_XLSX_PATH):
-                backup_path = EGRESADOS_XLSX_PATH[:-len(".xlsx")] + f"_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-                shutil.copy2(EGRESADOS_XLSX_PATH, backup_path)
-
-            archivo.seek(0)
-            os.makedirs(os.path.dirname(EGRESADOS_XLSX_PATH), exist_ok=True)
-            with open(EGRESADOS_XLSX_PATH, "wb") as f:
-                f.write(archivo.read())
-
-            db_pia.update_egresados_meta(
-                fecha_envio=fecha_envio,
-                filas=len(df_nuevo),
-                actor_usuario_id=st.session_state.get("user_id"),
-            )
-            db_pia.log_audit_event(
-                "egresados_actualizado",
-                detalle={"fecha_envio": str(fecha_envio), "filas": len(df_nuevo)},
-            )
-            get_egresados_excel_bytes.clear()  # si no, la planilla exportada quedaría con datos viejos
-        except Exception as e:
-            log_exception("Error al guardar el nuevo archivo de egresados", e)
-            st.error(f"Error al guardar el archivo: {e}")
-            return
-
-        st.success(
-            f"Archivo actualizado: {len(df_nuevo)} filas, enviado el {_formatear_fecha_simple(fecha_envio)}. "
-            "Se usará en la próxima ejecución del ETL."
-        )
-        st.rerun()
 
 
 def render():

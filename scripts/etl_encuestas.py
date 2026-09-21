@@ -92,6 +92,18 @@ def main():
         default=None,
         help="En vez de conectar al SQL Server, usa un CSV ya exportado con las columnas de QUERY_CONTACTO (IdUsuario/IdAlumnoExterno/id_syseduca)",
     )
+    parser.add_argument(
+        "--offline-estructura-csv",
+        type=str,
+        default=None,
+        help="CSV ya exportado con la estructura pregunta->criterio/indicador/dimensión (base de los indicadores de resultados; sólo EV1)",
+    )
+    parser.add_argument(
+        "--offline-escala-csv",
+        type=str,
+        default=None,
+        help="CSV ya exportado con la escala IdRespuesta->puntaje (base de los indicadores de resultados)",
+    )
     args = parser.parse_args()
 
     generar_indicadores(
@@ -105,6 +117,8 @@ def main():
         offline_resp_csv=args.offline_resp_csv,
         offline_encuesta_csv=args.offline_encuesta_csv,
         offline_contacto_csv=args.offline_contacto_csv,
+        offline_estructura_csv=args.offline_estructura_csv,
+        offline_escala_csv=args.offline_escala_csv,
     )
 
 
@@ -149,6 +163,8 @@ exports = generar_indicadores(
     id_encuesta=3, anho=2026, semestre=2, subperiodo=1,
     offline_plan_csv="./output/planificacion_raw.csv",
     offline_resp_csv="./output/respuestas_raw.csv",
+    offline_estructura_csv="./output/estructura_encuesta_raw.csv",
+    offline_escala_csv="./output/escala_encuesta_raw.csv",
     output_dir="./output",
 )
 

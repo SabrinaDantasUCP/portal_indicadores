@@ -15,6 +15,17 @@ INDICADOR_ALUMNO = "avance_por_alumno"
 INDICADOR_GENERAL_DOCENTE = "avance_general_docente"
 INDICADOR_DOCENTE_DETALLE = "avance_por_docente"
 
+# Indicadores de RESULTADOS (puntajes 1..5) — sólo la EV1 (opinión del
+# estudiante) los trae; ver "INDICADORES - RESULTADOS" en
+# services/etl/encuestas_etl.py. Consolidación método A (promedio de
+# promedios). Los % favorable/neutral/desfavorable y dist_1..5 son sobre el
+# total plano de respuestas válidas, así que no "cuadran" con `promedio`.
+INDICADOR_RESULTADO_GENERAL = "resultado_general"
+INDICADOR_RESULTADO_DIMENSION = "resultado_por_dimension"
+INDICADOR_RESULTADO_INDICADOR = "resultado_por_indicador"
+INDICADOR_RESULTADO_CRITERIO = "resultado_por_criterio"
+INDICADOR_RESULTADO_DOCENTE = "resultado_por_docente"
+
 TIPO_ALUMNOS_DOCENTE = "ENCUESTA ALUMNOS A DOCENTES"
 TIPO_AUTOEVALUACION_DOCENTE = "ENCUESTA AUTOEVALUACIÓN DOCENTE"
 TIPO_EVALUACION_PARES = "ENCUESTA EVALUACIÓN DE PARES"
@@ -134,6 +145,71 @@ COLUMNAS_DOCENTE_DETALLE = [
     "docente_id",
     "planificacion_id",
     "respondio",
+]
+
+# Orden de columnas para las tablas de RESULTADOS. Los loaders intersectan
+# con lo que realmente trae el parquet, así que sobrar/faltar una columna no
+# rompe (p. ej. datasets viejos sin resultados). `orden` es el número al
+# inicio del texto (criterio "1.".."16.", indicador "1.".."10.", dimensión
+# "Dimensión 1:".."Dimensión 5:") y se usa para ordenar.
+COLUMNAS_RESULTADO_DIMENSION = [
+    "id_dimension",
+    "dimension_nombre",
+    "orden",
+    "promedio",
+    "pct_favorable",
+    "pct_desfavorable",
+    "n_indicadores",
+    "n_respuestas",
+    "delta_vs_general",
+]
+
+COLUMNAS_RESULTADO_INDICADOR = [
+    "id_dimension",
+    "dimension_nombre",
+    "id_indicador",
+    "indicador_nombre",
+    "orden",
+    "promedio",
+    "pct_favorable",
+    "pct_desfavorable",
+    "descriptor",
+    "n_criterios",
+    "n_respuestas",
+]
+
+COLUMNAS_RESULTADO_CRITERIO = [
+    "id_dimension",
+    "dimension_nombre",
+    "id_indicador",
+    "indicador_nombre",
+    "id_criterio",
+    "criterio_nombre",
+    "orden",
+    "promedio",
+    "pct_favorable",
+    "pct_neutral",
+    "pct_desfavorable",
+    "dist_1",
+    "dist_2",
+    "dist_3",
+    "dist_4",
+    "dist_5",
+    "n_respuestas",
+]
+
+COLUMNAS_RESULTADO_DOCENTE = [
+    "docente",
+    "docente_id",
+    "promedio",
+    "descriptor",
+    "promedio_dim_1",
+    "promedio_dim_2",
+    "promedio_dim_3",
+    "promedio_dim_4",
+    "promedio_dim_5",
+    "n_evaluaciones_recibidas",
+    "n_respuestas_validas",
 ]
 
 
@@ -305,3 +381,80 @@ def load_autoeval_docente_detalle(sede, periodo, carrera, tipo):
     df_det = df[df["indicador"] == INDICADOR_DOCENTE_DETALLE]
     cols = [c for c in COLUMNAS_DOCENTE_DETALLE if c in df_det.columns]
     return df_det[cols].reset_index(drop=True)
+
+
+# --------------------------------------------------------------------------
+# RESULTADOS (puntajes 1..5) — sólo EV1 (opinión del estudiante)
+# --------------------------------------------------------------------------
+
+def resultados_disponibles(sede, periodo, carrera, tipo):
+    """True si el dataset trae los indicadores de resultados (la fila
+    `resultado_general` alcanza como testigo). Sirve para decidir si
+    mostrar la pestaña 'Resultados generales' en el dashboard."""
+    df = load_encuestas_raw(sede, periodo, carrera, tipo)
+    return not df.empty and (df["indicador"] == INDICADOR_RESULTADO_GENERAL).any()
+
+
+def load_resultado_general(sede, periodo, carrera, tipo):
+    """Fila única con los resultados consolidados de la EV1: promedio
+    general (media de las dimensiones — método A), % favorable/neutral/
+    desfavorable y dist_1..5 sobre el total plano de respuestas válidas,
+    dimensión mejor / con más oportunidad y conteos. None si el dataset no
+    trae resultados."""
+    df = load_encuestas_raw(sede, periodo, carrera, tipo)
+    if df.empty:
+        return None
+    df_gen = df[df["indicador"] == INDICADOR_RESULTADO_GENERAL]
+    return df_gen.iloc[0] if not df_gen.empty else None
+
+
+def _load_resultado_detalle(sede, periodo, carrera, tipo, indicador, columnas):
+    """Base común de los loaders de detalle de resultados: filtra por
+    `indicador`, recorta a `columnas` (las que existan) y ordena por `orden`
+    si está. Devuelve DataFrame vacío con `columnas` si no hay datos."""
+    df = load_encuestas_raw(sede, periodo, carrera, tipo)
+    if df.empty:
+        return pd.DataFrame(columns=columnas)
+    sub = df[df["indicador"] == indicador]
+    cols = [c for c in columnas if c in sub.columns]
+    out = sub[cols].reset_index(drop=True)
+    if "orden" in out.columns:
+        out = out.sort_values("orden").reset_index(drop=True)
+    return out
+
+
+def load_resultado_dimensiones(sede, periodo, carrera, tipo):
+    """1 fila por dimensión (5): promedio (media de sus indicadores),
+    % favorable/desfavorable, n_indicadores, n_respuestas y delta_vs_general."""
+    return _load_resultado_detalle(
+        sede, periodo, carrera, tipo,
+        INDICADOR_RESULTADO_DIMENSION, COLUMNAS_RESULTADO_DIMENSION,
+    )
+
+
+def load_resultado_indicadores(sede, periodo, carrera, tipo):
+    """1 fila por indicador (10): promedio (media de sus criterios),
+    % favorable/desfavorable, descriptor, n_criterios y n_respuestas."""
+    return _load_resultado_detalle(
+        sede, periodo, carrera, tipo,
+        INDICADOR_RESULTADO_INDICADOR, COLUMNAS_RESULTADO_INDICADOR,
+    )
+
+
+def load_resultado_criterios(sede, periodo, carrera, tipo):
+    """1 fila por criterio/pregunta (16): promedio plano, % favorable/
+    neutral/desfavorable y distribución completa dist_1..dist_5."""
+    return _load_resultado_detalle(
+        sede, periodo, carrera, tipo,
+        INDICADOR_RESULTADO_CRITERIO, COLUMNAS_RESULTADO_CRITERIO,
+    )
+
+
+def load_resultado_docentes(sede, periodo, carrera, tipo):
+    """1 fila por docente evaluado: promedio consolidado (método A acotado a
+    ese docente), promedio por dimensión (promedio_dim_1..5), descriptor,
+    n_evaluaciones_recibidas y n_respuestas_validas. Ordenado por nombre."""
+    return _load_resultado_detalle(
+        sede, periodo, carrera, tipo,
+        INDICADOR_RESULTADO_DOCENTE, COLUMNAS_RESULTADO_DOCENTE,
+    )

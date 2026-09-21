@@ -27,6 +27,12 @@ from services.data.encuestas import (
     load_encuestas_detalle,
     load_encuestas_general,
     load_encuestas_metadata,
+    load_resultado_criterios,
+    load_resultado_dimensiones,
+    load_resultado_docentes,
+    load_resultado_general,
+    load_resultado_indicadores,
+    resultados_disponibles,
 )
 
 
@@ -49,6 +55,13 @@ def _fmt_num(value):
 def _fmt_pct(value):
     try:
         return f"{float(value):.2f}%"
+    except (TypeError, ValueError):
+        return "-"
+
+
+def _fmt_dec(value, ndec=2):
+    try:
+        return f"{float(value):.{ndec}f}"
     except (TypeError, ValueError):
         return "-"
 
@@ -198,13 +211,29 @@ def render():
     vigencia, semestres_habilitados = load_encuestas_metadata(sede, periodo, carrera, tipo)
     _render_encabezado_encuesta(nombre, vigencia, semestres_habilitados, sede, carrera)
 
-    tab_general, tab_detalle = st.tabs(["Visión General", "Detalle por Materia / Sección / Grupo"])
+    # Si el dataset trae los indicadores de resultados (sólo la EV1 –
+    # opinión del estudiante), se muestran dos pestañas: cobertura
+    # (participación) y resultados (puntajes). Si no, se cae al layout
+    # anterior de sólo cobertura, sin pestaña extra.
+    if resultados_disponibles(sede, periodo, carrera, tipo):
+        tab_cobertura, tab_resultados = st.tabs(
+            ["Cobertura académica", "Resultados generales"]
+        )
+        with tab_cobertura:
+            _render_cobertura(fila_general, df_detalle, df_alumnos, periodo, tipo)
+        with tab_resultados:
+            render_resultados_generales(sede, periodo, carrera, tipo)
+    else:
+        _render_cobertura(fila_general, df_detalle, df_alumnos, periodo, tipo)
 
-    with tab_general:
-        render_vision_general(fila_general)
 
-    with tab_detalle:
-        render_detalle(df_detalle, df_alumnos, periodo, tipo)
+def _render_cobertura(fila_general, df_detalle, df_alumnos, periodo, tipo):
+    """Pestaña de cobertura académica: visión general de participación +
+    detalle por materia/sección/grupo/docente. Es el layout que antes
+    ocupaba toda la página (dos pestañas internas) — ahora apilado."""
+    render_vision_general(fila_general)
+    st.divider()
+    render_detalle(df_detalle, df_alumnos, periodo, tipo)
 
 
 def render_autoeval_docente(sede, periodo, carrera, tipo):
@@ -379,6 +408,285 @@ def render_vision_general(fila_general, entidad="Alumnos", columnas=None):
             accent="#1e3a8a", background="#e8f0fe", border="#a9c6f5",
             entidad=entidad,
         )
+
+
+# --------------------------------------------------------------------------
+# RESULTADOS GENERALES (puntajes 1..5) — sólo EV1 (opinión del estudiante)
+# --------------------------------------------------------------------------
+
+# Descriptor -> etiqueta con semáforo. Los umbrales que producen el
+# descriptor se calculan en el ETL (services/etl/encuestas_etl.py::
+# _descriptor_puntaje); acá sólo se le pone color.
+_DESCRIPTOR_BADGE = {
+    "Fortaleza": "🟢 Fortaleza",
+    "Adecuado": "🔵 Adecuado",
+    "Seguimiento": "🟡 Seguimiento",
+    "Oportunidad": "🔴 Oportunidad",
+}
+
+
+def _descriptor_badge(valor):
+    return _DESCRIPTOR_BADGE.get(valor, valor if valor not in (None, "") else "-")
+
+
+def _barras_por_dimension(df_dim):
+    d = df_dim.sort_values("orden") if "orden" in df_dim.columns else df_dim
+    fig = px.bar(
+        d, x="promedio", y="dimension_nombre", orientation="h",
+        text="promedio", range_x=[0, 5],
+    )
+    fig.update_traces(
+        marker_color="#1e3a8a",
+        textposition="outside",
+        texttemplate="%{text:.2f}",
+        textfont=dict(size=14),
+    )
+    fig.update_layout(
+        height=max(220, 62 * len(d)),
+        xaxis_title="Puntaje promedio (1 a 5)",
+        yaxis_title=None,
+        yaxis=dict(autorange="reversed"),
+        margin=dict(t=10, b=10, l=10, r=40),
+    )
+    st.plotly_chart(fig, use_container_width=True, key="enc_res_dim_bar")
+
+
+def _barra_distribucion(fila):
+    vals = {k: int(fila.get(f"dist_{k}", 0) or 0) for k in (1, 2, 3, 4, 5)}
+    total = sum(vals.values()) or 1
+    long = pd.DataFrame(
+        {
+            "Puntaje": [str(k) for k in vals],
+            "Respuestas": list(vals.values()),
+            "grupo": "Distribución",
+        }
+    )
+    long["pct"] = long["Respuestas"] / total * 100
+    fig = px.bar(
+        long, x="Respuestas", y="grupo", color="Puntaje", orientation="h",
+        color_discrete_map={
+            "1": "#c0392b", "2": "#e67e22", "3": "#8e44ad",
+            "4": "#2e75b6", "5": "#2e7d32",
+        },
+        text=long["pct"].map(lambda p: f"{p:.0f}%"),
+    )
+    fig.update_traces(textposition="inside", insidetextanchor="middle", textfont=dict(color="white", size=13))
+    fig.update_layout(
+        height=150,
+        xaxis_title=None, yaxis_title=None,
+        yaxis=dict(showticklabels=False),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.5, xanchor="center", x=0.5, title=None),
+        margin=dict(t=10, b=10, l=10, r=10),
+    )
+    st.plotly_chart(fig, use_container_width=True, key="enc_res_dist_bar")
+
+
+def _participacion_actual(fila_avance):
+    """% de participación para el gate de resultados: avance de encuestas
+    (completadas / esperadas); si no está, avance de alumnos."""
+    if fila_avance is None:
+        return None
+    for col in ("porcentaje_avance_encuestas", "porcentaje_avance_alumnos"):
+        val = fila_avance.get(col)
+        if _valor_valido(val):
+            return float(val)
+    return None
+
+
+def render_resultados_generales(sede, periodo, carrera, tipo):
+    if not resultados_disponibles(sede, periodo, carrera, tipo):
+        st.info(
+            "Esta encuesta todavía no tiene resultados procesados. Sólo la "
+            "**EV1 – opinión del estudiante** genera puntajes por dimensión, "
+            "indicador y criterio; volvé a intentar después de la próxima "
+            "corrida del ETL."
+        )
+        return
+
+    fila = load_resultado_general(sede, periodo, carrera, tipo)
+    if fila is None:
+        st.warning("No se encontró la fila `resultado_general` en el dataset.")
+        return
+
+    df_dim = load_resultado_dimensiones(sede, periodo, carrera, tipo)
+    df_ind = load_resultado_indicadores(sede, periodo, carrera, tipo)
+
+    # --- Gate por umbral de participación (parametrizable) ---
+    pct_part = _participacion_actual(load_encuestas_general(sede, periodo, carrera, tipo))
+    umbral = st.slider(
+        "Umbral mínimo de participación para considerar los resultados representativos (%)",
+        min_value=0, max_value=100, value=60, step=5, key="enc_res_umbral",
+    )
+    if pct_part is not None and pct_part < umbral:
+        st.warning(
+            f"Participación actual **{_fmt_pct(pct_part)}**, por debajo del umbral "
+            f"({umbral}%). Los resultados se muestran igual, pero conviene "
+            f"interpretarlos con cautela hasta alcanzar más respuestas."
+        )
+    elif pct_part is not None:
+        st.caption(f"Participación actual: {_fmt_pct(pct_part)} (umbral {umbral}%).")
+
+    # --- KPIs consolidados ---
+    st.markdown("#### Resultados consolidados de la EV1")
+    k1, k2, k3, k4 = st.columns(4)
+    with k1:
+        render_kpi_card(
+            "Puntaje general", f"{_fmt_dec(fila.get('promedio_general'))} / 5",
+            accent="#1e3a8a", background="#e8f0fe", border="#a9c6f5",
+        )
+    with k2:
+        render_kpi_card(
+            "Respuestas favorables (4-5)", _fmt_pct(fila.get("pct_favorable")),
+            accent="#385623", background="#e2efd9", border="#a9d08e",
+        )
+    with k3:
+        render_kpi_card(
+            "Neutrales (3)", _fmt_pct(fila.get("pct_neutral")),
+            accent="#7c4a03", background="#fdf1de", border="#e8c07d",
+        )
+    with k4:
+        render_kpi_card(
+            "Desfavorables (1-2)", _fmt_pct(fila.get("pct_desfavorable")),
+            accent="#9b1c1c", background="#fde8e8", border="#f5b4b4",
+        )
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Docentes evaluados", _fmt_num(fila.get("n_docentes_evaluados")))
+    m2.metric("Respuestas válidas", _fmt_num(fila.get("n_respuestas_validas")))
+    m3.metric("Criterios", _fmt_num(fila.get("n_criterios")))
+    st.divider()
+
+    # --- Por dimensión ---
+    st.markdown("#### Puntaje promedio por dimensión")
+    if df_dim.empty:
+        st.info("Sin datos por dimensión.")
+    else:
+        _barras_por_dimension(df_dim)
+        tdim = df_dim.rename(
+            columns={
+                "dimension_nombre": "Dimensión", "promedio": "Promedio",
+                "pct_favorable": "% Favorable", "pct_desfavorable": "% Desfavorable",
+                "n_respuestas": "Respuestas", "delta_vs_general": "Δ vs general",
+            }
+        )
+        cols_dim = ["Dimensión", "Promedio", "% Favorable", "% Desfavorable", "Respuestas", "Δ vs general"]
+        st.dataframe(
+            tdim[[c for c in cols_dim if c in tdim.columns]],
+            hide_index=True, width="stretch",
+            column_config={
+                "Promedio": st.column_config.ProgressColumn(
+                    "Promedio", min_value=0, max_value=5, format="%.2f"
+                ),
+            },
+            key="enc_res_tabla_dim",
+        )
+    st.divider()
+
+    # --- Por indicador ---
+    st.markdown("#### Resultado por indicador")
+    if df_ind.empty:
+        st.info("Sin datos por indicador.")
+    else:
+        tind = df_ind.copy()
+        tind["Lectura"] = tind["descriptor"].map(_descriptor_badge)
+        tind = tind.rename(
+            columns={
+                "indicador_nombre": "Indicador", "dimension_nombre": "Dimensión",
+                "promedio": "Promedio", "pct_favorable": "% Favorable",
+                "n_criterios": "Criterios", "n_respuestas": "Respuestas",
+            }
+        )
+        cols_ind = ["Indicador", "Dimensión", "Promedio", "% Favorable", "Criterios", "Respuestas", "Lectura"]
+        st.dataframe(
+            tind[[c for c in cols_ind if c in tind.columns]],
+            hide_index=True, width="stretch",
+            column_config={
+                "Promedio": st.column_config.ProgressColumn(
+                    "Promedio", min_value=0, max_value=5, format="%.2f"
+                ),
+            },
+            key="enc_res_tabla_ind",
+        )
+    st.divider()
+
+    # --- Distribución 1..5 + lectura ejecutiva ---
+    st.markdown("#### Distribución de respuestas")
+    _barra_distribucion(fila)
+    le1, le2 = st.columns(2)
+    with le1:
+        render_kpi_card(
+            "Mayor fortaleza (dimensión)", str(fila.get("dimension_mejor") or "-"),
+            accent="#385623", background="#e2efd9", border="#a9d08e",
+        )
+    with le2:
+        render_kpi_card(
+            "Principal oportunidad (dimensión)", str(fila.get("dimension_oportunidad") or "-"),
+            accent="#9b1c1c", background="#fde8e8", border="#f5b4b4",
+        )
+    st.divider()
+
+    # --- Detalle por criterio (16 preguntas) ---
+    with st.expander("Resultado por criterio (16 preguntas)"):
+        df_cri = load_resultado_criterios(sede, periodo, carrera, tipo)
+        if df_cri.empty:
+            st.info("Sin datos por criterio.")
+        else:
+            tcri = df_cri.rename(
+                columns={
+                    "criterio_nombre": "Criterio", "indicador_nombre": "Indicador",
+                    "promedio": "Promedio", "pct_favorable": "% Fav",
+                    "pct_neutral": "% Neu", "pct_desfavorable": "% Desf",
+                    "n_respuestas": "Respuestas",
+                }
+            )
+            cols_cri = [
+                "Criterio", "Indicador", "Promedio", "% Fav", "% Neu", "% Desf",
+                "dist_1", "dist_2", "dist_3", "dist_4", "dist_5", "Respuestas",
+            ]
+            st.dataframe(
+                tcri[[c for c in cols_cri if c in tcri.columns]],
+                hide_index=True, width="stretch",
+                column_config={
+                    "Promedio": st.column_config.ProgressColumn(
+                        "Promedio", min_value=0, max_value=5, format="%.2f"
+                    ),
+                },
+                key="enc_res_tabla_cri",
+            )
+
+    # --- Detalle por docente ---
+    with st.expander("Resultado por docente"):
+        df_doc = load_resultado_docentes(sede, periodo, carrera, tipo)
+        if df_doc.empty:
+            st.info("Sin datos por docente.")
+        else:
+            tdoc = df_doc.copy()
+            tdoc["Lectura"] = tdoc["descriptor"].map(_descriptor_badge)
+            tdoc = tdoc.rename(
+                columns={
+                    "docente": "Docente", "promedio": "Promedio",
+                    "n_evaluaciones_recibidas": "Evaluaciones",
+                    "n_respuestas_validas": "Respuestas",
+                    "promedio_dim_1": "Dim 1", "promedio_dim_2": "Dim 2",
+                    "promedio_dim_3": "Dim 3", "promedio_dim_4": "Dim 4",
+                    "promedio_dim_5": "Dim 5",
+                }
+            )
+            cols_doc = [
+                "Docente", "Promedio", "Lectura", "Evaluaciones", "Respuestas",
+                "Dim 1", "Dim 2", "Dim 3", "Dim 4", "Dim 5",
+            ]
+            st.dataframe(
+                tdoc[[c for c in cols_doc if c in tdoc.columns]],
+                hide_index=True, width="stretch",
+                height=min(38 * (len(tdoc) + 1) + 3, 520),
+                column_config={
+                    "Promedio": st.column_config.ProgressColumn(
+                        "Promedio", min_value=0, max_value=5, format="%.2f"
+                    ),
+                },
+                key="enc_res_tabla_doc",
+            )
 
 
 # (clave de la pestaña, columnas a agrupar -acumulativas-, etiquetas de esas

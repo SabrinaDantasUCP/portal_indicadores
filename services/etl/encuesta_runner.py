@@ -82,6 +82,8 @@ def _ejecutar_alumno_docente(config: dict) -> int:
         offline_resp_csv=os.path.join(RAW_OUTPUT_DIR, "respuestas_raw.csv"),
         offline_encuesta_csv=os.path.join(RAW_OUTPUT_DIR, "encuesta_raw.csv"),
         offline_contacto_csv=os.path.join(RAW_OUTPUT_DIR, "contacto_raw.csv"),
+        offline_estructura_csv=os.path.join(RAW_OUTPUT_DIR, "estructura_encuesta_raw.csv"),
+        offline_escala_csv=os.path.join(RAW_OUTPUT_DIR, "escala_encuesta_raw.csv"),
     )
 
     df_v1 = _combinar_exports(exports)

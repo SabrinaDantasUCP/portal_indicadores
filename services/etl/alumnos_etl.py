@@ -64,6 +64,18 @@ def obtener_conexion():
 # ─────────────────────────────────────────────
 
 def get_query(ano_loop):
+    """matricula_disciplina/oferta_disciplina son LEFT JOIN (no INNER):
+    un alumno con matricula_curso/periodo_letivo válido pero SIN ninguna
+    disciplina matriculada en ese periodo (status=1) igual entra, con una
+    única fila con los campos de disciplina/nota en NULL. Antes de este
+    cambio esos alumnos quedaban totalmente ausentes de alumnos_v1/v2 para
+    ese periodo -- lo cual hacía que el periodo x semestre de alumnos_v2
+    no pudiera coincidir con el cálculo de
+    services/etl/activos_criterios_etl.py (que no exige disciplina, solo
+    periodo_letivo) ni con una tabla de referencia externa. Ver el manejo
+    de estas filas "sin disciplina" en generar_alumnos_v1 (tipo_disciplina
+    = 'Sin Disciplina', resultado_final = 'N/A' -- no cuentan como
+    aprobado ni reprobado)."""
     return f"""
     WITH alumnos_cde AS (
         SELECT DISTINCT m.usuarios_id
@@ -413,8 +425,8 @@ def get_query(ano_loop):
     FROM ucp.matricula_curso m
     INNER JOIN alumnos_cde aa ON m.usuarios_id = aa.usuarios_id
     JOIN ucp.periodo_letivo p   ON p.matricula_curso_id = m.id
-    JOIN ucp.matricula_disciplina md ON p.id = md.periodo_letivo_id
-    JOIN ucp.oferta_disciplina o ON md.oferta_disciplina_id = o.id
+    LEFT JOIN ucp.matricula_disciplina md ON p.id = md.periodo_letivo_id AND md.status = 1
+    LEFT JOIN ucp.oferta_disciplina o ON md.oferta_disciplina_id = o.id AND o.status = 1
     JOIN ucp.usuarios u          ON m.usuarios_id = u.id
     LEFT JOIN ucp.estrutura_curricular e  ON m.estrutura_curricular_id = e.id
     LEFT JOIN ucp.ano a                   ON u.ano_id = a.id
@@ -439,9 +451,7 @@ def get_query(ano_loop):
     ) n_catraca ON n_catraca.usuarios_id = m.usuarios_id
     WHERE m.status != 5
       AND p.status = 1
-      AND md.status = 1
-      AND o.status = 1
-      AND o.disciplinas_id != 216
+      AND (o.disciplinas_id IS NULL OR o.disciplinas_id != 216)
       AND a2.nome = {ano_loop}
     """
 
@@ -641,6 +651,79 @@ CORRECOES_V2_DEFAULT = [
 ]
 
 
+# ─────────────────────────────────────────────
+# CORRECCIÓN DE PERÍODO PARA CONVALIDADOS (59 alumnos)
+# ─────────────────────────────────────────────
+#
+# Estos 59 alumnos ingresaron a CDE convalidados de otra institución. El
+# SysEduca los registró con su periodo_letivo de INICIO en 2020.1 (cuando
+# se cargaron sus datos) con semestre >= 7, pero su primer semestre real de
+# actividad en CDE es 2020.2 (un periodo después) -- confirmado por
+# services/etl/activos_criterios_etl.py, que usa esta misma corrección
+# para decidir en qué periodo cuentan como "activos".
+#
+# La corrección es una CASCADA: cada regla (periodo_origen, semestre,
+# periodo_destino) desplaza ÚNICAMENTE las filas de esos usuarios_id que
+# están exactamente en esa celda -- el semestre no cambia, solo el
+# periodo. Como cada semestre siguiente de un mismo alumno cae en la
+# siguiente regla de la cascada, el resultado es que TODA su trayectoria
+# (todos los periodos_letivo que tengan) se corre un periodo hacia
+# adelante, sin colisionar entre sí.
+#
+# No modifica la base de datos -- el ajuste ocurre solo en el DataFrame en
+# memoria (alumnos_v2), igual que en activos_criterios_etl.py.
+IDS_AJUSTE_PERIODO_CONVALIDADOS = {
+    942, 9434, 9435, 9541, 9542, 9795, 9796, 9921, 9930, 9931,
+    9932, 9933, 9935, 9943, 9946, 9947, 9951, 9952, 9953, 9954,
+    9956, 9958, 9965, 10032, 10061, 10063, 10064, 10229, 10235,
+    10277, 10321, 10334, 10335, 10385, 10491, 10516, 10583, 10604,
+    10688, 10745, 10748, 10769, 10804, 10806, 10826, 10860, 10890,
+    10899, 10902, 10915, 10918, 11034, 11068, 11123, 11125, 11126,
+    11130, 11179, 11228,
+}
+
+CELDAS_AJUSTE_CONVALIDADOS = [
+    ("2020.1", 7, "2020.2"),
+    ("2020.2", 8, "2021.1"),
+    ("2021.1", 9, "2021.2"),
+    ("2021.2", 10, "2022.1"),
+    ("2022.1", 11, "2022.2"),
+    ("2022.2", 12, "2023.1"),
+]
+
+
+def aplicar_correccion_periodo_convalidados(df):
+    """Aplica CELDAS_AJUSTE_CONVALIDADOS sobre las columnas
+    ano_periodo_letivo/periodo_anual_periodo_letivo de `df` (debe tener
+    también usuarios_id y semestre_alumno). Devuelve una copia -- no
+    modifica el DataFrame original. Sin esto, alumnos_v2 muestra a estos 59
+    alumnos con el periodo "crudo" (sin corregir) de SysEduca, que no
+    coincide con el periodo en el que services/etl/activos_criterios_etl.py
+    los cuenta como activos."""
+    df = df.copy()
+    ano_num = pd.to_numeric(df["ano_periodo_letivo"], errors="coerce")
+    sem_anual_num = pd.to_numeric(df["periodo_anual_periodo_letivo"], errors="coerce")
+    periodo_tmp = ano_num.astype("Int64").astype(str) + "." + sem_anual_num.astype("Int64").astype(str)
+    semestre_num = pd.to_numeric(df["semestre_alumno"], errors="coerce")
+
+    n_total = 0
+    for p_orig, sem, p_dest in CELDAS_AJUSTE_CONVALIDADOS:
+        mask = (
+            df["usuarios_id"].isin(IDS_AJUSTE_PERIODO_CONVALIDADOS)
+            & (periodo_tmp == p_orig)
+            & (semestre_num == sem)
+        )
+        n = int(mask.sum())
+        if n:
+            ano_dest, sem_anual_dest = p_dest.split(".")
+            df.loc[mask, "ano_periodo_letivo"] = int(ano_dest)
+            df.loc[mask, "periodo_anual_periodo_letivo"] = int(sem_anual_dest)
+            n_total += n
+    if n_total:
+        log.info("Corrección de período (convalidados) aplicada a %s fila(s) de alumnos_v2.", n_total)
+    return df
+
+
 def calcular_ciclo_academico(row):
     """Calcula la cohorte inicial y final basada en el ingreso."""
     try:
@@ -673,7 +756,17 @@ def verificar_trayectoria_blindada(group):
     group['periodo_anual_periodo_letivo'] = pd.to_numeric(group['periodo_anual_periodo_letivo'], errors='coerce')
     group['semestre_alumno'] = pd.to_numeric(group['semestre_alumno'], errors='coerce')
 
-    historico_unico = group.drop_duplicates(subset=['ano_periodo_letivo', 'periodo_anual_periodo_letivo']).sort_values(by=['ano_periodo_letivo', 'periodo_anual_periodo_letivo'])
+    # dropna antes de deduplicar: con el LEFT JOIN de matricula_disciplina/
+    # oferta_disciplina (ver get_query), ahora pueden entrar alumnos cuyo
+    # periodo_letivo tiene un periodo_anual_id/ano_id huérfano (sin match en
+    # ucp.periodo_anual/ucp.ano) -- antes esos alumnos ni siquiera llegaban
+    # acá porque el INNER JOIN los excluía por falta de disciplina. Sin este
+    # dropna, ano/periodo_anual/semestre en NaN rompía los int() de abajo.
+    historico_unico = (
+        group.dropna(subset=['ano_periodo_letivo', 'periodo_anual_periodo_letivo', 'semestre_alumno'])
+        .drop_duplicates(subset=['ano_periodo_letivo', 'periodo_anual_periodo_letivo'])
+        .sort_values(by=['ano_periodo_letivo', 'periodo_anual_periodo_letivo'])
+    )
 
     if historico_unico.empty:
         return 'Irregular'
@@ -697,19 +790,48 @@ def verificar_trayectoria_blindada(group):
     return 'Regular'
 
 
-# Columnas que el admin panel (modules/alumnos_config_etl.py) exige antes de
-# aceptar un egressados.xlsx nuevo — deben existir con este nombre exacto
-# (antes del rename interno que hace generar_alumnos_v1) para que el cruce
-# con egresados no falle silenciosamente.
+# Columnas "canónicas" que el admin panel (modules/alumnos_config_etl.py)
+# exige antes de aceptar un egressados.xlsx nuevo — deben existir con este
+# nombre exacto DESPUÉS de normalizar_egresados_columnas() (ver abajo), para
+# que el cruce con egresados no falle silenciosamente.
 EGRESADOS_COLUMNAS_REQUERIDAS = [
     "usuarios_id", "Año de Egreso", "Periodo de Egreso", "Titulado",
     "Fecha de titulación", "detalle",
 ]
 
+# Alias conocidos: Secretaría fue cambiando el nombre de estas dos columnas
+# entre versiones de la planilla ("usuarios_id"/"detalle" en el formato
+# viejo, "IDs_Solo"/"Resultado_BD" en el formato con internado/titulados
+# que empezaron a mandar). Se acepta cualquiera de los dos nombres.
+_EGRESADOS_ALIAS_COLUMNAS = {
+    "usuarios_id": ["IDs_Solo"],
+    "detalle": ["Resultado_BD", "DETALLE"],
+}
+
+
+def normalizar_egresados_columnas(df_egr):
+    """Renombra las columnas alias conocidas (ver _EGRESADOS_ALIAS_COLUMNAS)
+    a su nombre canónico, sin tocar el resto de columnas. Devuelve una copia
+    -- no modifica el DataFrame original. Debe llamarse ANTES de
+    validar_egresados_columnas()/EGRESADOS_COLUMNAS_REQUERIDAS."""
+    df_egr = df_egr.copy()
+    renombres = {}
+    for canonico, alias in _EGRESADOS_ALIAS_COLUMNAS.items():
+        if canonico in df_egr.columns:
+            continue
+        for nombre_alias in alias:
+            if nombre_alias in df_egr.columns:
+                renombres[nombre_alias] = canonico
+                break
+    if renombres:
+        df_egr = df_egr.rename(columns=renombres)
+    return df_egr
+
 
 def validar_egresados_columnas(df_egr):
     """Devuelve la lista de columnas requeridas que faltan en df_egr (vacía
-    si está todo OK). No modifica df_egr."""
+    si está todo OK). No modifica df_egr. Se espera que df_egr ya haya
+    pasado por normalizar_egresados_columnas()."""
     return [col for col in EGRESADOS_COLUMNAS_REQUERIDAS if col not in df_egr.columns]
 
 
@@ -735,14 +857,24 @@ def generar_alumnos_v1(df_consolidado, egresados_xlsx_path=None, fecha_envio_egr
 
     # 2. Mapeos de Disciplinas y Tipo
     df['disciplina'] = df['disciplinas_id'].map(MAPA_DISCIPLINAS)
-    df['tipo_disciplina'] = np.where(df['disciplinas_id'].isin(IDS_EXTRACURRICULARES), 'Extracurricular', 'Regular')
+    # 'Sin Disciplina': alumno con matricula/periodo_letivo válido pero SIN
+    # ninguna disciplina matriculada ese periodo (ver LEFT JOIN en
+    # get_query) -- no es lo mismo que reprobar una materia, así que se
+    # distingue de 'Regular'/'Extracurricular' para no ensuciar las tasas
+    # de aprobación con filas que no representan una materia cursada.
+    df['tipo_disciplina'] = np.select(
+        [df['disciplinas_id'].isna(), df['disciplinas_id'].isin(IDS_EXTRACURRICULARES)],
+        ['Sin Disciplina', 'Extracurricular'],
+        default='Regular',
+    )
 
     # 3. Lógica de Aprobación y Escala 1-5
     cond_aprob = [
+        (df['tipo_disciplina'] == 'Sin Disciplina'),
         (df['tipo_disciplina'] == 'Regular') & (df['calificacion_final'] >= 60),
-        (df['tipo_disciplina'] == 'Extracurricular') & (df['calificacion_final'] >= 20)
+        (df['tipo_disciplina'] == 'Extracurricular') & (df['calificacion_final'] >= 20),
     ]
-    df['resultado_final'] = np.select(cond_aprob, ['APROBADO', 'APROBADO'], default='REPROBADO')
+    df['resultado_final'] = np.select(cond_aprob, ['N/A', 'APROBADO', 'APROBADO'], default='REPROBADO')
 
     cond_escala = [
         (df['tipo_disciplina'] == 'Regular') & (df['calificacion_final'] <= 59),
@@ -785,6 +917,7 @@ def generar_alumnos_v1(df_consolidado, egresados_xlsx_path=None, fecha_envio_egr
     if egresados_xlsx_path and os.path.exists(egresados_xlsx_path):
         try:
             df_egr = pd.read_excel(egresados_xlsx_path)
+            df_egr = normalizar_egresados_columnas(df_egr)
             faltantes = validar_egresados_columnas(df_egr)
             if faltantes:
                 raise ValueError(f"Faltan columnas en egressados.xlsx: {faltantes}")
@@ -826,15 +959,51 @@ def generar_alumnos_v1(df_consolidado, egresados_xlsx_path=None, fecha_envio_egr
 # ETL - ALUMNOS CON CORTE (alumnos_v2)
 # ─────────────────────────────────────────────
 
-def generar_alumnos_v2(df_v1, ids_activos, correcciones=None):
+def generar_alumnos_v2(df_v1, ids_activos, pares_activos=None, correcciones=None):
     """A partir de alumnos_v1, restringe a los alumnos cuyo usuarios_id está
     en ids_activos (ver services/etl/activos_ids.cargar_ids_activos) y
     aplica las correcciones puntuales conocidas (CORRECOES_V2_DEFAULT si no
-    se pasa otra lista)."""
+    se pasa otra lista).
+
+    Si se pasa `pares_activos` (dict {(usuarios_id, periodo): semestre}, ver
+    services/etl/activos_ids.cargar_pares_activos -- lo escribe el cálculo
+    automático por criterios, no el upload manual de ids), el filtro se
+    vuelve más estricto: además de que el usuarios_id esté en ids_activos,
+    exige que la fila sea de un periodo en el que ESE alumno específicamente
+    calificó como activo. Sin esto, alumnos_v2 trae TODO el historial de
+    cualquier alumno activo en algún periodo (comportamiento anterior,
+    todavía usado si pares_activos es None -- ej. tras un upload manual de
+    ids, que no tiene información de periodo).
+
+    Cuando se pasa `pares_activos` también se aplica
+    aplicar_correccion_periodo_convalidados ANTES de comparar contra
+    pares_activos -- los pares fueron calculados con el periodo YA
+    corregido (ver services/etl/activos_criterios_etl.py), así que hace
+    falta corregir alumnos_v2 de la misma forma para que la comparación
+    (usuarios_id, periodo) sea consistente en ambos lados. Además,
+    `semestre_alumno` se SOBRESCRIBE con el valor de pares_activos para las
+    filas que matchean -- el cálculo por criterios puede resolver el
+    semestre de forma distinta a la extracción de alumnos_v1 (ej. por la
+    deduplicación CDE III→CDE, que solo se aplica en
+    services/etl/activos_criterios_etl.py), y necesitamos que el periodo x
+    semestre de alumnos_v2 sea consistente con lo que se usó para calcular
+    "activo" (y, para 2018.2-2020.2, con la tabla de referencia)."""
     if correcciones is None:
         correcciones = CORRECOES_V2_DEFAULT
 
     df_v2 = df_v1[df_v1['usuarios_id'].isin(ids_activos)].copy()
+
+    if pares_activos:
+        df_v2 = aplicar_correccion_periodo_convalidados(df_v2)
+        periodo_tmp = (
+            pd.to_numeric(df_v2['ano_periodo_letivo'], errors='coerce').astype('Int64').astype(str)
+            + '.' + pd.to_numeric(df_v2['periodo_anual_periodo_letivo'], errors='coerce').astype('Int64').astype(str)
+        )
+        claves = list(zip(df_v2['usuarios_id'], periodo_tmp))
+        pertenece = [clave in pares_activos for clave in claves]
+        df_v2 = df_v2[pertenece].copy()
+        claves_incluidas = [c for c, p in zip(claves, pertenece) if p]
+        df_v2['semestre_alumno'] = [pares_activos[clave] for clave in claves_incluidas]
 
     for correcao in correcciones:
         id_alumno = correcao['usuarios_id']

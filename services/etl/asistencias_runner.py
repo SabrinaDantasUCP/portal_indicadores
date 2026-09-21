@@ -88,8 +88,18 @@ def ejecutar_asistencias_etl(anos_syseduca: list, periodos_biometria: list, on_p
         df_matriculados = etl.fetch_matriculados()
         detalle_sys = etl.parsear_detalle_syseduca(df_crudo_sys) if not df_crudo_sys.empty else df_crudo_sys
 
-        df_v1_sys = etl.agregar_syseduca(detalle_sys, df_matriculados, ids_activos=None)
-        df_v1_bio = etl.agregar_biometria(df_crudo_bio, df_matriculados, ids_activos=None)
+        # Clasificación "posee_practica" por disciplina (según los grupos de
+        # planificación de Biometría, agregando TODAS sus turmas/periodos) --
+        # se calcula UNA sola vez y se reusa en v1/v2 (ver
+        # services/etl/asistencias_etl.calcular_disciplinas_practica).
+        try:
+            df_disciplinas_practica = etl.calcular_disciplinas_practica(df_matriculados)
+        except Exception as exc:
+            log.warning("No se pudo calcular posee_practica por disciplina (Biometría): %s", exc)
+            df_disciplinas_practica = None
+
+        df_v1_sys = etl.agregar_syseduca(detalle_sys, df_matriculados, ids_activos=None, df_disciplinas_practica=df_disciplinas_practica)
+        df_v1_bio = etl.agregar_biometria(df_crudo_bio, df_matriculados, ids_activos=None, df_disciplinas_practica=df_disciplinas_practica)
         df_v1 = etl.unificar_asistencias(df_v1_sys, df_v1_bio)
         _escribir_dataset(V1_CSV_REL, df_v1)
         filas_v1 = len(df_v1)
@@ -97,8 +107,8 @@ def ejecutar_asistencias_etl(anos_syseduca: list, periodos_biometria: list, on_p
         filas_v2 = None
         ids_activos = cargar_ids_activos()
         if ids_activos:
-            df_v2_sys = etl.agregar_syseduca(detalle_sys, df_matriculados, ids_activos=ids_activos)
-            df_v2_bio = etl.agregar_biometria(df_crudo_bio, df_matriculados, ids_activos=ids_activos)
+            df_v2_sys = etl.agregar_syseduca(detalle_sys, df_matriculados, ids_activos=ids_activos, df_disciplinas_practica=df_disciplinas_practica)
+            df_v2_bio = etl.agregar_biometria(df_crudo_bio, df_matriculados, ids_activos=ids_activos, df_disciplinas_practica=df_disciplinas_practica)
             df_v2 = etl.unificar_asistencias(df_v2_sys, df_v2_bio)
             _escribir_dataset(V2_CSV_REL, df_v2)
             filas_v2 = len(df_v2)
