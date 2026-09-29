@@ -14,7 +14,9 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from utils import db_pia
 from utils.system_logging import log_exception
 from utils.ui import render_kpi_card
+from modules.encuestas_ev1 import render_ev1_opinion_estudiante
 from services.data.encuestas import (
+    TIPO_ALUMNOS_DOCENTE,
     TIPO_AUTOEVALUACION_DOCENTE,
     get_encuesta_nombre,
     listar_carreras_encuesta,
@@ -211,18 +213,21 @@ def render():
     vigencia, semestres_habilitados = load_encuestas_metadata(sede, periodo, carrera, tipo)
     _render_encabezado_encuesta(nombre, vigencia, semestres_habilitados, sede, carrera)
 
-    # Si el dataset trae los indicadores de resultados (sólo la EV1 –
-    # opinión del estudiante), se muestran dos pestañas: cobertura
-    # (participación) y resultados (puntajes). Si no, se cae al layout
-    # anterior de sólo cobertura, sin pestaña extra.
-    if resultados_disponibles(sede, periodo, carrera, tipo):
-        tab_cobertura, tab_resultados = st.tabs(
-            ["Cobertura académica", "Resultados generales"]
+    # Si la encuesta es de estudiantes (EV1) o trae indicadores de resultados,
+    # se presentan las tres pestañas: Cobertura académica, Resultados generales
+    # y la nueva vista integral EV1 - Opinión Estudiante.
+    if resultados_disponibles(sede, periodo, carrera, tipo) or tipo == TIPO_ALUMNOS_DOCENTE:
+        tab_cobertura, tab_resultados, tab_ev1 = st.tabs(
+            ["Cobertura académica", "Resultados generales", "EV1 - Opinión Estudiante"]
         )
         with tab_cobertura:
             _render_cobertura(fila_general, df_detalle, df_alumnos, periodo, tipo)
         with tab_resultados:
             render_resultados_generales(sede, periodo, carrera, tipo)
+        with tab_ev1:
+            render_ev1_opinion_estudiante(
+                sede, periodo, carrera, tipo, fila_general, df_detalle, df_alumnos
+            )
     else:
         _render_cobertura(fila_general, df_detalle, df_alumnos, periodo, tipo)
 

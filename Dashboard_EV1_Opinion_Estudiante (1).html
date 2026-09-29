@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Dashboard de la EV1 - Opinión del Estudiante de la Universidad Central del Paraguay">
+  <title>Dashboard EV1 · Opinión del Estudiante</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --navy:#12263f;
+      --blue:#245ea8;
+      --blue-2:#3c7bc4;
+      --blue-soft:#eaf2fb;
+      --ink:#17243a;
+      --muted:#65738a;
+      --line:#dbe3ed;
+      --page:#f3f6fa;
+      --surface:#ffffff;
+      --green:#17845f;
+      --green-soft:#e7f6f0;
+      --amber:#b87908;
+      --amber-soft:#fff5d9;
+      --red:#bd3f4a;
+      --red-soft:#fdecef;
+      --purple:#7654a8;
+      --shadow:0 8px 24px rgba(18,38,63,.07);
+    }
+    *{box-sizing:border-box}
+    html{font-size:16px;scroll-behavior:smooth}
+    body{margin:0;background:var(--page);color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.45}
+    button,select{font:inherit}
+    button:focus-visible,select:focus-visible{outline:3px solid rgba(36,94,168,.28);outline-offset:2px}
+    .app{min-height:100vh}
+    .topbar{background:var(--navy);color:#fff;padding:18px clamp(18px,3vw,36px);display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}
+    .brand{display:flex;align-items:center;gap:14px}
+    .brand-mark{width:46px;height:46px;border-radius:11px;background:#fff;color:var(--navy);display:grid;place-items:center;font-weight:750;letter-spacing:.04em}
+    .brand h1{font-size:1.25rem;margin:0;font-weight:700}
+    .brand p{margin:3px 0 0;color:#c7d5e8;font-size:.86rem}
+    .demo-tag{border:1px solid rgba(255,255,255,.28);background:rgba(255,255,255,.1);padding:7px 11px;border-radius:999px;font-size:.78rem}
+    .filters{background:var(--surface);border-bottom:1px solid var(--line);padding:14px clamp(18px,3vw,36px);display:grid;grid-template-columns:repeat(7,minmax(120px,1fr));gap:10px}
+    .survey-field{grid-column:span 2}
+    .field label{display:block;color:var(--muted);font-size:.76rem;font-weight:650;margin:0 0 5px}
+    .field select{width:100%;min-height:42px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);padding:8px 10px}
+    .field select:disabled{opacity:1;background:#f1f5f9;color:#334155;border-color:#d7e0ea;cursor:not-allowed;font-weight:650}
+    .nav-wrap{background:var(--surface);border-bottom:1px solid var(--line);padding:0 clamp(12px,3vw,36px);overflow-x:auto}
+    .tabs{display:flex;min-width:max-content;gap:3px}
+    .tab{appearance:none;border:0;border-bottom:3px solid transparent;background:transparent;color:var(--muted);padding:15px 14px 12px;cursor:pointer;font-weight:700;font-size:.85rem}
+    .tab[aria-selected="true"]{color:var(--blue);border-bottom-color:var(--blue)}
+    main{padding:22px clamp(18px,3vw,36px) 40px;max-width:1540px;margin:auto}
+    .panel[hidden]{display:none}
+    .panel-title{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:16px;flex-wrap:wrap}
+    .panel-title h2{font-size:1.25rem;margin:0;font-weight:750}
+    .panel-title p{margin:4px 0 0;color:var(--muted);font-size:.86rem;max-width:850px}
+    .note{background:var(--blue-soft);border-left:4px solid var(--blue);border-radius:8px;padding:11px 13px;color:#214d82;font-size:.84rem;margin-bottom:16px}
+    .note.privacy{background:#f1eef9;border-left-color:var(--purple);color:#513b7b}
+    .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px;margin-bottom:16px}
+    .kpi{background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:15px 16px;box-shadow:var(--shadow);min-width:0}
+    .kpi .label{color:var(--muted);font-size:.79rem;font-weight:650}
+    .kpi .value{font-size:1.72rem;line-height:1.1;font-weight:780;margin-top:6px;letter-spacing:-.02em}
+    .kpi .detail{font-size:.75rem;color:var(--muted);margin-top:7px}
+    .progress{height:8px;border-radius:999px;background:#e4eaf2;overflow:hidden;margin-top:10px}
+    .progress>span{display:block;height:100%;background:var(--blue);border-radius:inherit}
+    .grid-2{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(280px,.8fr);gap:15px;align-items:start}
+    .grid-even{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px;align-items:start}
+    .box{background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:16px;box-shadow:var(--shadow);min-width:0}
+    .box+.box{margin-top:15px}
+    .box h3{font-size:.95rem;margin:0 0 14px;font-weight:750}
+    .box-sub{color:var(--muted);font-size:.78rem;margin:-8px 0 14px}
+    .table-wrap{width:100%;overflow-x:auto}
+    table{width:100%;border-collapse:collapse;font-size:.81rem}
+    th{text-align:left;color:var(--muted);font-weight:700;padding:10px 9px;border-bottom:1px solid var(--line);white-space:nowrap}
+    td{padding:10px 9px;border-bottom:1px solid var(--line);vertical-align:middle}
+    tbody tr:last-child td{border-bottom:0}
+    tbody tr:hover{background:#f8fafc}
+    .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+    .status{display:inline-flex;align-items:center;gap:6px;font-size:.76rem;font-weight:700;white-space:nowrap}
+    .status::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor}
+    .complete{color:var(--green)}
+    .partial{color:var(--amber)}
+    .pending{color:var(--red)}
+    .bar-row{display:grid;grid-template-columns:minmax(160px,1.2fr) minmax(120px,2fr) 55px;gap:11px;align-items:center;margin:11px 0;font-size:.82rem}
+    .bar-track{height:11px;border-radius:999px;background:#e4eaf2;overflow:hidden}
+    .bar{height:100%;border-radius:inherit;background:var(--blue)}
+    .bar.good{background:var(--green)}
+    .bar.warn{background:var(--amber)}
+    .bar.bad{background:var(--red)}
+    .bar-score{height:14px;border-radius:4px;background:linear-gradient(90deg,#e9eef5 0%,#e9eef5 100%);overflow:hidden}
+    .bar-score .bar{background:linear-gradient(90deg,var(--blue),var(--blue-2))}
+    .donut-area{display:grid;place-items:center;padding:4px 0 10px}
+    .donut{--pct:69.2%;width:150px;height:150px;border-radius:50%;background:conic-gradient(var(--blue) 0 var(--pct),#e4eaf2 var(--pct) 100%);display:grid;place-items:center;position:relative}
+    .donut::after{content:"";position:absolute;width:100px;height:100px;border-radius:50%;background:var(--surface)}
+    .donut strong{position:relative;z-index:1;font-size:1.5rem}
+    .legend{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;color:var(--muted);font-size:.76rem;margin-top:12px}
+    .legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px}
+    .stack{height:24px;border-radius:6px;overflow:hidden;display:flex;background:#e4eaf2}
+    .stack span{display:grid;place-items:center;color:#fff;font-size:.7rem;font-weight:750;min-width:24px}
+    .s1{background:var(--red)}.s2{background:#d97831}.s3{background:var(--purple)}.s4{background:var(--blue)}.s5{background:var(--green)}
+    .small-progress{display:flex;align-items:center;gap:9px;min-width:145px}
+    .small-progress .progress{flex:1;margin:0}
+    .badge{display:inline-flex;padding:4px 8px;border-radius:999px;font-weight:700;font-size:.72rem;white-space:nowrap}
+    .badge.green{color:var(--green);background:var(--green-soft)}
+    .badge.amber{color:#946104;background:var(--amber-soft)}
+    .badge.red{color:var(--red);background:var(--red-soft)}
+    .badge.blue{color:var(--blue);background:var(--blue-soft)}
+    .teacher-summary{display:grid;grid-template-columns:180px 1fr;gap:16px;align-items:center}
+    .teacher-score{background:var(--navy);color:#fff;border-radius:11px;padding:18px;text-align:center}
+    .teacher-score span{display:block;color:#c8d6e8;font-size:.75rem}
+    .teacher-score strong{display:block;font-size:2rem;margin-top:5px}
+    details.dimension{background:var(--surface);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow);margin-bottom:12px;overflow:hidden}
+    details.dimension>summary{list-style:none;cursor:pointer;padding:15px 17px;display:grid;grid-template-columns:minmax(0,1fr) 90px 24px;gap:12px;align-items:center;font-weight:750}
+    details.dimension>summary::-webkit-details-marker{display:none}
+    details.dimension>summary::after{content:"+";font-size:1.2rem;color:var(--blue);text-align:center}
+    details.dimension[open]>summary::after{content:"−"}
+    .dimension-score{text-align:right;color:var(--blue);font-variant-numeric:tabular-nums}
+    .dimension-body{border-top:1px solid var(--line);padding:12px 17px 17px}
+    .criterion{border-bottom:1px solid var(--line);padding:13px 0}
+    .criterion:last-child{border-bottom:0}
+    .criterion-head{display:grid;grid-template-columns:minmax(0,1fr) 65px;gap:12px;align-items:start}
+    .criterion-name{font-size:.84rem;font-weight:650}
+    .criterion-score{text-align:right;font-weight:750;color:var(--blue);font-variant-numeric:tabular-nums}
+    .indicator{margin:9px 0 0 22px;background:#f6f8fb;border-left:3px solid var(--blue-2);border-radius:6px;padding:9px 11px}
+    .indicator strong{display:block;font-size:.78rem;margin-bottom:3px}
+    .indicator p{margin:0;color:var(--muted);font-size:.76rem}
+    .empty{padding:28px;text-align:center;color:var(--muted)}
+    .footer-note{color:var(--muted);font-size:.74rem;margin-top:16px}
+    @media(max-width:1100px){.filters{grid-template-columns:repeat(4,minmax(120px,1fr))}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.grid-2,.grid-even{grid-template-columns:1fr}}
+    @media(max-width:680px){.topbar{padding:15px}.filters{padding:12px 15px;grid-template-columns:repeat(2,minmax(0,1fr))}main{padding:17px 15px 30px}.kpis{gap:9px}.kpi{padding:13px}.kpi .value{font-size:1.35rem}.bar-row{grid-template-columns:1fr 48px}.bar-row .bar-track,.bar-row .bar-score{grid-column:1;grid-row:2}.bar-row .num{grid-column:2;grid-row:1 / span 2}.teacher-summary{grid-template-columns:1fr}.brand h1{font-size:1.05rem}}
+    @media(max-width:430px){.filters{grid-template-columns:1fr}.survey-field{grid-column:auto}.kpis{grid-template-columns:1fr 1fr}.kpi .label{font-size:.72rem}.panel-title h2{font-size:1.08rem}details.dimension>summary{grid-template-columns:minmax(0,1fr) 65px 20px;padding:13px}.dimension-body{padding:10px 13px 14px}}
+    @media print{.filters,.nav-wrap,.demo-tag{display:none}.panel[hidden]{display:block}.panel{break-before:page}.panel:first-child{break-before:auto}.box,.kpi,details.dimension{box-shadow:none}.app{background:#fff}main{max-width:none;padding:14px}}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">UCP</div>
+        <div><h1>EV1 · Opinión del Estudiante</h1><p>ENCUESTA ALUMNOS A DOCENTES 2026-1 · Sede CDE · Periodo 2026 · Subperiodo 1</p></div>
+      </div>
+      <span class="demo-tag">Datos y estados simulados para diseño BI</span>
+    </header>
+
+    <section class="filters" aria-label="Filtros generales">
+      <div class="field survey-field"><label for="encuesta">Encuesta</label><select id="encuesta"><option value="ev1-2026-1">ENCUESTA ALUMNOS A DOCENTES 2026-1</option></select></div>
+      <div class="field"><label for="tipoEncuesta">Tipo de Encuesta</label><select id="tipoEncuesta" disabled aria-label="Tipo de encuesta definido por la encuesta"><option value="Opinión del Estudiante">Opinión del Estudiante</option></select></div>
+      <div class="field"><label for="objetivo">Objetivo</label><select id="objetivo" disabled aria-label="Objetivo definido por la encuesta"><option value="Alumno">Alumno</option></select></div>
+      <div class="field"><label for="sede">Sede</label><select id="sede" disabled aria-label="Sede definida por la encuesta"><option value="CDE">CDE</option></select></div>
+      <div class="field"><label for="periodo">Periodo</label><select id="periodo" disabled aria-label="Periodo definido por la encuesta"><option value="2026">2026</option></select></div>
+      <div class="field"><label for="subperiodo">Subperiodo</label><select id="subperiodo" disabled aria-label="Subperiodo definido por la encuesta"><option value="1">1</option></select></div>
+      <div class="field"><label for="alumno">Alumno</label><select id="alumno"><option value="">Todos (3)</option><option>JOSE ROJAS</option><option>LUCAS REAÑO</option><option>JULIO BERENGUEL</option></select></div>
+      <div class="field"><label for="docente">Docente</label><select id="docente"><option value="">Todos (7)</option><option>LUIS SALINAS</option><option>CLAUDIA DAMMERT</option><option>ALBERTO BETO</option><option>FELIPE ROMERO</option><option>MR BEAN</option><option>ROBERTA GRANDE</option><option>AUGUSTO HIELO</option></select></div>
+      <div class="field"><label for="materia">Materia</label><select id="materia"><option value="">Todas (5)</option><option>ANATOMIA I</option><option>BIOLOGIA</option><option>INGLES</option><option>HISTORIA DE LA MEDICINA</option><option>FISIOLOGIA II</option></select></div>
+      <div class="field"><label for="seccion">Sección</label><select id="seccion"><option value="">Todas</option><option>A</option><option>B</option></select></div>
+      <div class="field"><label for="grupo">Grupo</label><select id="grupo"><option value="">Todos</option><option>TEORIA</option><option>G1-MO</option><option>G2-MO</option><option>G1-MS</option></select></div>
+      <div class="field"><label for="estado">Estado</label><select id="estado"><option value="">Todos</option><option>Completada</option><option>En proceso</option><option>Pendiente</option></select></div>
+    </section>
+
+    <div class="nav-wrap">
+      <nav class="tabs" role="tablist" aria-label="Vistas EV1">
+        <button class="tab" id="t1" role="tab" aria-controls="p1" aria-selected="true" type="button">Avance general</button>
+        <button class="tab" id="t2" role="tab" aria-controls="p2" aria-selected="false" type="button">Por alumno</button>
+        <button class="tab" id="t3" role="tab" aria-controls="p3" aria-selected="false" type="button">Materia · sección · grupo</button>
+        <button class="tab" id="t4" role="tab" aria-controls="p4" aria-selected="false" type="button">Resultados EV1</button>
+        <button class="tab" id="t5" role="tab" aria-controls="p5" aria-selected="false" type="button">Por docente</button>
+        <button class="tab" id="t6" role="tab" aria-controls="p6" aria-selected="false" type="button">Análisis pedagógico</button>
+      </nav>
+    </div>
+
+    <main>
+      <section class="panel" id="p1" role="tabpanel" aria-labelledby="t1">
+        <div class="panel-title"><div><h2>Avance general de la encuesta</h2><p>Seguimiento de alumnos convocados y evaluaciones asignadas por cada combinación alumno–materia–sección–grupo–docente.</p></div></div>
+        <div class="note">La planificación de ejemplo contiene 3 alumnos y 13 evaluaciones esperadas. Los filtros actualizan el universo mostrado.</div>
+        <div class="kpis">
+          <div class="kpi"><div class="label">Alumnos convocados</div><div class="value" id="kStudents">3</div><div class="detail">Alumnos únicos con al menos una evaluación</div></div>
+          <div class="kpi"><div class="label">Evaluaciones esperadas</div><div class="value" id="kExpected">13</div><div class="detail">Asignaciones únicas de EV1</div></div>
+          <div class="kpi"><div class="label">Evaluaciones completadas</div><div class="value" id="kCompleted">9</div><div class="detail" id="kPendingText">1 en proceso · 3 pendientes</div></div>
+          <div class="kpi"><div class="label">Avance general</div><div class="value" id="kProgress">69,2%</div><div class="progress" role="progressbar" aria-label="Avance general" aria-valuemin="0" aria-valuemax="100" aria-valuenow="69.2"><span id="kProgressBar" style="width:69.2%"></span></div></div>
+        </div>
+        <div class="grid-2">
+          <div>
+            <div class="box"><h3>Cobertura por materia</h3><div id="subjectBars"></div></div>
+            <div class="box"><h3>Detalle del universo de evaluación</h3><div class="table-wrap"><table><thead><tr><th>Alumno</th><th>Materia</th><th>Sección</th><th>Grupo</th><th>Docente</th><th>Estado</th></tr></thead><tbody id="assignmentRows"></tbody></table></div></div>
+          </div>
+          <aside>
+            <div class="box"><h3>Avance global</h3><div class="donut-area"><div class="donut" id="progressDonut" role="img" aria-label="69,2 por ciento completado"><strong id="donutValue">69,2%</strong></div><div class="legend"><span><i style="background:var(--blue)"></i><b id="legendComplete">9</b> completadas</span><span><i style="background:#e4eaf2"></i><b id="legendOpen">4</b> abiertas</span></div></div></div>
+            <div class="box"><h3>Estado de participación</h3><div id="studentStatus"></div></div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="panel" id="p2" role="tabpanel" aria-labelledby="t2" hidden>
+        <div class="panel-title"><div><h2>Seguimiento por alumno</h2><p>Control operativo de asignaciones y cumplimiento. Esta vista no muestra respuestas ni puntajes individuales.</p></div></div>
+        <div class="note privacy"><strong>Protección del anonimato:</strong> el sistema puede identificar si una evaluación fue completada, pero los contenidos de las respuestas deben permanecer separados de la identidad del alumno.</div>
+        <div class="kpis">
+          <div class="kpi"><div class="label">Completaron todo</div><div class="value" id="studentDone">1</div><div class="detail">Sin evaluaciones pendientes</div></div>
+          <div class="kpi"><div class="label">Avance parcial</div><div class="value" id="studentPartial">1</div><div class="detail">Iniciaron, pero no terminaron</div></div>
+          <div class="kpi"><div class="label">Sin iniciar</div><div class="value" id="studentNone">1</div><div class="detail">No completaron evaluaciones</div></div>
+          <div class="kpi"><div class="label">Promedio por alumno</div><div class="value" id="studentAverage">4,3</div><div class="detail">Evaluaciones asignadas</div></div>
+        </div>
+        <div class="box"><h3>Estado de los alumnos convocados</h3><div class="table-wrap"><table><thead><tr><th>Alumno</th><th class="num">Asignadas</th><th class="num">Completadas</th><th class="num">En proceso</th><th class="num">Pendientes</th><th class="num">Avance</th><th>Estado</th></tr></thead><tbody id="studentRows"></tbody></table></div></div>
+      </section>
+
+      <section class="panel" id="p3" role="tabpanel" aria-labelledby="t3" hidden>
+        <div class="panel-title"><div><h2>Cobertura por materia, sección y grupo</h2><p>Permite identificar grupos con baja participación antes del cierre de la encuesta.</p></div></div>
+        <div class="kpis">
+          <div class="kpi"><div class="label">Materias</div><div class="value" id="academicSubjects">5</div><div class="detail">Materias distintas</div></div>
+          <div class="kpi"><div class="label">Docentes</div><div class="value" id="academicTeachers">7</div><div class="detail">Docentes a evaluar</div></div>
+          <div class="kpi"><div class="label">Ofertas completas</div><div class="value" id="academicComplete">4</div><div class="detail">100% de respuestas</div></div>
+          <div class="kpi"><div class="label">Ofertas críticas</div><div class="value" id="academicCritical">2</div><div class="detail">Menos de 50% de avance</div></div>
+        </div>
+        <div class="box"><h3>Detalle de cobertura académica</h3><div class="table-wrap"><table><thead><tr><th>Materia</th><th>Sección</th><th>Grupo</th><th>Docente</th><th class="num">Alumnos</th><th class="num">Completadas</th><th class="num">Pendientes</th><th class="num">Avance</th><th>Estado</th></tr></thead><tbody id="academicRows"></tbody></table></div><p class="footer-note">Semáforo sugerido: verde ≥ 80%; amarillo 50–79,9%; rojo &lt; 50%.</p></div>
+      </section>
+
+      <section class="panel" id="p4" role="tabpanel" aria-labelledby="t4" hidden>
+        <div class="panel-title"><div><h2>Resultados generales de la EV1</h2><p>Resultados ilustrativos de evaluaciones completadas. Escala: 1 = totalmente en desacuerdo; 5 = totalmente de acuerdo.</p></div></div>
+        <div class="kpis">
+          <div class="kpi"><div class="label">Promedio EV1</div><div class="value">4,31</div><div class="detail">Sobre 5 puntos</div></div>
+          <div class="kpi"><div class="label">Respuestas favorables</div><div class="value">84%</div><div class="detail">Puntajes 4 y 5</div></div>
+          <div class="kpi"><div class="label">Respuestas neutrales</div><div class="value">10%</div><div class="detail">Puntaje 3</div></div>
+          <div class="kpi"><div class="label">Respuestas desfavorables</div><div class="value">6%</div><div class="detail">Puntajes 1 y 2</div></div>
+        </div>
+        <div class="grid-2">
+          <div>
+            <div class="box"><h3>Resultado por dimensión</h3><div id="dimensionBars"></div></div>
+            <div class="box"><h3>Resultado consolidado por docente</h3><div class="table-wrap"><table><thead><tr><th>Docente</th><th>Materia / grupo</th><th class="num">Respuestas</th><th class="num">Promedio</th><th class="num">Favorable</th><th>Lectura</th></tr></thead><tbody id="teacherResults"></tbody></table></div></div>
+          </div>
+          <aside>
+            <div class="box"><h3>Distribución de respuestas</h3><p class="box-sub">Participación porcentual por valor de la escala</p><div class="stack" role="img" aria-label="2% puntaje 1, 4% puntaje 2, 10% puntaje 3, 38% puntaje 4 y 46% puntaje 5"><span class="s1" style="width:2%">1</span><span class="s2" style="width:4%">2</span><span class="s3" style="width:10%">3</span><span class="s4" style="width:38%">4</span><span class="s5" style="width:46%">5</span></div><div class="legend"><span>1: 2%</span><span>2: 4%</span><span>3: 10%</span><span>4: 38%</span><span>5: 46%</span></div></div>
+            <div class="box"><h3>Lectura ejecutiva</h3><div class="bar-row"><span>Mayor fortaleza<br><small>Dominio de la asignatura</small></span><div class="bar-score"><div class="bar good" style="width:91.6%"></div></div><strong class="num">4,58</strong></div><div class="bar-row"><span>Principal oportunidad<br><small>Retroalimentación</small></span><div class="bar-score"><div class="bar warn" style="width:82.6%"></div></div><strong class="num">4,13</strong></div></div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="panel" id="p5" role="tabpanel" aria-labelledby="t5" hidden>
+        <div class="panel-title"><div><h2>Resultado por docente</h2><p>Vista consolidada y desglose por materia, sección y grupo. Solo se muestran resultados con participación suficiente.</p></div></div>
+        <div class="note privacy">Para proteger el anonimato, se recomienda publicar resultados solamente cuando exista un mínimo institucional de respuestas válidas por oferta docente.</div>
+        <div class="box" style="margin-bottom:15px"><div class="teacher-summary"><div class="teacher-score"><span>Promedio del docente seleccionado</span><strong id="selectedTeacherScore">4,43</strong><span>Escala 1–5</span></div><div><h3 id="selectedTeacherName" style="margin-bottom:6px">LUIS SALINAS</h3><p class="box-sub" id="selectedTeacherMeta" style="margin:0 0 12px">ANATOMIA I · Sección A · TEORIA</p><div class="small-progress"><span style="font-size:.78rem">Favorables</span><div class="progress"><span id="selectedTeacherBar" style="width:88%"></span></div><strong id="selectedTeacherFav">88%</strong></div></div></div></div>
+        <div class="grid-even">
+          <div class="box"><h3>Resultado por dimensión</h3><div id="teacherDimensionBars"></div></div>
+          <div class="box"><h3>Detalle de ofertas del docente</h3><div class="table-wrap"><table><thead><tr><th>Materia</th><th>Sección</th><th>Grupo</th><th class="num">Respuestas</th><th class="num">Promedio</th></tr></thead><tbody id="teacherOfferRows"></tbody></table></div></div>
+        </div>
+      </section>
+
+      <section class="panel" id="p6" role="tabpanel" aria-labelledby="t6" hidden>
+        <div class="panel-title"><div><h2>Análisis pedagógico</h2><p>Navegación desde las dimensiones hacia los criterios respondidos y los indicadores que explican cualitativamente el resultado.</p></div></div>
+        <div class="note">Los alumnos responden los 16 criterios. Los 10 indicadores agrupan y explican esos resultados; sus descriptores aportan la lectura cualitativa del informe.</div>
+        <div id="pedagogicalTree"></div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const assignments=[
+      {student:'JOSE ROJAS',subject:'ANATOMIA I',section:'A',group:'TEORIA',teacher:'LUIS SALINAS',status:'Completada',score:4.5},
+      {student:'JOSE ROJAS',subject:'ANATOMIA I',section:'A',group:'G1-MO',teacher:'CLAUDIA DAMMERT',status:'Completada',score:4.2},
+      {student:'JOSE ROJAS',subject:'BIOLOGIA',section:'A',group:'TEORIA',teacher:'ALBERTO BETO',status:'Completada',score:4.4},
+      {student:'JOSE ROJAS',subject:'BIOLOGIA',section:'A',group:'G2-MO',teacher:'FELIPE ROMERO',status:'Completada',score:4.1},
+      {student:'JOSE ROJAS',subject:'INGLES',section:'A',group:'TEORIA',teacher:'MR BEAN',status:'Completada',score:4.6},
+      {student:'LUCAS REAÑO',subject:'ANATOMIA I',section:'A',group:'TEORIA',teacher:'LUIS SALINAS',status:'Completada',score:4.7},
+      {student:'LUCAS REAÑO',subject:'ANATOMIA I',section:'A',group:'G1-MO',teacher:'CLAUDIA DAMMERT',status:'Completada',score:4.0},
+      {student:'LUCAS REAÑO',subject:'BIOLOGIA',section:'A',group:'TEORIA',teacher:'ALBERTO BETO',status:'Completada',score:4.3},
+      {student:'LUCAS REAÑO',subject:'BIOLOGIA',section:'A',group:'G2-MO',teacher:'FELIPE ROMERO',status:'Completada',score:4.2},
+      {student:'LUCAS REAÑO',subject:'INGLES',section:'A',group:'TEORIA',teacher:'MR BEAN',status:'En proceso',score:null},
+      {student:'JULIO BERENGUEL',subject:'HISTORIA DE LA MEDICINA',section:'B',group:'TEORIA',teacher:'ROBERTA GRANDE',status:'Pendiente',score:null},
+      {student:'JULIO BERENGUEL',subject:'FISIOLOGIA II',section:'B',group:'TEORIA',teacher:'AUGUSTO HIELO',status:'Pendiente',score:null},
+      {student:'JULIO BERENGUEL',subject:'FISIOLOGIA II',section:'B',group:'G1-MS',teacher:'AUGUSTO HIELO',status:'Pendiente',score:null}
+    ];
+
+    const dimensions=[
+      {name:'1. Planificación, Organización y Dominio de la Asignatura',short:'Planificación y dominio',score:4.48,criteria:[
+        {n:1,text:'El docente demuestra un amplio dominio, conocimiento y experiencia en los temas desarrollados durante las clases.',score:4.58,indicator:'01. Dominio de la asignatura',descriptor:'La percepción estudiantil evidencia un dominio sólido y actualizado de los contenidos.'},
+        {n:2,text:'Las clases teóricas y/o prácticas se perciben organizadas y estructuradas de acuerdo con el Programa de Estudios de la materia.',score:4.35,indicator:'02. Planificación de clases',descriptor:'La planificación se percibe coherente con el programa y con la naturaleza de las actividades.'},
+        {n:3,text:'El profesor cumple de manera constante con el desarrollo de los contenidos establecidos para la asignatura.',score:4.52,indicator:'02. Planificación de clases',descriptor:'La planificación se percibe coherente con el programa y con la naturaleza de las actividades.'}
+      ]},
+      {name:'2. Gestión de Recursos Didácticos y Entornos de Aprendizaje',short:'Recursos y entornos',score:4.16,criteria:[
+        {n:4,text:'El profesor utiliza variedad de recursos didácticos adecuados que facilitan la comprensión de la clase, presencial o virtual.',score:4.20,indicator:'03. Recursos didácticos',descriptor:'Los recursos utilizados son pertinentes y apoyan adecuadamente el aprendizaje.'},
+        {n:5,text:'El aula virtual de la materia se encuentra organizada, actualizada y con materiales disponibles oportunamente.',score:4.12,indicator:'03. Recursos didácticos',descriptor:'Los recursos utilizados son pertinentes y apoyan adecuadamente el aprendizaje.'},
+        {n:6,text:'El docente orienta de manera clara la realización de tareas, investigación, extensión y actividades autónomas.',score:4.16,indicator:'04. Orientación de tareas',descriptor:'La orientación es adecuada, aunque puede reforzarse la claridad de algunas consignas.'}
+      ]},
+      {name:'3. Comunicación Didáctica y Relaciones Interpersonales',short:'Comunicación y relaciones',score:4.39,criteria:[
+        {n:7,text:'El docente se comunica de forma clara, amena y comprensible durante las explicaciones de la clase.',score:4.42,indicator:'05. Comunicación didáctica',descriptor:'La comunicación facilita la comprensión y mantiene una dinámica de clase favorable.'},
+        {n:8,text:'El docente responde de manera oportuna y adecuada a las consultas o dudas planteadas por el grupo.',score:4.34,indicator:'05. Comunicación didáctica',descriptor:'La comunicación facilita la comprensión y mantiene una dinámica de clase favorable.'},
+        {n:9,text:'El profesor muestra respeto, apertura y trato digno hacia todos los estudiantes.',score:4.41,indicator:'06. Respeto y trato digno',descriptor:'Se evidencia un clima de respeto y relaciones interpersonales positivas.'}
+      ]},
+      {name:'4. Evaluación, Retroalimentación y Correspondencia Pedagógica',short:'Evaluación y retroalimentación',score:4.15,criteria:[
+        {n:10,text:'El profesor comunicó por escrito, de manera clara y oportuna, los indicadores, criterios y el sistema de evaluación.',score:4.18,indicator:'07. Sistema de evaluación',descriptor:'El sistema de evaluación es comunicado y comprendido de manera adecuada.'},
+        {n:11,text:'Las orientaciones indican con claridad y antelación lo esperado en las actividades autónomas o tareas.',score:4.10,indicator:'08. Correspondencia didáctica',descriptor:'Existe correspondencia general entre orientaciones, enseñanza y evaluación.'},
+        {n:12,text:'Existe adecuación entre los temas explicados en clase y lo evaluado en los exámenes.',score:4.21,indicator:'08. Correspondencia didáctica',descriptor:'Existe correspondencia general entre orientaciones, enseñanza y evaluación.'},
+        {n:13,text:'El docente implementa retroalimentación clara sobre aciertos y aspectos a mejorar tras las evaluaciones.',score:4.08,indicator:'09. Retroalimentación',descriptor:'La retroalimentación es funcional, pero constituye la principal oportunidad de mejora.'},
+        {n:14,text:'Los resultados de las evaluaciones son entregados en un tiempo adecuado y conforme a lo esperado.',score:4.18,indicator:'09. Retroalimentación',descriptor:'La retroalimentación es funcional, pero constituye la principal oportunidad de mejora.'}
+      ]},
+      {name:'5. Puntualidad y Cumplimiento',short:'Puntualidad y cumplimiento',score:4.54,criteria:[
+        {n:15,text:'El profesor asiste de manera puntual al inicio y finalización de las clases o encuentros virtuales.',score:4.61,indicator:'10. Puntualidad del docente',descriptor:'La percepción estudiantil muestra un nivel alto de puntualidad y cumplimiento.'},
+        {n:16,text:'El docente permanece y aprovecha el tiempo de clase de acuerdo con la carga horaria establecida.',score:4.47,indicator:'10. Puntualidad del docente',descriptor:'La percepción estudiantil muestra un nivel alto de puntualidad y cumplimiento.'}
+      ]}
+    ];
+
+    const teacherProfiles={
+      'LUIS SALINAS':{score:4.60,fav:92,meta:'ANATOMIA I · Sección A · TEORIA',dims:[4.72,4.42,4.58,4.51,4.77]},
+      'CLAUDIA DAMMERT':{score:4.10,fav:80,meta:'ANATOMIA I · Sección A · G1-MO',dims:[4.28,4.05,4.12,3.96,4.09]},
+      'ALBERTO BETO':{score:4.35,fav:87,meta:'BIOLOGIA · Sección A · TEORIA',dims:[4.47,4.25,4.41,4.18,4.44]},
+      'FELIPE ROMERO':{score:4.15,fav:81,meta:'BIOLOGIA · Sección A · G2-MO',dims:[4.26,4.02,4.25,3.98,4.24]},
+      'MR BEAN':{score:4.60,fav:93,meta:'INGLES · Sección A · TEORIA',dims:[4.63,4.42,4.71,4.48,4.76]}
+    };
+
+    const $=id=>document.getElementById(id);
+    const pct=n=>`${n.toFixed(1).replace('.',',')}%`;
+    const score=n=>n.toFixed(2).replace('.',',');
+    const statusClass=s=>s==='Completada'?'complete':s==='En proceso'?'partial':'pending';
+    const badgeForProgress=p=>p>=80?['green','Adecuado']:p>=50?['amber','Seguimiento']:['red','Crítico'];
+    const unique=(rows,key)=>[...new Set(rows.map(r=>r[key]))];
+
+    function filteredAssignments(){
+      const map={student:$('alumno').value,teacher:$('docente').value,subject:$('materia').value,section:$('seccion').value,group:$('grupo').value,status:$('estado').value};
+      return assignments.filter(r=>Object.entries(map).every(([k,v])=>!v||r[k]===v));
+    }
+
+    function renderOperational(){
+      const rows=filteredAssignments();
+      const expected=rows.length,completed=rows.filter(r=>r.status==='Completada').length,inProcess=rows.filter(r=>r.status==='En proceso').length,pending=rows.filter(r=>r.status==='Pendiente').length;
+      const progress=expected?completed/expected*100:0;
+      $('kStudents').textContent=unique(rows,'student').length;
+      $('kExpected').textContent=expected;
+      $('kCompleted').textContent=completed;
+      $('kPendingText').textContent=`${inProcess} en proceso · ${pending} pendientes`;
+      $('kProgress').textContent=pct(progress);$('kProgressBar').style.width=`${progress}%`;$('kProgressBar').parentElement.setAttribute('aria-valuenow',progress.toFixed(1));
+      $('progressDonut').style.setProperty('--pct',`${progress}%`);$('progressDonut').setAttribute('aria-label',`${pct(progress)} completado`);$('donutValue').textContent=pct(progress);$('legendComplete').textContent=completed;$('legendOpen').textContent=inProcess+pending;
+
+      const subjects=unique(rows,'subject');
+      $('subjectBars').innerHTML=subjects.length?subjects.map(subject=>{const sr=rows.filter(r=>r.subject===subject),done=sr.filter(r=>r.status==='Completada').length,p=done/sr.length*100,c=p>=80?'good':p>=50?'warn':'bad';return `<div class="bar-row"><span>${subject}</span><div class="bar-track"><div class="bar ${c}" style="width:${p}%"></div></div><strong class="num">${pct(p)}</strong></div>`}).join(''):'<div class="empty">No hay registros para los filtros seleccionados.</div>';
+      $('assignmentRows').innerHTML=rows.length?rows.map(r=>`<tr><td>${r.student}</td><td>${r.subject}</td><td>${r.section}</td><td>${r.group}</td><td>${r.teacher}</td><td><span class="status ${statusClass(r.status)}">${r.status}</span></td></tr>`).join(''):'<tr><td colspan="6" class="empty">No hay registros.</td></tr>';
+
+      const students=unique(rows,'student').map(name=>{const sr=rows.filter(r=>r.student===name),done=sr.filter(r=>r.status==='Completada').length,process=sr.filter(r=>r.status==='En proceso').length,pend=sr.filter(r=>r.status==='Pendiente').length,p=sr.length?done/sr.length*100:0;return{name,total:sr.length,done,process,pend,p,state:done===sr.length?'Completo':done===0&&process===0?'Sin iniciar':'Parcial'}});
+      const doneStudents=students.filter(s=>s.state==='Completo').length,partialStudents=students.filter(s=>s.state==='Parcial').length,noneStudents=students.filter(s=>s.state==='Sin iniciar').length;
+      $('studentDone').textContent=doneStudents;$('studentPartial').textContent=partialStudents;$('studentNone').textContent=noneStudents;$('studentAverage').textContent=students.length?(expected/students.length).toFixed(1).replace('.',','):'0';
+      $('studentStatus').innerHTML=`<div class="bar-row"><span>Completaron todo</span><div class="bar-track"><div class="bar good" style="width:${students.length?doneStudents/students.length*100:0}%"></div></div><strong class="num">${doneStudents}</strong></div><div class="bar-row"><span>Avance parcial</span><div class="bar-track"><div class="bar warn" style="width:${students.length?partialStudents/students.length*100:0}%"></div></div><strong class="num">${partialStudents}</strong></div><div class="bar-row"><span>Sin iniciar</span><div class="bar-track"><div class="bar bad" style="width:${students.length?noneStudents/students.length*100:0}%"></div></div><strong class="num">${noneStudents}</strong></div>`;
+      $('studentRows').innerHTML=students.length?students.map(s=>`<tr><td>${s.name}</td><td class="num">${s.total}</td><td class="num">${s.done}</td><td class="num">${s.process}</td><td class="num">${s.pend}</td><td><div class="small-progress"><div class="progress"><span style="width:${s.p}%"></span></div><strong>${pct(s.p)}</strong></div></td><td><span class="status ${s.state==='Completo'?'complete':s.state==='Parcial'?'partial':'pending'}">${s.state}</span></td></tr>`).join(''):'<tr><td colspan="7" class="empty">No hay alumnos.</td></tr>';
+
+      const offerMap=new Map();
+      rows.forEach(r=>{const key=[r.subject,r.section,r.group,r.teacher].join('|');if(!offerMap.has(key))offerMap.set(key,{subject:r.subject,section:r.section,group:r.group,teacher:r.teacher,total:0,done:0});const o=offerMap.get(key);o.total++;if(r.status==='Completada')o.done++});
+      const offers=[...offerMap.values()].map(o=>({...o,p:o.total?o.done/o.total*100:0}));
+      $('academicSubjects').textContent=unique(rows,'subject').length;$('academicTeachers').textContent=unique(rows,'teacher').length;$('academicComplete').textContent=offers.filter(o=>o.p===100).length;$('academicCritical').textContent=offers.filter(o=>o.p<50).length;
+      $('academicRows').innerHTML=offers.length?offers.map(o=>{const [cls,label]=badgeForProgress(o.p);return `<tr><td>${o.subject}</td><td>${o.section}</td><td>${o.group}</td><td>${o.teacher}</td><td class="num">${o.total}</td><td class="num">${o.done}</td><td class="num">${o.total-o.done}</td><td class="num">${pct(o.p)}</td><td><span class="badge ${cls}">${label}</span></td></tr>`}).join(''):'<tr><td colspan="9" class="empty">No hay ofertas.</td></tr>';
+    }
+
+    function renderResults(){
+      $('dimensionBars').innerHTML=dimensions.map(d=>`<div class="bar-row"><span>${d.short}</span><div class="bar-score"><div class="bar" style="width:${d.score/5*100}%"></div></div><strong class="num">${score(d.score)}</strong></div>`).join('');
+      $('teacherDimensionBars').innerHTML=dimensions.map(d=>`<div class="bar-row"><span>${d.short}</span><div class="bar-score"><div class="bar" style="width:${d.score/5*100}%"></div></div><strong class="num">${score(d.score)}</strong></div>`).join('');
+      const completed=assignments.filter(r=>r.status==='Completada');
+      const byTeacher=new Map();completed.forEach(r=>{if(!byTeacher.has(r.teacher))byTeacher.set(r.teacher,[]);byTeacher.get(r.teacher).push(r)});
+      $('teacherResults').innerHTML=[...byTeacher.entries()].map(([name,rs])=>{const avg=rs.reduce((a,r)=>a+r.score,0)/rs.length,fav=Math.round(Math.min(96,avg/5*100+2)),reading=avg>=4.4?['green','Fortaleza']:avg>=4.1?['blue','Adecuado']:['amber','Seguimiento'];return `<tr><td>${name}</td><td>${[...new Set(rs.map(r=>`${r.subject} · ${r.group}`))].join('<br>')}</td><td class="num">${rs.length}</td><td class="num">${score(avg)}</td><td class="num">${fav}%</td><td><span class="badge ${reading[0]}">${reading[1]}</span></td></tr>`}).join('');
+    }
+
+    function renderTeacher(){
+      const selected=$('docente').value&&teacherProfiles[$('docente').value]?$('docente').value:'LUIS SALINAS';
+      const p=teacherProfiles[selected];$('selectedTeacherName').textContent=selected;$('selectedTeacherScore').textContent=score(p.score);$('selectedTeacherFav').textContent=`${p.fav}%`;$('selectedTeacherBar').style.width=`${p.fav}%`;$('selectedTeacherMeta').textContent=p.meta;
+      $('teacherDimensionBars').innerHTML=dimensions.map((d,i)=>`<div class="bar-row"><span>${d.short}</span><div class="bar-score"><div class="bar" style="width:${p.dims[i]/5*100}%"></div></div><strong class="num">${score(p.dims[i])}</strong></div>`).join('');
+      const offers=assignments.filter(r=>r.teacher===selected&&r.status==='Completada');
+      const grouped=new Map();offers.forEach(r=>{const key=[r.subject,r.section,r.group].join('|');if(!grouped.has(key))grouped.set(key,[]);grouped.get(key).push(r)});
+      $('teacherOfferRows').innerHTML=grouped.size?[...grouped.entries()].map(([key,rs])=>{const [subject,section,group]=key.split('|'),avg=rs.reduce((a,r)=>a+r.score,0)/rs.length;return `<tr><td>${subject}</td><td>${section}</td><td>${group}</td><td class="num">${rs.length}</td><td class="num">${score(avg)}</td></tr>`}).join(''):'<tr><td colspan="5" class="empty">Sin evaluaciones completadas para este docente.</td></tr>';
+    }
+
+    function renderPedagogy(){
+      $('pedagogicalTree').innerHTML=dimensions.map((d,i)=>`<details class="dimension" ${i===0?'open':''}><summary><span>${d.name}</span><span class="dimension-score">${score(d.score)} / 5</span></summary><div class="dimension-body">${d.criteria.map(c=>`<article class="criterion"><div class="criterion-head"><div class="criterion-name">Criterio ${String(c.n).padStart(2,'0')}. ${c.text}</div><div class="criterion-score">${score(c.score)}</div></div><div class="indicator"><strong>${c.indicator}</strong><p>${c.descriptor}</p></div></article>`).join('')}</div></details>`).join('');
+    }
+
+    const surveyConfig={
+      'ev1-2026-1':{tipoEncuesta:'Opinión del Estudiante',objetivo:'Alumno',sede:'CDE',periodo:'2026',subperiodo:'1'}
+    };
+
+    function syncSurveyContext(){
+      const config=surveyConfig[$('encuesta').value];
+      if(!config)return;
+      $('tipoEncuesta').value=config.tipoEncuesta;
+      $('objetivo').value=config.objetivo;
+      $('sede').value=config.sede;
+      $('periodo').value=config.periodo;
+      $('subperiodo').value=config.subperiodo;
+    }
+
+    document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>{document.querySelectorAll('.tab').forEach(t=>t.setAttribute('aria-selected',String(t===tab)));document.querySelectorAll('.panel').forEach(p=>p.hidden=p.id!==tab.getAttribute('aria-controls'));if(tab.id==='t5')renderTeacher()}));
+    document.querySelectorAll('.filters select').forEach(select=>select.addEventListener('change',()=>{renderOperational();renderTeacher()}));
+    $('encuesta').addEventListener('change',syncSurveyContext);
+    syncSurveyContext();
+    renderOperational();renderResults();renderTeacher();renderPedagogy();
+  </script>
+</body>
+</html>
