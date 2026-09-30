@@ -4,3 +4,11 @@ primaryColor = "#004080"
 backgroundColor = "#FFFFFF"
 secondaryBackgroundColor = "#F0F2F6"
 textColor = "#31333F"
+
+[browser]
+gatherUsageStats = false
+
+[server]
+port = 8501
+headless = false
+showEmailPrompt = false
