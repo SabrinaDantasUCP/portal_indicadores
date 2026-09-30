@@ -308,35 +308,71 @@ def _valor_valido_metadata(valor):
 
 
 def _compute_general_from_alumnos(df_alu):
-    """Calcula el resumen general a partir del detalle por alumno, para
-    orígenes que no traen la fila 'avance_general' pre-agregada (p. ej. v2)."""
+    """Calcula el resumen general a partir del detalle por alumno, asegurando
+    que tanto v1 como v2 (alumnos activos) tengan sus cifras exactas y consistentes."""
     if df_alu.empty:
         return None
-    esperados = int(df_alu["system_id"].nunique())
+
+    # Pares únicos alumno x planificación (materias que debe responder)
+    if "system_id" in df_alu.columns and "planificacion_id" in df_alu.columns:
+        pares = df_alu.drop_duplicates(subset=["system_id", "planificacion_id"])
+    else:
+        pares = df_alu
+
+    id_col = "system_id" if "system_id" in pares.columns else "alumno"
+    esperados = int(pares[id_col].nunique())
     if esperados == 0:
         return None
-    respondieron_al_menos_una = int(df_alu.loc[df_alu["respondio"] == True, "system_id"].nunique())
-    respondieron_todas = int(df_alu.groupby("system_id")["respondio"].all().sum())
+
+    respondieron_al_menos_una = int(pares.loc[pares["respondio"] == True, id_col].nunique())
+    respondieron_todas = int(pares.groupby(id_col)["respondio"].all().sum())
+
+    encuestas_esp = len(pares)
+    encuestas_resp = int(pares["respondio"].sum())
+    encuestas_pend = max(encuestas_esp - encuestas_resp, 0)
+    pct_enc = round(encuestas_resp / encuestas_esp * 100, 2) if encuestas_esp > 0 else 0.0
+
     return {
         "alumnos_unicos_esperados": esperados,
         "alumnos_unicos_que_respondieron_al_menos_una": respondieron_al_menos_una,
         "porcentaje_avance_alumnos": round(respondieron_al_menos_una / esperados * 100, 2),
         "alumnos_unicos_que_respondieron_todas": respondieron_todas,
         "porcentaje_avance_alumnos_todas": round(respondieron_todas / esperados * 100, 2),
+        "encuestas_esperadas": encuestas_esp,
+        "encuestas_respondidas": encuestas_resp,
+        "encuestas_pendientes": encuestas_pend,
+        "porcentaje_avance_encuestas": pct_enc,
     }
 
 
 def load_encuestas_general(sede, periodo, carrera, tipo):
-    """Fila única con los totales generales de avance de la encuesta, o None."""
+    """Fila única con los totales generales de avance de la encuesta.
+    Para versión 2 (alumnos activos), calcula los totales dinámicamente desde el detalle
+    filtrado de alumnos para reflejar fielmente la cantidad de alumnos activos."""
     df = load_encuestas_raw(sede, periodo, carrera, tipo)
     if df.empty:
         return None
+
+    scope = get_encuesta_scope(sede, periodo, carrera, tipo)
+    df_alu = df[df["indicador"] == INDICADOR_ALUMNO]
+
+    # En versión 2 (alumnos activos según corte) recalculamos para que las cifras
+    # coincidan exactamente con la cantidad de alumnos activos del dataset v2
+    if scope == "indicadores_v2" and not df_alu.empty:
+        computed = _compute_general_from_alumnos(df_alu)
+        if computed is not None:
+            df_gen = df[df["indicador"] == INDICADOR_GENERAL]
+            if not df_gen.empty:
+                fila = df_gen.iloc[0].copy()
+                for k, v in computed.items():
+                    fila[k] = v
+                return fila
+            return pd.Series(computed)
+
     df_gen = df[df["indicador"] == INDICADOR_GENERAL]
     if not df_gen.empty:
         return df_gen.iloc[0]
-    # Algunos orígenes (p. ej. v2) no traen la fila pre-agregada de resumen:
-    # se calcula a partir del detalle por alumno.
-    return _compute_general_from_alumnos(df[df["indicador"] == INDICADOR_ALUMNO])
+    return _compute_general_from_alumnos(df_alu)
 
 
 def load_encuestas_detalle(sede, periodo, carrera, tipo):

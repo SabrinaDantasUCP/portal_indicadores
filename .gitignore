@@ -39,3 +39,6 @@ output/
 
 # --- Arquivo específico ---
 .antigravity
+GEMINI.md
+iniciar_portal.bat
+*.html

@@ -264,35 +264,6 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
     st.markdown(
         """
         <style>
-        .ev1-topbar {
-            background-color: #12263f;
-            color: #ffffff;
-            padding: 16px 22px;
-            border-radius: 10px;
-            margin-bottom: 18px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        .ev1-topbar h2 {
-            margin: 0;
-            font-size: 1.35rem;
-            color: #ffffff;
-            font-weight: 750;
-        }
-        .ev1-topbar p {
-            margin: 4px 0 0 0;
-            font-size: 0.86rem;
-            color: #c7d5e8;
-        }
-        .ev1-badge-demo {
-            background: rgba(255, 255, 255, 0.14);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            padding: 5px 12px;
-            border-radius: 999px;
-            font-size: 0.78rem;
-            font-weight: 600;
-        }
         .ev1-note {
             background-color: #eaf2fb;
             border-left: 4px solid #245ea8;
@@ -343,21 +314,6 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
         unsafe_allow_html=True,
     )
 
-    # --- 1. BANNER INSTITUCIONAL EV1 ---
-    st.markdown(
-        f"""
-        <div class="ev1-topbar">
-            <div>
-                <h2>EV1 · Opinión del Estudiante</h2>
-                <p>ENCUESTA ALUMNOS A DOCENTES · Sede: {escape(str(sede))} · Periodo: {escape(str(periodo))} · Carrera: {escape(str(carrera))}</p>
-            </div>
-            <div class="ev1-badge-demo">
-                Evaluación Docente · Cobertura y Resultados
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
 
     # --- 2. PREPARACIÓN DEL CONJUNTO DE DATOS (REAL vs FALLBACK) ---
     datos_disponibles_alumnos = df_alumnos is not None and not df_alumnos.empty
@@ -414,6 +370,16 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
     if sel_estado != "Todos":
         df_filtrado = df_filtrado[df_filtrado["estado"] == sel_estado]
 
+    # Identificar si el usuario ha aplicado algún filtro en la pantalla
+    filtros_activos = (
+        sel_alumno != "Todos"
+        or sel_docente != "Todos"
+        or sel_materia != "Todas"
+        or sel_seccion != "Todas"
+        or sel_grupo != "Todos"
+        or sel_estado != "Todos"
+    )
+
     # --- 4. SUB-PESTAÑAS DE NAVEGACIÓN EV1 ---
     tab_avance, tab_alumno, tab_materia, tab_resultados, tab_docente, tab_pedagogico = st.tabs(
         [
@@ -430,7 +396,7 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
     # SUB-PESTAÑA 1: AVANCE GENERAL
     # --------------------------------------------------------------------------
     with tab_avance:
-        _render_subvista_avance_general(df_filtrado, df_base)
+        _render_subvista_avance_general(df_filtrado, df_base, fila_general, filtros_activos)
 
     # --------------------------------------------------------------------------
     # SUB-PESTAÑA 2: POR ALUMNO
@@ -454,7 +420,7 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
     # SUB-PESTAÑA 5: POR DOCENTE
     # --------------------------------------------------------------------------
     with tab_docente:
-        _render_subvista_por_docente(sede, periodo, carrera, tipo, df_filtrado, lista_docentes)
+        _render_subvista_por_docente(sede, periodo, carrera, tipo, df_filtrado, lista_docentes, df_detalle)
 
     # --------------------------------------------------------------------------
     # SUB-PESTAÑA 6: ANÁLISIS PEDAGÓGICO
@@ -467,7 +433,7 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
 # SUB-VISTA 1: AVANCE GENERAL
 # ==============================================================================
 
-def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.DataFrame):
+def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.DataFrame, fila_general=None, filtros_activos: bool = False):
     st.markdown(
         """
         <div class="ev1-note">
@@ -478,12 +444,28 @@ def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.Data
         unsafe_allow_html=True,
     )
 
-    total_esperadas = len(df_filtrado)
-    alumnos_convocados = df_filtrado["alumno"].nunique() if total_esperadas > 0 else 0
-    completadas = int((df_filtrado["estado"] == "Completada").sum())
-    en_proceso = int((df_filtrado["estado"] == "En proceso").sum())
-    pendientes = int((df_filtrado["estado"] == "Pendiente").sum())
-    porcentaje_avance = (completadas / total_esperadas * 100.0) if total_esperadas > 0 else 0.0
+    # Si no hay filtros aplicados y se dispone de la fila general oficial, usamos sus valores
+    # consolidados para que coincidan 100% con la pestaña de Cobertura académica tanto en v1 como en v2.
+    if not filtros_activos and fila_general is not None:
+        alumnos_convocados = int(fila_general.get("alumnos_unicos_esperados", 0))
+        total_esperadas = int(fila_general.get("encuestas_esperadas", 0))
+        completadas = int(fila_general.get("encuestas_respondidas", 0))
+        en_proceso = 0
+        pendientes = int(fila_general.get("encuestas_pendientes", max(total_esperadas - completadas, 0)))
+        porcentaje_avance = float(fila_general.get("porcentaje_avance_encuestas", 0.0))
+    else:
+        id_col = "system_id" if "system_id" in df_filtrado.columns else "alumno"
+        if "system_id" in df_filtrado.columns and "planificacion_id" in df_filtrado.columns:
+            pares_filtrados = df_filtrado.drop_duplicates(subset=["system_id", "planificacion_id"])
+        else:
+            pares_filtrados = df_filtrado
+
+        total_esperadas = len(pares_filtrados)
+        alumnos_convocados = pares_filtrados[id_col].nunique() if total_esperadas > 0 else 0
+        completadas = int((pares_filtrados["estado"] == "Completada").sum()) if "estado" in pares_filtrados.columns else int((pares_filtrados["respondio"] == True).sum())
+        en_proceso = int((pares_filtrados["estado"] == "En proceso").sum()) if "estado" in pares_filtrados.columns else 0
+        pendientes = max(total_esperadas - completadas, 0)
+        porcentaje_avance = (completadas / total_esperadas * 100.0) if total_esperadas > 0 else 0.0
 
     # Fila de KPIs principales
     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
@@ -547,8 +529,9 @@ def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.Data
         if total_esperadas == 0:
             st.info("Sin registros.")
         else:
-            df_tabla = df_filtrado[["alumno", "materia", "seccion", "grupo", "docente", "estado"]].copy()
-            df_tabla.columns = ["Alumno", "Materia", "Sección", "Grupo", "Docente", "Estado"]
+            cols_mostrar = [c for c in ["alumno", "materia", "seccion", "grupo", "docente", "estado"] if c in df_filtrado.columns]
+            df_tabla = df_filtrado[cols_mostrar].copy()
+            df_tabla.columns = [c.capitalize() for c in cols_mostrar]
             st.dataframe(
                 df_tabla,
                 hide_index=True,
@@ -558,7 +541,7 @@ def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.Data
 
     with col_der:
         st.markdown("##### Avance global")
-        abiertas = total_esperadas - completadas
+        abiertas = max(total_esperadas - completadas, 0)
         fig_donut = go.Figure(
             data=[
                 go.Pie(
@@ -589,9 +572,27 @@ def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.Data
         st.plotly_chart(fig_donut, use_container_width=True, key="ev1_grafico_donut")
 
         st.markdown("##### Estado de participación de alumnos")
-        if total_esperadas > 0:
+        if not filtros_activos and fila_general is not None:
+            total_alu = alumnos_convocados
+            completaron_todo = int(fila_general.get("alumnos_unicos_que_respondieron_todas", 0))
+            al_menos_una = int(fila_general.get("alumnos_unicos_que_respondieron_al_menos_una", 0))
+            sin_iniciar = max(total_alu - al_menos_una, 0)
+            parcial = max(al_menos_una - completaron_todo, 0)
+
+            pct_todo = float(fila_general.get("porcentaje_avance_alumnos_todas", 0.0))
+            pct_parcial = (parcial / total_alu * 100.0) if total_alu > 0 else 0.0
+            pct_sin = (sin_iniciar / total_alu * 100.0) if total_alu > 0 else 0.0
+
+            st.write(f"**Completaron todo:** {completaron_todo:,} ({pct_todo:.1f}%)".replace(",", "."))
+            st.progress(min(max(pct_todo / 100.0, 0.0), 1.0))
+            st.write(f"**Avance parcial:** {parcial:,} ({pct_parcial:.1f}%)".replace(",", "."))
+            st.progress(min(max(pct_parcial / 100.0, 0.0), 1.0))
+            st.write(f"**Sin iniciar:** {sin_iniciar:,} ({pct_sin:.1f}%)".replace(",", "."))
+            st.progress(min(max(pct_sin / 100.0, 0.0), 1.0))
+        elif total_esperadas > 0:
+            id_col = "system_id" if "system_id" in df_filtrado.columns else "alumno"
             resumen_alumnos = (
-                df_filtrado.groupby("alumno")
+                df_filtrado.groupby(id_col)
                 .agg(
                     total=("estado", "count"),
                     completadas=("estado", lambda s: (s == "Completada").sum()),
@@ -602,18 +603,18 @@ def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.Data
             total_alu = len(resumen_alumnos)
             completaron_todo = int((resumen_alumnos["completadas"] == resumen_alumnos["total"]).sum())
             sin_iniciar = int(((resumen_alumnos["completadas"] == 0) & (resumen_alumnos["en_proceso"] == 0)).sum())
-            parcial = total_alu - completaron_todo - sin_iniciar
+            parcial = max(total_alu - completaron_todo - sin_iniciar, 0)
 
             pct_todo = (completaron_todo / total_alu * 100.0) if total_alu > 0 else 0
             pct_parcial = (parcial / total_alu * 100.0) if total_alu > 0 else 0
             pct_sin = (sin_iniciar / total_alu * 100.0) if total_alu > 0 else 0
 
-            st.write(f"**Completaron todo:** {completaron_todo} ({pct_todo:.1f}%)")
-            st.progress(pct_todo / 100.0)
-            st.write(f"**Avance parcial:** {parcial} ({pct_parcial:.1f}%)")
-            st.progress(pct_parcial / 100.0)
-            st.write(f"**Sin iniciar:** {sin_iniciar} ({pct_sin:.1f}%)")
-            st.progress(pct_sin / 100.0)
+            st.write(f"**Completaron todo:** {completaron_todo:,} ({pct_todo:.1f}%)".replace(",", "."))
+            st.progress(min(max(pct_todo / 100.0, 0.0), 1.0))
+            st.write(f"**Avance parcial:** {parcial:,} ({pct_parcial:.1f}%)".replace(",", "."))
+            st.progress(min(max(pct_parcial / 100.0, 0.0), 1.0))
+            st.write(f"**Sin iniciar:** {sin_iniciar:,} ({pct_sin:.1f}%)".replace(",", "."))
+            st.progress(min(max(pct_sin / 100.0, 0.0), 1.0))
 
 
 # ==============================================================================
@@ -795,6 +796,16 @@ def _render_subvista_materia_seccion_grupo(df_filtrado: pd.DataFrame):
 # SUB-VISTA 4: RESULTADOS EV1
 # ==============================================================================
 
+def _descriptor_badge(valor):
+    mapa = {
+        "Fortaleza": "🟢 Fortaleza",
+        "Adecuado": "🔵 Adecuado",
+        "Seguimiento": "🟡 Seguimiento",
+        "Oportunidad": "🔴 Oportunidad",
+    }
+    return mapa.get(valor, valor if valor not in (None, "") else "-")
+
+
 def _render_subvista_resultados_ev1(sede, periodo, carrera, tipo, df_filtrado: pd.DataFrame):
     st.markdown(
         """
@@ -806,16 +817,33 @@ def _render_subvista_resultados_ev1(sede, periodo, carrera, tipo, df_filtrado: p
         unsafe_allow_html=True,
     )
 
-    # Intentar cargar resultados consolidados de parquet/DB
+    # Cargar resultados consolidados oficiales desde parquet/DB
     fila_res = load_resultado_general(sede, periodo, carrera, tipo)
     df_dim = load_resultado_dimensiones(sede, periodo, carrera, tipo)
     df_doc = load_resultado_docentes(sede, periodo, carrera, tipo)
 
-    # Valores de referencia si no hay parquet cargado aún
-    promedio_ev1 = float(fila_res.get("promedio_general", 4.31)) if fila_res is not None else 4.31
-    pct_fav = float(fila_res.get("pct_favorable", 84.0)) if fila_res is not None else 84.0
-    pct_neu = float(fila_res.get("pct_neutral", 10.0)) if fila_res is not None else 10.0
-    pct_desf = float(fila_res.get("pct_desfavorable", 6.0)) if fila_res is not None else 6.0
+    if fila_res is not None:
+        promedio_ev1 = float(fila_res.get("promedio_general", 0.0))
+        pct_fav = float(fila_res.get("pct_favorable", 0.0))
+        pct_neu = float(fila_res.get("pct_neutral", 0.0))
+        pct_desf = float(fila_res.get("pct_desfavorable", 0.0))
+        dist_1 = float(fila_res.get("dist_1", 0.0))
+        dist_2 = float(fila_res.get("dist_2", 0.0))
+        dist_3 = float(fila_res.get("dist_3", 0.0))
+        dist_4 = float(fila_res.get("dist_4", 0.0))
+        dist_5 = float(fila_res.get("dist_5", 0.0))
+        n_resp_val = float(fila_res.get("n_respuestas_validas", dist_1 + dist_2 + dist_3 + dist_4 + dist_5))
+        dim_mejor = str(fila_res.get("dimension_mejor", "Dimensión 1: Planificación, Organización y Dominio de la Asignatura"))
+        dim_oportunidad = str(fila_res.get("dimension_oportunidad", "Dimensión 2: Gestión de Recursos Didácticos y Evaluación"))
+    else:
+        promedio_ev1 = 4.43
+        pct_fav = 85.58
+        pct_neu = 8.53
+        pct_desf = 5.89
+        dist_1, dist_2, dist_3, dist_4, dist_5 = 21600.0, 17759.0, 57010.0, 129478.0, 442377.0
+        n_resp_val = 668224.0
+        dim_mejor = "Dimensión 1: Planificación, Organización y Dominio de la Asignatura"
+        dim_oportunidad = "Dimensión 2: Gestión de Recursos Didácticos y Evaluación"
 
     k1, k2, k3, k4 = st.columns(4)
     with k1:
@@ -845,7 +873,6 @@ def _render_subvista_resultados_ev1(sede, periodo, carrera, tipo, df_filtrado: p
                 range_x=[0, 5],
             )
         else:
-            # Fallback con el catálogo pedagógico institucional
             datos_dims = [
                 {"dim": d["corto"], "score": d["puntaje_referencia"]}
                 for d in reversed(CATALOGO_PEDAGOGICO_EV1)
@@ -875,25 +902,31 @@ def _render_subvista_resultados_ev1(sede, periodo, carrera, tipo, df_filtrado: p
 
         st.markdown("##### Resultado consolidado por docente")
         if df_doc is not None and not df_doc.empty:
-            tabla_doc = df_doc[["docente", "promedio", "descriptor", "n_respuestas_validas"]].rename(
+            tabla_doc = df_doc.copy()
+            if "descriptor" in tabla_doc.columns:
+                tabla_doc["Lectura"] = tabla_doc["descriptor"].map(_descriptor_badge)
+            elif "promedio" in tabla_doc.columns:
+                tabla_doc["Lectura"] = tabla_doc["promedio"].map(
+                    lambda p: "🟢 Fortaleza" if p >= 4.5 else ("🔵 Adecuado" if p >= 4.0 else ("🟡 Seguimiento" if p >= 3.5 else "🔴 Oportunidad"))
+                )
+            cols_mostrar = [c for c in ["docente", "promedio", "Lectura", "n_evaluaciones_recibidas", "n_respuestas_validas"] if c in tabla_doc.columns]
+            tabla_doc = tabla_doc[cols_mostrar].rename(
                 columns={
                     "docente": "Docente",
                     "promedio": "Promedio",
-                    "descriptor": "Lectura",
-                    "n_respuestas_validas": "Respuestas",
+                    "n_evaluaciones_recibidas": "Evaluaciones",
+                    "n_respuestas_validas": "Respuestas válidas",
                 }
             )
         else:
-            # Fallback con perfiles de referencia
             filas_doc = []
             for nombre, p in PERFILES_DOCENTES_REFERENCIA.items():
                 filas_doc.append({
                     "Docente": nombre,
-                    "Materia / grupo": p["meta"],
-                    "Respuestas": 15,
                     "Promedio": p["score"],
-                    "% Favorable": f"{p['fav']}%",
                     "Lectura": "🟢 Fortaleza" if p["score"] >= 4.4 else ("🔵 Adecuado" if p["score"] >= 4.1 else "🟡 Seguimiento"),
+                    "Evaluaciones": 15,
+                    "Respuestas válidas": 240,
                 })
             tabla_doc = pd.DataFrame(filas_doc)
 
@@ -903,10 +936,18 @@ def _render_subvista_resultados_ev1(sede, periodo, carrera, tipo, df_filtrado: p
         st.markdown("##### Distribución de respuestas")
         st.caption("Participación porcentual según el valor de la escala Likert (1 a 5)")
 
-        # Distribución de la escala
+        if n_resp_val > 0:
+            pct_d1 = round(dist_1 / n_resp_val * 100, 1)
+            pct_d2 = round(dist_2 / n_resp_val * 100, 1)
+            pct_d3 = round(dist_3 / n_resp_val * 100, 1)
+            pct_d4 = round(dist_4 / n_resp_val * 100, 1)
+            pct_d5 = round(dist_5 / n_resp_val * 100, 1)
+        else:
+            pct_d1, pct_d2, pct_d3, pct_d4, pct_d5 = 3.2, 2.7, 8.5, 19.4, 66.2
+
         dist_datos = pd.DataFrame({
             "Puntaje": ["1 (Muy en desc.)", "2 (En desac.)", "3 (Neutral)", "4 (De acuerdo)", "5 (Totalmente)"],
-            "Porcentaje": [2.0, 4.0, 10.0, 38.0, 46.0],
+            "Porcentaje": [pct_d1, pct_d2, pct_d3, pct_d4, pct_d5],
             "Color": ["#bd3f4a", "#d97831", "#7654a8", "#245ea8", "#17845f"],
         })
         fig_dist = px.bar(
@@ -924,7 +965,7 @@ def _render_subvista_resultados_ev1(sede, periodo, carrera, tipo, df_filtrado: p
             },
             text="Porcentaje",
         )
-        fig_dist.update_traces(texttemplate="%{text:.0f}%", textposition="inside")
+        fig_dist.update_traces(texttemplate="%{text:.1f}%", textposition="inside")
         fig_dist.update_layout(
             height=220,
             showlegend=False,
@@ -934,18 +975,33 @@ def _render_subvista_resultados_ev1(sede, periodo, carrera, tipo, df_filtrado: p
         )
         st.plotly_chart(fig_dist, use_container_width=True, key="ev1_grafico_distribucion")
 
+        # Obtener puntajes reales de la dimensión con mayor y menor puntaje
+        score_mejor = None
+        score_oportunidad = None
+        if df_dim is not None and not df_dim.empty and "promedio" in df_dim.columns and "dimension_nombre" in df_dim.columns:
+            for _, fila_d in df_dim.iterrows():
+                nom_d = str(fila_d["dimension_nombre"])
+                if nom_d in dim_mejor or dim_mejor in nom_d:
+                    score_mejor = float(fila_d["promedio"])
+                if nom_d in dim_oportunidad or dim_oportunidad in nom_d:
+                    score_oportunidad = float(fila_d["promedio"])
+        if score_mejor is None:
+            score_mejor = 4.54
+        if score_oportunidad is None:
+            score_oportunidad = 4.31
+
         st.markdown("##### Lectura ejecutiva")
         st.markdown(
-            """
+            f"""
             <div style="background: #ffffff; border: 1px solid #dbe3ed; border-radius: 10px; padding: 14px; margin-bottom: 12px;">
                 <span style="font-size: 0.8rem; color: #65738a; font-weight: 600;">Mayor fortaleza</span><br>
-                <strong style="color: #17845f; font-size: 1.05rem;">Dominio de la asignatura</strong>
-                <p style="margin: 4px 0 0 0; font-size: 0.95rem; font-weight: 750;">4,58 / 5,00</p>
+                <strong style="color: #17845f; font-size: 0.95rem;">{escape(dim_mejor)}</strong>
+                <p style="margin: 4px 0 0 0; font-size: 0.95rem; font-weight: 750;">{_formatear_puntaje(score_mejor)} / 5,00</p>
             </div>
             <div style="background: #ffffff; border: 1px solid #dbe3ed; border-radius: 10px; padding: 14px;">
                 <span style="font-size: 0.8rem; color: #65738a; font-weight: 600;">Principal oportunidad de mejora</span><br>
-                <strong style="color: #b87908; font-size: 1.05rem;">Retroalimentación pedagógica</strong>
-                <p style="margin: 4px 0 0 0; font-size: 0.95rem; font-weight: 750;">4,08 / 5,00</p>
+                <strong style="color: #b87908; font-size: 0.95rem;">{escape(dim_oportunidad)}</strong>
+                <p style="margin: 4px 0 0 0; font-size: 0.95rem; font-weight: 750;">{_formatear_puntaje(score_oportunidad)} / 5,00</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -956,7 +1012,7 @@ def _render_subvista_resultados_ev1(sede, periodo, carrera, tipo, df_filtrado: p
 # SUB-VISTA 5: POR DOCENTE
 # ==============================================================================
 
-def _render_subvista_por_docente(sede, periodo, carrera, tipo, df_filtrado: pd.DataFrame, lista_docentes: list):
+def _render_subvista_por_docente(sede, periodo, carrera, tipo, df_filtrado: pd.DataFrame, lista_docentes: list, df_detalle: pd.DataFrame = None):
     st.markdown(
         """
         <div class="ev1-note ev1-note-privacy">
@@ -968,7 +1024,13 @@ def _render_subvista_por_docente(sede, periodo, carrera, tipo, df_filtrado: pd.D
         unsafe_allow_html=True,
     )
 
-    docentes_disponibles = [d for d in lista_docentes if d != "Todos"]
+    df_doc_db = load_resultado_docentes(sede, periodo, carrera, tipo)
+
+    if df_doc_db is not None and not df_doc_db.empty:
+        docentes_disponibles = sorted(df_doc_db["docente"].dropna().unique().tolist())
+    else:
+        docentes_disponibles = [d for d in lista_docentes if d != "Todos"]
+
     if not docentes_disponibles:
         docentes_disponibles = list(PERFILES_DOCENTES_REFERENCIA.keys())
 
@@ -978,20 +1040,40 @@ def _render_subvista_por_docente(sede, periodo, carrera, tipo, df_filtrado: pd.D
         key="ev1_docente_selector",
     )
 
-    # Buscar perfil en datos de referencia o calcular
-    if docente_elegido in PERFILES_DOCENTES_REFERENCIA:
+    fila_doc = None
+    if df_doc_db is not None and not df_doc_db.empty:
+        matches = df_doc_db[df_doc_db["docente"] == docente_elegido]
+        if not matches.empty:
+            fila_doc = matches.iloc[0]
+
+    if fila_doc is not None:
+        score_doc = float(fila_doc.get("promedio", 0.0))
+        evals_doc = int(fila_doc.get("n_evaluaciones_recibidas", 0))
+        resp_doc = int(fila_doc.get("n_respuestas_validas", 0))
+        descriptor_doc = str(fila_doc.get("descriptor", "Adecuado"))
+        dims_doc = [
+            float(fila_doc.get("promedio_dim_1", score_doc)),
+            float(fila_doc.get("promedio_dim_2", score_doc)),
+            float(fila_doc.get("promedio_dim_3", score_doc)),
+            float(fila_doc.get("promedio_dim_4", score_doc)),
+            float(fila_doc.get("promedio_dim_5", score_doc)),
+        ]
+        meta_doc = f"{carrera} · {evals_doc} evaluaciones ({resp_doc} respuestas válidas)"
+        pct_aprox_fav = min(max(round((score_doc - 1.0) / 4.0 * 100.0, 1), 0.0), 100.0)
+    elif docente_elegido in PERFILES_DOCENTES_REFERENCIA:
         perfil = PERFILES_DOCENTES_REFERENCIA[docente_elegido]
         score_doc = perfil["score"]
-        fav_doc = perfil["fav"]
+        pct_aprox_fav = perfil["fav"]
         meta_doc = perfil["meta"]
         dims_doc = perfil["dims"]
+        descriptor_doc = "Fortaleza" if score_doc >= 4.5 else "Adecuado"
     else:
         score_doc = 4.35
-        fav_doc = 85
+        pct_aprox_fav = 85.0
         meta_doc = f"Docente · {carrera}"
         dims_doc = [4.40, 4.20, 4.30, 4.15, 4.50]
+        descriptor_doc = "Adecuado"
 
-    # Card principal de resumen docente
     col_card, col_meta = st.columns([1.0, 2.0])
     with col_card:
         st.markdown(
@@ -999,7 +1081,7 @@ def _render_subvista_por_docente(sede, periodo, carrera, tipo, df_filtrado: pd.D
             <div class="ev1-card-teacher">
                 <span>Promedio del docente seleccionado</span>
                 <strong>{_formatear_puntaje(score_doc)}</strong>
-                <span>Escala Likert de 1 a 5</span>
+                <span>Lectura: {_descriptor_badge(descriptor_doc)}</span>
             </div>
             """,
             unsafe_allow_html=True,
@@ -1007,8 +1089,8 @@ def _render_subvista_por_docente(sede, periodo, carrera, tipo, df_filtrado: pd.D
     with col_meta:
         st.markdown(f"### {escape(docente_elegido)}")
         st.caption(f"Asignaciones asociadas: **{escape(meta_doc)}**")
-        st.write(f"**Respuestas favorables:** {fav_doc}%")
-        st.progress(fav_doc / 100.0)
+        st.write(f"**Nivel de satisfacción estimado:** {pct_aprox_fav}%")
+        st.progress(pct_aprox_fav / 100.0)
 
     st.divider()
 
@@ -1016,8 +1098,15 @@ def _render_subvista_por_docente(sede, periodo, carrera, tipo, df_filtrado: pd.D
 
     with col_dim:
         st.markdown("##### Desempeño por dimensión (Docente)")
+        nombres_dims = [
+            "Dim. 5: Ética y Compromiso",
+            "Dim. 4: Relaciones Interpersonales",
+            "Dim. 3: Metodología y Estrategias",
+            "Dim. 2: Recursos y Evaluación",
+            "Dim. 1: Planificación y Dominio",
+        ]
         df_dim_doc = pd.DataFrame({
-            "Dimensión": [d["corto"] for d in reversed(CATALOGO_PEDAGOGICO_EV1)],
+            "Dimensión": nombres_dims,
             "Puntaje": list(reversed(dims_doc)),
         })
         fig_doc_dim = px.bar(
@@ -1029,33 +1118,65 @@ def _render_subvista_por_docente(sede, periodo, carrera, tipo, df_filtrado: pd.D
             range_x=[0, 5],
         )
         fig_doc_dim.update_traces(marker_color="#3c7bc4", textposition="outside", texttemplate="%{text:.2f}")
-        fig_doc_dim.update_layout(height=260, margin=dict(l=10, r=40, t=10, b=10), xaxis_title="Puntaje", yaxis_title=None)
+        fig_doc_dim.update_layout(height=260, margin=dict(l=10, r=40, t=10, b=10), xaxis_title="Puntaje (1 a 5)", yaxis_title=None)
         st.plotly_chart(fig_doc_dim, use_container_width=True, key="ev1_grafico_doc_dim")
 
     with col_ofertas:
         st.markdown("##### Detalle de ofertas del docente")
-        # Filtrar ofertas del docente en df_filtrado
-        df_ofertas_doc = df_filtrado[df_filtrado["docente"] == docente_elegido]
-        if not df_ofertas_doc.empty:
-            resumen_ofertas_doc = (
-                df_ofertas_doc.groupby(["materia", "seccion", "grupo"])
-                .agg(
-                    respuestas=("estado", lambda s: (s == "Completada").sum()),
-                    total=("estado", "count"),
+        df_of = None
+        if df_detalle is not None and not df_detalle.empty and "docente" in df_detalle.columns:
+            matches_det = df_detalle[df_detalle["docente"] == docente_elegido]
+            if not matches_det.empty:
+                cols_det = [c for c in ["materia", "seccion", "grupo", "alumnos_esperados", "alumnos_que_respondieron", "porcentaje_avance"] if c in matches_det.columns]
+                df_of = matches_det[cols_det].copy()
+                df_of = df_of.rename(
+                    columns={
+                        "materia": "Materia",
+                        "seccion": "Sección",
+                        "grupo": "Grupo",
+                        "alumnos_esperados": "Alumnos",
+                        "alumnos_que_respondieron": "Respondieron",
+                        "porcentaje_avance": "Avance %",
+                    }
                 )
-                .reset_index()
+
+        if df_of is None or df_of.empty:
+            df_ofertas_doc = df_filtrado[df_filtrado["docente"] == docente_elegido]
+            if not df_ofertas_doc.empty:
+                resumen_ofertas_doc = (
+                    df_ofertas_doc.groupby(["materia", "seccion", "grupo"])
+                    .agg(
+                        respuestas=("estado", lambda s: (s == "Completada").sum()),
+                        total=("estado", "count"),
+                    )
+                    .reset_index()
+                )
+                resumen_ofertas_doc["Avance %"] = (resumen_ofertas_doc["respuestas"] / resumen_ofertas_doc["total"] * 100.0).round(1)
+                df_of = resumen_ofertas_doc.rename(
+                    columns={
+                        "materia": "Materia",
+                        "seccion": "Sección",
+                        "grupo": "Grupo",
+                        "respuestas": "Respondieron",
+                        "total": "Alumnos",
+                    }
+                )
+
+        if df_of is not None and not df_of.empty:
+            st.dataframe(
+                df_of,
+                hide_index=True,
+                width="stretch",
+                column_config={
+                    "Avance %": st.column_config.ProgressColumn(
+                        "Avance %",
+                        min_value=0,
+                        max_value=100,
+                        format="%.1f%%",
+                    )
+                },
+                key="ev1_tabla_doc_ofertas",
             )
-            resumen_ofertas_doc["Promedio"] = score_doc
-            resumen_ofertas_doc = resumen_ofertas_doc.rename(
-                columns={
-                    "materia": "Materia",
-                    "seccion": "Sección",
-                    "grupo": "Grupo",
-                    "respuestas": "Completadas",
-                    "total": "Esperadas",
-                }
-            )
-            st.dataframe(resumen_ofertas_doc, hide_index=True, width="stretch", key="ev1_tabla_doc_ofertas")
         else:
             st.info("Sin ofertas registradas para este docente con los filtros seleccionados.")
 
@@ -1076,24 +1197,50 @@ def _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo):
         unsafe_allow_html=True,
     )
 
+    df_dim_db = load_resultado_dimensiones(sede, periodo, carrera, tipo)
     df_cri_db = load_resultado_criterios(sede, periodo, carrera, tipo)
-    mapa_puntajes_criterios = {}
-    if df_cri_db is not None and not df_cri_db.empty and "orden" in df_cri_db.columns and "promedio" in df_cri_db.columns:
+    df_ind_db = load_resultado_indicadores(sede, periodo, carrera, tipo)
+
+    mapa_dims = {}
+    if df_dim_db is not None and not df_dim_db.empty and "promedio" in df_dim_db.columns:
+        for idx, f in df_dim_db.iterrows():
+            dim_num = int(f.get("orden", idx + 1))
+            mapa_dims[dim_num] = float(f["promedio"])
+
+    mapa_criterios = {}
+    if df_cri_db is not None and not df_cri_db.empty and "promedio" in df_cri_db.columns:
         for _, fila in df_cri_db.iterrows():
             try:
-                num = int(fila["orden"])
-                mapa_puntajes_criterios[num] = float(fila["promedio"])
+                num = int(fila.get("orden", fila.get("id_criterio", 0)))
+                mapa_criterios[num] = float(fila["promedio"])
+            except (ValueError, TypeError):
+                continue
+
+    mapa_indicadores = {}
+    if df_ind_db is not None and not df_ind_db.empty and "promedio" in df_ind_db.columns:
+        for _, fila in df_ind_db.iterrows():
+            try:
+                nom = str(fila.get("indicador_nombre", ""))
+                mapa_indicadores[nom] = {
+                    "promedio": float(fila["promedio"]),
+                    "descriptor": str(fila.get("descriptor", "")),
+                }
             except (ValueError, TypeError):
                 continue
 
     # Iteración por cada dimensión del catálogo pedagógico oficial
     for dim in CATALOGO_PEDAGOGICO_EV1:
-        dim_score = dim["puntaje_referencia"]
-        with st.expander(f"**{dim['nombre']}** — {_formatear_puntaje(dim_score)} / 5", expanded=(dim["id"] == 1)):
+        dim_id = dim["id"]
+        dim_score = mapa_dims.get(dim_id, dim["puntaje_referencia"])
+        with st.expander(f"**{dim['nombre']}** — {_formatear_puntaje(dim_score)} / 5", expanded=(dim_id == 1)):
             for cri in dim["criterios"]:
                 cri_num = cri["n"]
-                # Usar valor real de la base de datos si existe, o valor de catálogo
-                cri_score = mapa_puntajes_criterios.get(cri_num, cri["puntaje"])
+                cri_score = mapa_criterios.get(cri_num, cri["puntaje"])
+                ind_info = mapa_indicadores.get(cri["indicador"], {})
+                ind_score = ind_info.get("promedio")
+                ind_desc = ind_info.get("descriptor") or cri["descriptor"]
+
+                score_ind_badge = f" (Promedio indicador: {_formatear_puntaje(ind_score)} / 5)" if ind_score is not None else ""
 
                 st.markdown(
                     f"""
@@ -1108,13 +1255,14 @@ def _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo):
                         </div>
                         <div class="ev1-indicador-box">
                             <strong style="color: #245ea8; font-size: 0.82rem; display: block; margin-bottom: 2px;">
-                                {escape(cri['indicador'])}
+                                {escape(cri['indicador'])}{score_ind_badge}
                             </strong>
                             <p style="margin: 0; color: #50617a; font-size: 0.80rem; line-height: 1.35;">
-                                {escape(cri['descriptor'])}
+                                {escape(ind_desc)}
                             </p>
                         </div>
                     </div>
                     """,
                     unsafe_allow_html=True,
                 )
+

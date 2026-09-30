@@ -181,10 +181,17 @@ def _render_encabezado_encuesta(nombre, vigencia, semestres_habilitados, sede, c
     st.markdown(
         f"""
         <div class="enc_header">
-            <div class="enc_header_title">{escape(str(nombre))}</div>
-            <div class="enc_header_vigencia">({escape(str(vigencia_txt))})</div>
-            <div class="enc_header_sub">{escape(sede)} · {escape(carrera)}</div>
-            {semestres_html}
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 14px;">
+                <div>
+                    <div class="enc_header_title">{escape(str(nombre))}</div>
+                    <div class="enc_header_vigencia">({escape(str(vigencia_txt))})</div>
+                    <div class="enc_header_sub">{escape(sede)} · {escape(carrera)}</div>
+                    {semestres_html}
+                </div>
+                <div style="background: rgba(255, 255, 255, 0.20); backdrop-filter: blur(4px); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.45); padding: 8px 18px; border-radius: 20px; font-weight: 700; font-size: 14px; letter-spacing: 0.02em; white-space: nowrap; margin-top: 4px;">
+                    Evaluación Docente · Cobertura y Resultados
+                </div>
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
