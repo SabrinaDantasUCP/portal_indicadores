@@ -2,22 +2,30 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import io
+import zlib
 from utils import db_pia
-from utils.ui import render_kpi_card
 from services.data.permanencia import (
     VISTA_FECHA_CORTE,
     VISTA_VISION_GENERAL,
     get_periodo_config_efectivo,
     load_permanencia_lista,
 )
+from html import escape
 from services.calculations.permanencia import (
+    BASE_SEMESTRES,
+    MOTIVOS_NR,
     PERIODO_DEFAULT,
+    PERMANENCIA_INDICATORS,
+    RESULTADO_FUERA,
+    RESULTADO_NO_REMATRICULADO,
+    RESULTADO_REMATRICULADO,
     calculate_permanencia_indicators,
-    es_convalidado,
+    clasificar_alumnos,
     es_pago,
-    es_recursante,
-    evaluar_base,
+    es_recursante_anterior,
+    get_periodo_config,
     listar_periodos,
 )
 
@@ -33,14 +41,6 @@ def excel_bytes(df, sheet_name="Datos"):
     df.to_excel(buffer, index=False, sheet_name=sheet_name)
     return buffer.getvalue()
 
-
-@st.cache_data(show_spinner=False, max_entries=8, ttl=600)
-def excel_resumen_bytes(df_vp, df_nr):
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine='xlsxwriter') as wr:
-        df_vp.to_excel(wr, index=False, sheet_name='Vision_Permanencia')
-        df_nr.to_excel(wr, index=False, sheet_name='Vision_No_Rematriculados')
-    return buffer.getvalue()
 
 def render_common_setup():
     st.markdown("""
@@ -73,29 +73,68 @@ def render_common_setup():
         .header_explicacion {
             background-color: #66a3ff !important;
         }
-        div[data-testid="stCheckbox"] label p {
-            font-size: 20px !important;
-            font-weight: bold !important;
-            color: #1e3a8a !important; /* un azul que destaque */
+        /* Grupos de la pestaña Alumnos: los botones ocupan todo el ancho, iguales */
+        div[class*="st-key-vista_"] button { flex: 1 1 0; }
+        /* Selector de sección con aspecto de pestañas */
+        div[class*="st-key-ip_seccion"] div[role="radiogroup"] {
+            gap: 30px; width: 100%; border-bottom: 2px solid #e5e7eb; margin-bottom: 10px;
         }
-        div[data-testid="stTabs"] button p {
-            font-size: 20px !important;
-            font-weight: bold !important;
+        div[class*="st-key-ip_seccion"] label[data-baseweb="radio"] {
+            padding: 4px 2px 10px 2px; margin: 0 0 -2px 0; border-bottom: 3px solid transparent;
+            cursor: pointer;
         }
-        .ip_header {
-            background: linear-gradient(90deg, #1e3a8a 0%, #4b8cd9 100%);
-            color: white;
-            padding: 18px 26px;
-            border-radius: 10px;
-            margin: 10px 0 25px 0;
-            box-shadow: 0 2px 5px rgba(0,0,0,.15);
+        div[class*="st-key-ip_seccion"] label[data-baseweb="radio"] > div:first-child { display: none; }
+        div[class*="st-key-ip_seccion"] label[data-baseweb="radio"] p {
+            font-size: 20px; font-weight: 700; color: #31333F;
         }
-        .ip_header_title {
-            font-size: 32px; font-weight: 800; line-height: 1.2; margin: 0;
+        div[class*="st-key-ip_seccion"] label[data-baseweb="radio"]:has(input:checked) {
+            border-bottom-color: #1e3a8a;
         }
-        .ip_header_sub {
-            font-size: 17px; opacity: .92; margin-top: 6px;
+        div[class*="st-key-ip_seccion"] label[data-baseweb="radio"]:has(input:checked) p { color: #1e3a8a; }
+        div[class*="st-key-ip_seccion"] label[data-baseweb="radio"]:hover p { color: #1e3a8a; }
+        .ip_sec { border-left: 4px solid #1e3a8a; padding: 2px 0 2px 12px; margin: 4px 0 14px 0; }
+        .ip_sec_tit { font-size: 21px; font-weight: 700; color: #1e3a8a; line-height: 1.3; }
+        .ip_sec_sub { font-size: 14px; color: #6b7280; margin-top: 2px; }
+        table.ip_tabla {
+            width: 100%; border-collapse: separate; border-spacing: 0; font-size: 15px;
+            border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; margin: 4px 0 6px 0;
         }
+        table.ip_tabla th {
+            background: #1e3a8a; color: #ffffff; font-weight: 600; text-align: center;
+            padding: 11px 12px; border: none;
+        }
+        table.ip_tabla td {
+            text-align: center; vertical-align: middle; padding: 10px 12px; color: #31333F;
+            border: none; border-top: 1px solid #eef0f3;
+        }
+        table.ip_tabla tbody tr:nth-child(even) td { background: #f8fafc; }
+        .ip_tabla_ip { font-weight: 700; }
+        .ip_tabla_sem { font-size: 12px; color: #6b7280; }
+        .ip_pill {
+            display: inline-block; min-width: 58px; padding: 3px 12px; border-radius: 999px;
+            font-weight: 700; border: 1px solid;
+        }
+        .ip_ficha {
+            border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px 18px; background: #ffffff;
+        }
+        .ip_ficha_vacia { color: #6b7280; text-align: center; padding: 48px 18px; background: #f8fafc; }
+        .ip_ficha_nombre { font-size: 20px; font-weight: 700; color: #1e3a8a; line-height: 1.25; }
+        .ip_ficha_meta { font-size: 13px; color: #6b7280; margin: 2px 0 10px 0; }
+        .ip_ficha_frase { font-size: 14.5px; color: #31333F; margin: 10px 0 12px 0; }
+        .ip_ficha_per { background: #f8fafc; border: 1px solid #eef0f3; border-radius: 8px; padding: 10px 12px; }
+        .ip_ficha_per_tit { font-size: 13px; font-weight: 700; color: #1e3a8a; margin-bottom: 4px; }
+        .ip_ficha_dato { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; padding: 2px 0; }
+        .ip_ficha_dato span { color: #6b7280; }
+        .ip_ficha_dato b { color: #31333F; text-align: right; }
+        .ip_ficha_flecha { text-align: center; color: #9ca3af; font-size: 16px; line-height: 1.4; }
+        .ip_ficha_nota { font-size: 12.5px; color: #6b7280; margin-top: 10px; }
+        table.ip_tabla td.ip_td_izq { text-align: left; }
+        .ip_aviso {
+            background: #fff8dc; border-left: 4px solid #f2c94c; border-radius: 0 8px 8px 0;
+            padding: 10px 14px; margin: 4px 0 6px 0; font-size: 15px; color: #5c4a00;
+        }
+        .ip_titulo { font-size: 30px; font-weight: 800; color: #1e3a8a; line-height: 1.2; }
+        .ip_subtitulo { font-size: 15px; color: #6b7280; margin-top: 2px; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -113,33 +152,532 @@ VISTA_POR_SUFIJO = {
 # Lo que se muestra en la tabla cuando no hay dato.
 SIN_DATO = "-"
 
+SECCION_RESUMEN = "Resumen"
+SECCION_ALUMNOS = "Alumnos"
+SECCION_METODO = "¿Cómo se calcula?"
+SECCIONES = [SECCION_RESUMEN, SECCION_ALUMNOS, SECCION_METODO]
 
-def select_periodo(suffix):
-    """Selector obligatorio del periodo: sin selección no se muestra ningún dato."""
+# (mínimo aceptable, meta) de cada IP: debajo del mínimo es rojo, entre los dos amarillo.
+METAS_IP = {1: (76, 80)}
+METAS_IP_DEFAULT = (86, 90)
+
+# estado -> (texto, color del texto/número, fondo, borde)
+ESTADOS_META = {
+    "ok": ("Alcanzada o superada", "#2e7d32", "#edf7ee", "#a5d6a7"),
+    "warn": ("Aceptable / Advertencia", "#8a6100", "#fff8e1", "#ffd54f"),
+    "bad": ("No alcanzado", "#c62828", "#fdecea", "#ef9a9a"),
+}
+# Color del cuadradito de cada estado en el tooltip (los de la tabla de metas).
+COLOR_SQ_META = {"ok": "#388e3c", "warn": "#fbc02d", "bad": "#d32f2f"}
+
+
+def tooltip_indicador(ind, row, p_base, p_dest):
+    """Descripción y metas de un IP, para el hover de su barra (HTML de plotly)."""
+    minimo, meta = METAS_IP.get(ind["r_nivel"], METAS_IP_DEFAULT)
+    rangos = {
+        "ok": f"≥ {meta}%",
+        "warn": f"{minimo}% - {meta - 1}%",
+        "bad": f"&lt; {minimo}%",
+    }
+    estado = estado_meta(ind["r_nivel"], row["tasa_num"])
+    metas = "<br>".join(
+        f"<span style='color:{COLOR_SQ_META[e]}'>■</span> {ESTADOS_META[e][0]}: <b>{rangos[e]}</b>"
+        for e in ("ok", "warn", "bad")
+    )
+    return (
+        f"<b>IP {ind['r_nivel']}</b> · {ind['sem_origen']}º → {ind['sem_destino']}º semestre<br>"
+        f"<b>{row['tasa_num']:.0f}%</b> · {fmt_int(row['Rematrícula'])} de {fmt_int(row['Inicio'])} · "
+        f"<span style='color:{COLOR_SQ_META[estado]}'>{ESTADOS_META[estado][0]}</span><br><br>"
+        f"Alumnos que inician el {ind['sem_origen']}º semestre en el {p_base}<br>"
+        f"y al terminar se rematricularon para el {p_dest}.<br><br>"
+        f"<b>Metas</b><br>{metas}"
+    )
+
+# Motivo -> color en el gráfico de no rematriculados.
+# Tonos de azul (no rojo/amarillo, que en el gráfico de barras significan la meta).
+# motivo -> (color de la barra, color del número adentro)
+COLORES_MOTIVO = {
+    "Trancado": ("#a9c1e6", "#1e3a8a"),
+    "Reprobado": ("#4b7bc4", "#ffffff"),
+    "Abandono": ("#1e3a8a", "#ffffff"),
+}
+
+
+def fmt_int(n):
+    return f"{int(n):,}".replace(",", ".")
+
+
+def estado_meta(nivel, tasa):
+    minimo, meta = METAS_IP.get(nivel, METAS_IP_DEFAULT)
+    if tasa >= meta:
+        return "ok"
+    return "warn" if tasa >= minimo else "bad"
+
+
+def titulo_seccion(titulo, subtitulo=""):
+    sub = f"<div class='ip_sec_sub'>{subtitulo}</div>" if subtitulo else ""
+    st.markdown(f"<div class='ip_sec'><div class='ip_sec_tit'>{titulo}</div>{sub}</div>", unsafe_allow_html=True)
+
+
+def tabla_indicador_html(df_vp, p_base, p_dest):
+    """Tabla del indicador: datos centralizados y el % con el color de su meta."""
+    filas = []
+    for ind, (_, row) in zip(PERMANENCIA_INDICATORS, df_vp.iterrows()):
+        _, color, fondo, borde = ESTADOS_META[estado_meta(ind["r_nivel"], row["tasa_num"])]
+        filas.append(
+            "<tr>"
+            f"<td><div class='ip_tabla_ip'>{row['Indicador']}</div>"
+            f"<div class='ip_tabla_sem'>{ind['sem_origen']}º → {ind['sem_destino']}º semestre</div></td>"
+            f"<td>{fmt_int(row['Inicio'])}</td>"
+            f"<td>{fmt_int(row['Rematrícula'])}</td>"
+            f"<td><span class='ip_pill' style='color:{color};background:{fondo};border-color:{borde}'>"
+            f"{row['% de Permanencia']}</span></td>"
+            "</tr>"
+        )
+    return (
+        "<table class='ip_tabla'><thead><tr>"
+        f"<th>Indicador</th><th>Inicio {p_base}</th><th>Rematrícula {p_dest}</th><th>% de Permanencia</th>"
+        f"</tr></thead><tbody>{''.join(filas)}</tbody></table>"
+    )
+
+
+def render_resumen(df_vp, df_nr, p_base, p_dest, k):
+    """Pestaña Resumen: cada IP contra su meta (barras con descripción y metas en
+    el hover), por qué no volvieron y la tabla del indicador. Cada parte en su tarjeta."""
+    # --- Una barra por IP, con el color de su meta ---
     with st.container(border=True):
-        periodo = st.selectbox(
-            "Seleccione el indicador que desea visualizar",
-            options=listar_periodos(),
-            index=None,
-            placeholder="Elija un indicador para ver los datos...",
-            key=f"ip_periodo_{suffix}",
-            format_func=lambda p: f"Índice de Permanencia {p}",
+        titulo_seccion(
+            "Permanencia por indicador",
+            f"Porcentaje de alumnos que iniciaron el {p_base} y se rematricularon en el {p_dest}. "
+            "Pase el mouse sobre cada barra para ver su descripción y sus metas.",
+        )
+        render_barras_ip(df_vp, p_base, p_dest, k)
+
+    # --- Por qué no volvieron ---
+    with st.container(border=True):
+        titulo_seccion(
+            "¿Por qué no se rematricularon?",
+            "Alumnos de la base que no se rematricularon, por motivo, en cada indicador.",
+        )
+        render_motivos(df_nr, k)
+
+    # --- Tabla del indicador ---
+    with st.container(border=True):
+        titulo_seccion(
+            "Resumen por indicador",
+            f"Alumnos que iniciaron cada semestre en el {p_base} y cuántos se rematricularon en el {p_dest}.",
+        )
+        st.markdown(tabla_indicador_html(df_vp, p_base, p_dest), unsafe_allow_html=True)
+
+
+def render_barras_ip(df_vp, p_base, p_dest, k):
+    filas = list(zip(PERMANENCIA_INDICATORS, (row for _, row in df_vp.iterrows())))
+    fig_ip = go.Figure(go.Bar(
+        x=df_vp["Indicador"],
+        y=df_vp["tasa_num"],
+        marker_color=[COLOR_SQ_META[estado_meta(ind["r_nivel"], row["tasa_num"])] for ind, row in filas],
+        text=df_vp["% de Permanencia"],
+        textposition="outside",
+        textfont=dict(size=22, family="Arial Black", color="#6b7280"),
+        hovertext=[tooltip_indicador(ind, row, p_base, p_dest) for ind, row in filas],
+        hovertemplate="%{hovertext}<extra></extra>",
+    ))
+    fig_ip.update_layout(
+        yaxis_range=[0, 110], height=320, showlegend=False,
+        margin=dict(t=10, b=0, l=0, r=0),
+        xaxis=dict(tickfont=dict(size=16, family="Arial Black")),
+        yaxis=dict(tickfont=dict(size=12)),
+        hoverlabel=dict(bgcolor="#1f2937", bordercolor="#1f2937", align="left",
+                        font=dict(color="#f9fafb", size=13)),
+    )
+    st.plotly_chart(fig_ip, use_container_width=True, key=f"ip_barras_{k}")
+
+
+def render_motivos(df_nr, k):
+    if int(df_nr["No rematriculados"].sum()) == 0:
+        st.success("Todos los alumnos de la base se rematricularon.")
+    else:
+        df_mot = df_nr.melt(
+            id_vars="Nivel", value_vars=list(MOTIVOS_NR.values()),
+            var_name="Motivo", value_name="Alumnos",
+        )
+        df_mot["Motivo"] = df_mot["Motivo"].map({col: m for m, col in MOTIVOS_NR.items()})
+        df_mot["Indicador"] = "IP " + df_mot["Nivel"].astype(str)
+        totales = df_mot.groupby("Motivo")["Alumnos"].sum()
+        etiqueta = {m: f"{m} ({fmt_int(totales.get(m, 0))})" for m in MOTIVOS_NR}
+        df_mot["Motivo_base"] = df_mot["Motivo"]
+        df_mot["Motivo"] = df_mot["Motivo"].map(etiqueta)
+
+        fig = px.bar(
+            df_mot[df_mot["Alumnos"] > 0], x="Alumnos", y="Indicador", color="Motivo",
+            orientation="h", text="Alumnos", custom_data=["Motivo_base"],
+            color_discrete_map={etiqueta[m]: c for m, (c, _) in COLORES_MOTIVO.items()},
+            category_orders={
+                "Indicador": [f"IP {i['r_nivel']}" for i in PERMANENCIA_INDICATORS],
+                "Motivo": list(etiqueta.values()),
+            },
+        )
+        texto_por_motivo = {etiqueta[m]: t for m, (_, t) in COLORES_MOTIVO.items()}
+        fig.update_traces(textposition="inside", insidetextanchor="middle",
+                          marker_line=dict(color="#ffffff", width=1.5),
+                          hovertemplate="%{y} · %{customdata[0]}: <b>%{x}</b> alumnos<extra></extra>")
+        fig.for_each_trace(lambda t: t.update(textfont=dict(size=14, color=texto_por_motivo[t.name])))
+        fig.update_layout(
+            barmode="stack", bargap=0.35, height=300, margin=dict(t=10, b=0, l=0, r=0),
+            xaxis=dict(title="Alumnos no rematriculados", gridcolor="#eef0f3"),
+            yaxis=dict(title=None, tickfont=dict(size=15, family="Arial Black")),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, title=None,
+                        font=dict(size=14)),
+        )
+        st.plotly_chart(fig, use_container_width=True, key=f"motivos_{k}")
+        st.caption(
+            "Trancado: matrícula trancada · Reprobado: no está trancado y reprobó al menos una materia · "
+            "Abandono: ninguno de los anteriores."
         )
 
-    if not periodo:
-        st.info("Seleccione el **indicador** que desea visualizar para continuar.")
 
+def _txt(valor):
+    """Valor de una fila para mostrar: vacío/nulo -> '-'."""
+    if valor is None or (not isinstance(valor, str) and pd.isna(valor)):
+        return SIN_DATO
+    texto = str(valor).strip()
+    return SIN_DATO if texto.lower() in ("", "nan", "none", "<na>", "nat") else texto
+
+
+def _sem(valor):
+    n = pd.to_numeric(valor, errors="coerce")
+    return f"{int(n)}º semestre" if pd.notna(n) and n > 0 else "sin matrícula"
+
+
+# resultado -> (color del texto, fondo, borde): la misma paleta de las metas.
+RESULTADO_ESTILO = {
+    RESULTADO_REMATRICULADO: ("#2e7d32", "#edf7ee", "#a5d6a7"),
+    RESULTADO_NO_REMATRICULADO: ("#c62828", "#fdecea", "#ef9a9a"),
+    RESULTADO_FUERA: ("#4b5563", "#f3f4f6", "#d1d5db"),
+}
+
+
+def _pill(texto, estilo):
+    color, fondo, borde = estilo
+    return (f"<span class='ip_pill' style='color:{color};background:{fondo};border-color:{borde}'>"
+            f"{escape(texto)}</span>")
+
+
+def _dato(etiqueta, valor):
+    return (f"<div class='ip_ficha_dato'><span>{etiqueta}</span>"
+            f"<b>{escape(valor)}</b></div>")
+
+
+def render_ficha_alumno(row, p_base, p_dest, p_ant):
+    """Ficha de un alumno: su recorrido y, en una frase, por qué quedó así."""
+    resultado = row["Resultado"]
+    motivo = row["Motivo"]
+    fila = pd.DataFrame([row])
+
+    if resultado == RESULTADO_REMATRICULADO:
+        frase = f"Rematriculado en el {p_dest}: {motivo.lower()}."
+    elif resultado == RESULTADO_NO_REMATRICULADO:
+        sem_prox = pd.to_numeric(row["sem_proximo"], errors="coerce")
+        if pd.isna(sem_prox) or sem_prox <= 0:
+            causa = f"no tiene matrícula en el {p_dest}"
+        elif not es_pago(fila, "estado_pago_proximo").iloc[0]:
+            causa = f"la primera cuota del {p_dest} no está pagada ni al día ({_txt(row.get('estado_pago_proximo'))})"
+        else:
+            causa = f"en el {p_dest} está en {_sem(sem_prox)}"
+        frase = f"No rematriculado: {causa}. Motivo: {motivo.lower()}."
+    else:
+        frase = f"No entra en el cálculo del indicador: {motivo}."
+
+    notas = []
+    if es_recursante_anterior(fila).iloc[0]:
+        notas.append(f"Ya estaba en el mismo semestre en el {p_ant} (recursante de periodos anteriores).")
+    if _txt(row.get("fecha_cambio")) != SIN_DATO:
+        notas.append(
+            f"Último cambio de matrícula: {_txt(row.get('fecha_cambio'))} por {_txt(row.get('usuario_cambio'))} "
+            f"({_txt(row.get('momento_cambio'))}). {_txt(row.get('desc_audit_log'))}"
+        )
+    notas_html = "".join(f"<div class='ip_ficha_nota'>{escape(n)}</div>" for n in notas)
+
+    # Solo los datos que existen: sin "· - ·" cuando falta alguno.
+    antiguedad = _txt(row.get("analise_primer_periodo"))
+    antiguedad = {"Veterano": "Antiguo"}.get(antiguedad, antiguedad)
+    matricula = _txt(row.get("numero_catraca"))
+    partes = [f"Matrícula {matricula}" if matricula != SIN_DATO else SIN_DATO,
+              _txt(row.get("tipo_matricula")), antiguedad]
+    meta = " · ".join(escape(p) for p in partes if p != SIN_DATO)
+
+    # Para el rematriculado el resultado académico no aporta: ya volvió.
+    resultado_academico = "" if resultado == RESULTADO_REMATRICULADO else _dato(
+        "Resultado académico", _txt(row.get("status_academico")).capitalize()
+    )
+
+    st.markdown(
+        "<div class='ip_ficha'>"
+        f"<div class='ip_ficha_nombre'>{escape(_txt(row.get('nombre_apellido')))}</div>"
+        f"<div class='ip_ficha_meta'>{meta}</div>"
+        f"{_pill(resultado, RESULTADO_ESTILO[resultado])}"
+        f"<div class='ip_ficha_frase'>{escape(frase)}</div>"
+        f"<div class='ip_ficha_per'><div class='ip_ficha_per_tit'>{p_base} · Inicio</div>"
+        f"{_dato('Semestre', _sem(row['sem_atual']))}"
+        f"{_dato('Primera cuota', _txt(row.get('estado_pago_atual')))}"
+        f"{_dato('Estado de matrícula', _txt(row.get('estado_matricula')).capitalize())}"
+        f"{resultado_academico}</div>"
+        "<div class='ip_ficha_flecha'>↓</div>"
+        f"<div class='ip_ficha_per'><div class='ip_ficha_per_tit'>{p_dest} · Rematrícula</div>"
+        f"{_dato('Semestre', _sem(row['sem_proximo']))}"
+        f"{_dato('Primera cuota', _txt(row.get('estado_pago_proximo')))}</div>"
+        f"{notas_html}"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+
+VISTAS_ALUMNOS = {
+    RESULTADO_REMATRICULADO: "Rematriculados",
+    RESULTADO_NO_REMATRICULADO: "No rematriculados",
+    RESULTADO_FUERA: "Fuera de la base",
+    "Todos": "Todos",
+}
+
+
+def render_alumnos(df_lista, incluir_convalidados, incluir_recursantes, p_base, p_dest, p_ant, k):
+    """Pestaña Alumnos: grupos listos (quién volvió, quién no, quién quedó fuera),
+    filtros, la tabla y al lado la ficha del alumno seleccionado."""
+    clasif = clasificar_alumnos(df_lista, incluir_convalidados, incluir_recursantes, p_base)
+    df = df_lista.assign(
+        Resultado=clasif["resultado"],
+        Motivo=clasif["motivo"],
+        IP=np.where(df_lista["sem_atual"].isin(BASE_SEMESTRES), "IP " + df_lista["sem_atual"].astype(str), SIN_DATO),
+    )
+
+    base_cols = {
+        "nombre_apellido": "Nombre",
+        "numero_catraca": "Matrícula",
+        "estado_pago_proximo": f"Cuota {p_dest}",
+        "Resultado": "Resultado",
+        "Motivo": "Motivo",
+    }
+    extra_cols = {
+        "IP": "IP",
+        "sem_atual": f"Semestre {p_base}",
+        "sem_proximo": f"Semestre {p_dest}",
+        "estado_pago_atual": f"Cuota {p_base}",
+        "monto_pagado_atual": f"Monto pagado {p_base}",
+        "monto_pagado_proximo": f"Monto pagado {p_dest}",
+        "estado_matricula": "Estado de matrícula",
+        "status_academico": "Resultado académico",
+        "tipo_matricula": "Tipo de matrícula",
+        "tipo_alumno": "Tipo de alumno",
+        "recursante_primera_vez": "¿Recursa por primera vez?",
+        "es_recursante": "¿Recursante de periodos anteriores?",
+        "fecha_cambio": "Fecha de cambio",
+        "usuario_cambio": "Usuario del cambio",
+        "desc_audit_log": "Auditoría",
+    }
+    extra_cols = {c: e for c, e in extra_cols.items() if c in df.columns}
+
+    # Qué es cada columna: tooltip en la tabla y "?" en "Más columnas".
+    descripciones = {
+        "nombre_apellido": "Nombre y apellido del alumno.",
+        "numero_catraca": "Número de catraca del alumno.",
+        "estado_pago_proximo": (
+            f"Estado de la primera cuota del {p_dest} (rematrícula): Paga, Negociada - Paga, "
+            "Negociada - Pendiente (al día), Negociada - Vencida, Pendiente o Sin Factura."
+        ),
+        "Resultado": (
+            "Rematriculado, No rematriculado o Fuera de la base (el alumno no entra en el cálculo del indicador)."
+        ),
+        "Motivo": (
+            "Rematriculado: si avanzó de semestre o lo recursa. No rematriculado: Trancado, "
+            "Reprobado o Abandono. Si quedó fuera de la base: por qué no entra en el cálculo."
+        ),
+        "IP": f"Indicador del alumno según su semestre en el {p_base} (IP 1 = 1º semestre ... IP 5 = 5º semestre).",
+        "sem_atual": f"Semestre en el que estaba el alumno en el {p_base}.",
+        "sem_proximo": f"Semestre en el que está matriculado en el {p_dest} ('-' si no tiene matrícula).",
+        "estado_pago_atual": f"Estado de la primera cuota del {p_base} (inicio).",
+        "monto_pagado_atual": f"Monto de la primera cuota del {p_base}, en Gs. Solo aparece si está efectivamente pagada.",
+        "monto_pagado_proximo": f"Monto de la primera cuota del {p_dest}, en Gs. Solo aparece si está efectivamente pagada.",
+        "estado_matricula": "Estado actual de la matrícula: Activo, Trancado o Suspenso.",
+        "status_academico": (
+            f"Aprobado o Reprobado en el {p_base} (reprobado = al menos una materia con nota final menor a 60). "
+            "'Sem notas' si no tiene notas cargadas."
+        ),
+        "tipo_matricula": "Tipo de matrícula del curso: Normal o Convalidado.",
+        "tipo_alumno": f"Antiguo o Nuevo, según el registro del alumno en el periodo lectivo {p_base}.",
+        "recursante_primera_vez": f"SI: está en el mismo semestre en el {p_base} y en el {p_dest}, por primera vez.",
+        "es_recursante": (
+            f"SI: ya estaba en el mismo semestre en el {p_ant} y en el {p_base}. "
+            "Estos alumnos quedan siempre fuera del análisis."
+        ),
+        "fecha_cambio": "Fecha del último cambio de estado de la matrícula (trancado o suspenso). Vacío si está activo.",
+        "usuario_cambio": "Funcionario que hizo el último cambio de estado de la matrícula.",
+        "desc_audit_log": "Descripción registrada en la auditoría del sistema para ese cambio de matrícula.",
+    }
+
+    with st.container(border=True):
+        titulo_seccion(
+            "Alumnos",
+            f"Elija un grupo, filtre y seleccione un alumno en la tabla para ver su ficha "
+            f"(inicio {p_base} → rematrícula {p_dest}).",
+        )
+
+        conteo = df["Resultado"].value_counts()
+        etiquetas = {
+            v: f"{txt} ({fmt_int(len(df) if v == 'Todos' else conteo.get(v, 0))})"
+            for v, txt in VISTAS_ALUMNOS.items()
+        }
+        vista = st.segmented_control(
+            "Grupo", options=list(VISTAS_ALUMNOS), format_func=etiquetas.get,
+            default=RESULTADO_REMATRICULADO, key=f"vista_{k}", label_visibility="collapsed",
+            width="stretch",
+        ) or RESULTADO_REMATRICULADO
+        if vista != "Todos":
+            df = df[df["Resultado"] == vista]
+
+        c_busca, c_ip, c_motivo, c_mas = st.columns([2.2, 1, 1.6, 0.9], vertical_alignment="bottom")
+        with c_busca:
+            busca = st.text_input("Buscar", placeholder="Nombre o número de matrícula", key=f"busca_{k}")
+        with c_ip:
+            ips = sorted(i for i in df["IP"].unique() if i != SIN_DATO)
+            sel_ip = st.multiselect("IP", options=ips, placeholder="Todos", key=f"ip_{k}")
+        with c_motivo:
+            motivos = sorted(m for m in df["Motivo"].dropna().unique() if m)
+            sel_motivo = st.multiselect("Motivo", options=motivos, placeholder="Todos", key=f"motivo_{k}")
+        with c_mas:
+            n_extra = sum(bool(st.session_state.get(f"col_{c}_{k}")) for c in extra_cols)
+            with st.popover(f"Más columnas ({n_extra})" if n_extra else "Más columnas", use_container_width=True):
+                st.markdown("**Columnas adicionales en la tabla**")
+                col_a, col_b = st.columns(2)
+                mitad = (len(extra_cols) + 1) // 2
+                for i, (c, etiqueta) in enumerate(extra_cols.items()):
+                    with (col_a if i < mitad else col_b):
+                        st.checkbox(etiqueta, key=f"col_{c}_{k}", help=descripciones.get(c))
+                sel_extra = [c for c in extra_cols if st.session_state.get(f"col_{c}_{k}")]
+
+    if busca.strip():
+        texto = busca.strip()
+        df = df[df["nombre_apellido"].astype(str).str.contains(texto, case=False, na=False, regex=False)
+                | df["numero_catraca"].astype(str).str.contains(texto, case=False, na=False, regex=False)]
+    if sel_ip:
+        df = df[df["IP"].isin(sel_ip)]
+    if sel_motivo:
+        df = df[df["Motivo"].isin(sel_motivo)]
+
+    # --- Tabla: pocas columnas; el resto se agrega en "Más columnas" ---
+    cols = {**base_cols, **{c: extra_cols[c] for c in sel_extra}}
+    df_view = df[list(cols)].rename(columns=cols)
+
+    anchos = {"nombre_apellido": "medium", "numero_catraca": "small", "IP": "small", "Motivo": "large"}
+    column_config = {
+        etiqueta: st.column_config.Column(
+            help=descripciones.get(c), width=anchos.get(c), pinned=(c == "nombre_apellido") or None,
+        )
+        for c, etiqueta in cols.items()
+    }
+
+    for c in (f"Semestre {p_base}", f"Semestre {p_dest}"):
+        if c in df_view.columns:
+            df_view[c] = (pd.to_numeric(df_view[c], errors="coerce").replace(0, np.nan)
+                          .astype("Int64").astype(str).replace("<NA>", SIN_DATO))
+    for c in ("Estado de matrícula", "Resultado académico"):
+        if c in df_view.columns:
+            df_view[c] = df_view[c].astype(str).str.capitalize()
+    if "Tipo de alumno" in df_view.columns:
+        df_view["Tipo de alumno"] = df_view["Tipo de alumno"].replace({"A": "Antiguo", "N": "Nuevo"})
+    for c in df_view.columns:
+        if pd.api.types.is_object_dtype(df_view[c]):
+            df_view[c] = df_view[c].map(_txt)
+
+    montos = [c for c in df_view.columns if c.startswith("Monto pagado")]
+    tabla = (
+        df_view.style
+        .map(lambda v: f"color: {RESULTADO_ESTILO[v][0]}; font-weight: 600" if v in RESULTADO_ESTILO else "",
+             subset=["Resultado"])
+        .format(lambda v: SIN_DATO if pd.isna(v) else fmt_int(v), subset=montos)
+    )
+
+    # La selección se reinicia al cambiar grupo o filtros: si no, la fila marcada
+    # pasaría a ser otro alumno.
+    filtros = (vista, busca.strip(), tuple(sel_ip), tuple(sel_motivo))
+    clave_tabla = f"tabla_alumnos_{k}_{zlib.crc32(repr(filtros).encode())}"
+
+    c_tabla, c_ficha = st.columns([1.75, 1], gap="medium")
+    with c_tabla:
+        evento = st.dataframe(
+            tabla, hide_index=True, width="stretch", height=520,
+            on_select="rerun", selection_mode="single-row", key=clave_tabla,
+            column_config=column_config,
+        )
+        c_n, c_dl = st.columns([2, 1], vertical_alignment="center")
+        with c_n:
+            st.caption(f"{fmt_int(len(df_view))} alumnos en la lista.")
+        with c_dl:
+            st.download_button(
+                "Descargar lista (Excel)",
+                data=excel_bytes(df_view, "Alumnos"),
+                file_name=f"Permanencia_Alumnos_{p_base}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                icon=":material/download:",
+                key=f"btn_dl_lista_{k}",
+                use_container_width=True,
+                on_click=db_pia.log_export_callback, args=("Índice de Permanencia - Lista", "Excel"),
+            )
+
+    with c_ficha:
+        filas = evento.selection.rows if evento else []
+        if filas and filas[0] < len(df):
+            render_ficha_alumno(df.iloc[filas[0]], p_base, p_dest, p_ant)
+        else:
+            st.markdown(
+                "<div class='ip_ficha ip_ficha_vacia'>Seleccione un alumno en la tabla "
+                "para ver su recorrido y por qué quedó en este grupo.</div>",
+                unsafe_allow_html=True,
+            )
+
+
+def render_encabezado(suffix):
+    """Título y selector de periodo en una sola línea. El periodo es obligatorio:
+    sin selección no se muestra ningún dato."""
+    c_tit, c_sel = st.columns([3, 1.1], vertical_alignment="bottom")
+    with c_sel:
+        periodo = st.selectbox(
+            "Periodo",
+            options=listar_periodos(),
+            index=None,
+            placeholder="Elija el periodo",
+            key=f"ip_periodo_{suffix}",
+            format_func=lambda p: f"{p} → {get_periodo_config(p)['destino']}",
+        )
+
+    vista = VISTA_LABELS.get(suffix, suffix)
+    if periodo and suffix == "corte":
+        corte_cfg = db_pia.get_permanencia_etl_config(periodo)
+        if corte_cfg and corte_cfg.get("fecha_corte"):
+            vista = f"{vista} ({corte_cfg['fecha_corte'].strftime('%d/%m/%Y')})"
+
+    with c_tit:
+        if periodo:
+            titulo = f"Índice de Permanencia {periodo}"
+            sub = f"{vista} · Inicio {periodo} → Rematrícula {get_periodo_config(periodo)['destino']}"
+        else:
+            titulo = "Índice de Permanencia"
+            sub = f"{vista} · Elija el periodo a la derecha para ver los datos"
+        st.markdown(
+            f"<div class='ip_titulo'>{titulo}</div><div class='ip_subtitulo'>{sub}</div>",
+            unsafe_allow_html=True,
+        )
     return periodo
+
 
 def render_actual():
     render_common_setup()
-    periodo = select_periodo("actual")
+    periodo = render_encabezado("actual")
     if periodo:
         render_permanence_module("actual", periodo)
 
 def render_corte():
     render_common_setup()
-    periodo = select_periodo("corte")
+    periodo = render_encabezado("corte")
     if periodo:
         render_permanence_module("corte", periodo)
 
@@ -168,546 +706,140 @@ def render_permanence_module(suffix="", periodo=PERIODO_DEFAULT):
         st.warning(f"No hay datos de permanencia disponibles para el periodo {periodo}.")
         return
 
-    # === Título del indicador que se está viendo ===
-    vista_label = VISTA_LABELS.get(suffix, suffix)
-    if suffix == "corte":
-        corte_cfg = db_pia.get_permanencia_etl_config(periodo)
-        if corte_cfg and corte_cfg.get("fecha_corte"):
-            vista_label = f"{vista_label} ({corte_cfg['fecha_corte'].strftime('%d/%m/%Y')})"
+    # === Parámetros del cálculo (valen para todas las pestañas) ===
+    st.markdown("<div style='height: 14px'></div>", unsafe_allow_html=True)
+    col_conv, col_rec, col_nota = st.columns([1, 1.2, 2.3], vertical_alignment="center")
+    with col_conv:
+        incluir_convalidados = st.toggle(
+            "Incluir convalidados", value=False, key=f"conv_{k}",
+            help="Alumnos con matrícula convalidada que ya cursaron al menos un semestre. "
+                 "Los convalidados en su primer semestre quedan siempre fuera.",
+        )
+    with col_rec:
+        incluir_recursantes = st.toggle(
+            "Incluir recursantes (1ª vez)", value=False, key=f"recurs_{k}",
+            help=f"Alumnos que recursan el semestre por primera vez (mismo semestre en {p_base} y {p_dest}). "
+                 f"Los que ya venían recursando de periodos anteriores quedan siempre fuera del análisis.",
+        )
+    with col_nota:
+        st.caption("Parámetros del cálculo (desactivados por defecto). Afectan al Resumen y a la lista de Alumnos.")
 
-    st.markdown(f"""
-        <div class="ip_header">
-            <div class="ip_header_title">Índice de Permanencia {p_base}</div>
-            <div class="ip_header_sub">{vista_label} · Inicio {p_base} → Rematrícula {p_dest}</div>
-        </div>
-    """, unsafe_allow_html=True)
+    # === Pestañas ===
+    # No se usa st.tabs: guarda la pestaña solo en el navegador y vuelve a la
+    # primera cuando la página se redibuja (ej. al cambiar la vista en Alumnos).
+    # Un radio con key la conserva en la sesión (con estilo de pestañas en el CSS)
+    # y además solo se calcula la pestaña abierta.
+    seccion = st.radio(
+        "Sección", SECCIONES, horizontal=True, key=f"ip_seccion_{k}", label_visibility="collapsed",
+    )
 
-    # === Configuración Global de Cálculo ===
-    with st.container(border=True):
-        col_f1, col_f2 = st.columns(2)
-        with col_f1: incluir_convalidados = st.checkbox(f"Incluir alumnos convalidados en el cálculo ({suffix})", value=False, key=f"conv_{k}")
-        with col_f2: incluir_recursantes = st.checkbox(f"Incluir alumnos recursantes en el cálculo ({suffix})", value=False, key=f"recurs_{k}")
-        st.markdown("###### Por defecto, estos dos parámetros están desactivados")
-
-    # === TABS UI (Dentro de cada origen de datos) ===
-    tab_resumen, tab_lista = st.tabs(["Visión General", "Lista Detallada"])
-
-    with tab_resumen:
-        st.markdown("#### Índice de Permanencia")
-        df_vp, df_nr, df_todas_nr_list = calculate_permanencia_indicators(
+    if seccion == SECCION_RESUMEN:
+        df_vp, df_nr, _ = calculate_permanencia_indicators(
             df_lista,
             incluir_convalidados=incluir_convalidados,
             incluir_recursantes=incluir_recursantes,
             periodo=periodo,
         )
+        render_resumen(df_vp, df_nr, p_base, p_dest, k)
+    elif seccion == SECCION_ALUMNOS:
+        render_alumnos(df_lista, incluir_convalidados, incluir_recursantes, p_base, p_dest, p_ant, k)
+    else:
+        render_metodologia(config, p_base, p_dest, p_ant)
 
-        # HTML Custom Table para Índice de Permanencia
-        html_table = f"<table class='custom_table' style='font-size: 16px; margin-bottom: 2rem;'><thead><tr><th>Indicador</th><th>Inicio {p_base}</th><th>Rematrícula {p_dest}</th><th>% de Permanencia</th></tr></thead><tbody>"
 
-        total_inicio_tbl = 0
-        total_rematr_tbl = 0
-
-        for _, row in df_vp.iterrows():
-            total_inicio_tbl += int(row['Inicio'])
-            total_rematr_tbl += int(row['Rematrícula'])
-            html_table += f"<tr><td>{row['Indicador']}</td><td>{row['Inicio']}</td><td>{row['Rematrícula']}</td><td>{row['% de Permanencia']}</td></tr>"
-            
-        tasa_total = (total_rematr_tbl / total_inicio_tbl * 100) if total_inicio_tbl > 0 else 0.0
-        html_table += f"<tr style='background-color: #e2efd9; font-weight: bold; text-align: center;'><td>TOTAL</td><td>{f'{total_inicio_tbl:,}'.replace(',', '.')}</td><td>{f'{total_rematr_tbl:,}'.replace(',', '.')}</td><td>{tasa_total:.0f}%</td></tr>"
-        
-        html_table += "</tbody></table>"
-        st.markdown(html_table, unsafe_allow_html=True)
-        st.caption(f"{p_base} – Se contabiliza solo a los alumnos que hayan pagado la primera cuota.")
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # === Movemos el Gráfico de Barras aquí, debajo de la tabla ===
-        st.markdown("**IP por semestre**")
-        colors = []
-        for _, r in df_vp.iterrows():
-            val = r["tasa_num"]
-            ip_val = r["Indicador"].replace(" ","")
-            if ip_val == "IP1":
-                if val < 76: colors.append("#d32f2f") # Rojo
-                elif val < 80: colors.append("#fbc02d") # Amarillo
-                else: colors.append("#388e3c") # Verde
-            else:
-                if val < 86: colors.append("#d32f2f")
-                elif val < 90: colors.append("#fbc02d")
-                else: colors.append("#388e3c")
-                
-        fig_bar = px.bar(df_vp, x="Indicador", y="tasa_num", text="% de Permanencia")
-        fig_bar.update_traces(marker_color=colors, textposition='outside', textfont=dict(size=24, family="Arial Black"))
-        fig_bar.update_layout(
-            yaxis_range=[0, 110], 
-            showlegend=False, 
-            margin=dict(t=10, b=0, l=0, r=0), 
-            height=300,
-            xaxis=dict(tickfont=dict(size=16, family="Arial Black, Helvetica, sans-serif")),
-            yaxis=dict(tickfont=dict(size=14))
-        )
-        st.plotly_chart(fig_bar, use_container_width=True, key=f"bar_chart_{k}")
-        
-        col_metas1, col_metas2 = st.columns([1, 1.2])
-        with col_metas1:
-            st.markdown("""
-            **Metas del Indicador:**
-            | Estado | IP 1 | IP 2 al 5 |
-            |---|---|---|
-            | <span style="color:#d32f2f;">■</span> No alcanzado | < 76% | < 86% |
-            | <span style="color:#fbc02d;">■</span> Aceptable / Advertencia | 76% - 79% | 86% - 89% |
-            | <span style="color:#388e3c;">■</span> Alcanzada o superada | >= 80% | >= 90% |
-            """, unsafe_allow_html=True)
-            
-        with col_metas2:
-            filas_desc = "\n".join(
-                f"            | **IP {n}** | Alumnos que inician el {n}º semestre en el {p_base} y al terminar se rematricularon para el {p_dest} |"
-                for n in range(1, 6)
-            )
-            st.markdown(f"""
-            **Descripción de los Indicadores:**
-            | Indicador | Descripción |
-            |---|---|
-{filas_desc}
-            """)
-
-        st.markdown("---")
-        st.markdown("### Detalles")
-        
-        # Filtro de niveles para la parte inferior
-        niveles_opts = df_vp['Indicador'].tolist() # ['IP 1', 'IP 2', 'IP 3', 'IP 4', 'IP 5']
-        sel_niveles = st.multiselect(f"Filtrar desglose por indicador ({suffix}):", options=niveles_opts, default=niveles_opts, key=f"flt_niveles_{k}")
-        
-        if not sel_niveles:
-            st.warning("Selecciona al menos un indicador para ver el desglose.")
-        else:
-            # Gráficos e indicadores...
-            df_vp_filt = df_vp[df_vp['Indicador'].isin(sel_niveles)]
-            niveles_num = [val.replace('IP ', '').strip() for val in sel_niveles]
-            df_nr_filt = df_nr[df_nr['Nivel'].isin(niveles_num)]
-            
-            # Totales Generales Filtrados
-            total_inicio = df_vp_filt["Inicio"].sum()
-            total_rematr = df_vp_filt["Rematrícula"].sum()
-            total_norem  = total_inicio - total_rematr
-            
-            pct_rematr = (total_rematr / total_inicio * 100) if total_inicio > 0 else 0
-            pct_norem = (total_norem / total_inicio * 100) if total_inicio > 0 else 0
-            
-            # Totales NR Desglosados Filtrados
-            total_abandonos = df_nr_filt["Abandonos"].sum()
-            total_trancados = df_nr_filt["Trancados"].sum()
-            total_reprobados = df_nr_filt["Reprobados"].sum()
-            
-            # ====== MÉTRICAS GLOBALES (3 CARDS) ======
-            c1, c2, c3 = st.columns(3)
-            
-            with c1:
-                render_kpi_card("Total de Alumnos", f"{total_inicio:,}".replace(",", "."), accent="#385623", background="#e2efd9", border="#a9d08e")
-            with c2:
-                render_kpi_card("Rematriculados", f"{total_rematr:,}".replace(",", "."), accent="#385623", background="#e2efd9", border="#a9d08e")
-            with c3:
-                render_kpi_card("No rematriculados", f"{total_norem:,}".replace(",", "."), accent="#385623", background="#e2efd9", border="#a9d08e")
-
-            st.markdown("<br>", unsafe_allow_html=True)
-
-            # ====== TABLA DE MOTIVOS ======
-            st.markdown("#### Motivos de No Rematriculación")
-            
-            row_aban = {" ": "ABANDONO"}
-            row_tran = {" ": "TRANCADO"}
-            row_repr = {" ": "REPROBADO"}
-            
-            for _, r in df_nr_filt.iterrows():
-                col_name = f"IP {r['Nivel']}"
-                row_aban[col_name] = r["Abandonos"]
-                row_tran[col_name] = r["Trancados"]
-                row_repr[col_name] = r["Reprobados"]
-                
-            row_aban["TOTAL"] = total_abandonos
-            row_tran["TOTAL"] = total_trancados
-            row_repr["TOTAL"] = total_reprobados
-            
-            df_motivos = pd.DataFrame([row_aban, row_tran, row_repr])
-            
-            # HTML Table for Motivos
-            html_motivos = "<table class='custom_table' style='font-size: 16px; margin-bottom: 2rem;'><thead><tr><th>Motivo</th>"
-            cols_ip = df_vp_filt['Indicador'].tolist()
-            for col in cols_ip:
-                html_motivos += f"<th>{col}</th>"
-            html_motivos += "<th>TOTAL</th></tr></thead><tbody>"
-            
-            for _, row in df_motivos.iterrows():
-                html_motivos += f"<tr><td style='text-align: left; font-weight: bold;'>{row[' ']}</td>"
-                for col in cols_ip:
-                    val = row.get(col, 0)
-                    html_motivos += f"<td>{val}</td>"
-                html_motivos += f"<td style='font-weight: bold; background-color: #f8f9fa;'>{row['TOTAL']}</td></tr>"
-                
-            html_motivos += "</tbody></table>"
-            st.markdown(html_motivos, unsafe_allow_html=True)
-            
-            # Botón desplegable para ver la lista exacta de No Rematriculados
-            if df_todas_nr_list:
-                df_nr_export = pd.concat(df_todas_nr_list, ignore_index=True)
-                if sel_niveles:
-                    df_nr_export = df_nr_export[df_nr_export['Indicador'].isin(sel_niveles)]
-                    
-                with st.expander(f"Ver lista de alumnos No Rematriculados ({suffix} · {p_base})"):
-                    map_nr_cols = {
-                        'Indicador': 'Indicador (Base)',
-                        'Motivo_NR': 'Motivo Específico',
-                        'numero_catraca': 'Número de Matrícula',
-                        'nombre_apellido': 'Nombre',
-                        'estado_matricula': 'Estado Matrícula',
-                        'status_academico': 'Estatus Académico',
-                        'tipo_matricula': 'Tipo de Matrícula',
-                        'es_recursante': '¿Es recursante?',
-                        'estado_pago_atual': f'Estado de Pago {p_base} (1° Cuota)',
-                        'estado_pago_proximo': f'Estado de Pago {p_dest} (1° Cuota)',
-                        'sem_atual': f'Semestre {p_base}',
-                        'sem_proximo': f'Semestre {p_dest}',
-                        'momento_cambio': 'Momento de Cambio',
-                        'desc_audit_log': 'Descripción Audit Log'
-                    }
-                    
-                    cols_to_show = [c for c in map_nr_cols.keys() if c in df_nr_export.columns]
-                    df_show = df_nr_export[cols_to_show].rename(columns=map_nr_cols)
-                    
-                    # Capitalizar valores para mejor presentación
-                    if 'Estado Matrícula' in df_show.columns:
-                        df_show['Estado Matrícula'] = df_show['Estado Matrícula'].astype(str).str.capitalize()
-                    if 'Estatus Académico' in df_show.columns:
-                        df_show['Estatus Académico'] = df_show['Estatus Académico'].astype(str).str.capitalize()
-                    
-                    df_show.insert(2, f'Base Inicio {p_base}', '✅')
-                    df_show.insert(3, f'Éxito Rematrícula {p_dest}', '❌')
-
-                    for col_str in [f'Semestre {p_base}', f'Semestre {p_dest}']:
-                        if col_str in df_show.columns:
-                            df_show[col_str] = pd.to_numeric(df_show[col_str], errors='coerce').fillna(-1).astype(int).astype(str).replace('-1', '')
-                    
-                    st.dataframe(df_show, hide_index=True)
-                    
-                    st.download_button(
-                        "Descargar (Excel)",
-                        data=excel_bytes(df_show, "No_Rematriculados"),
-                        file_name=f"No_Rematriculados_Desglose_{p_base}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        icon=":material/download:",
-                        key=f"dl_nr_{k}",
-                        on_click=db_pia.log_export_callback, args=("Detalle de No Rematriculados - IP", "Excel")
-                    )
-
-            st.markdown("<br>", unsafe_allow_html=True)
-            
-            # ====== GRÁFICO CIRCULAR ======
-            st.markdown("**% IP GENERAL DEL SEMESTRE**")
-            df_pie = pd.DataFrame({
-                "Estado": ["Rematriculados", "No Rematriculados"],
-                "Valor": [total_rematr, total_norem]
-            })
-            fig_pie = px.pie(df_pie, names="Estado", values="Valor", hole=0.5, color="Estado",
-                             color_discrete_map={"Rematriculados":"#388e3c", "No Rematriculados":"#d32f2f"})
-            fig_pie.update_traces(textinfo='percent', textposition='inside', textfont=dict(size=18, color="white", family="Arial Black"))
-            fig_pie.update_layout(showlegend=True, margin=dict(t=0, b=0, l=0, r=0), height=300, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-            st.plotly_chart(fig_pie, use_container_width=True, key=f"pie_chart_{k}")
-
-        st.divider()
-        df_vp_export = df_vp.drop(columns=["tasa_num"]).rename(
-            columns={"Inicio": f"Inicio {p_base}", "Rematrícula": f"Rematrícula {p_dest}"}
-        )
-        st.download_button(
-            "Descargar Tablas de Resumen (Excel)",
-            data=excel_resumen_bytes(df_vp_export, df_nr),
-            file_name=f"Reporte_Resumen_Permanencia_{p_base}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            icon=":material/download:",
-            width="stretch",
-            key=f"dl_res_{k}",
-            on_click=db_pia.log_export_callback, args=("Índice de Permanencia - Resumen", "Excel")
-        )
-
-    with tab_lista:
-        # --- Marcas del indicador (misma regla que la tabla de resumen) ---
-        cons_mask, motivos = evaluar_base(df_lista, incluir_convalidados, incluir_recursantes, p_base)
-
-        es_paga_atual = es_pago(df_lista, 'estado_pago_atual')
-        es_paga_proximo = es_pago(df_lista, 'estado_pago_proximo')
-        is_conval = es_convalidado(df_lista)
-        is_recurs = es_recursante(df_lista)
-
-        avanzo_o_repite = (
-            (df_lista['sem_proximo'] == df_lista['sem_atual'])
-            | (df_lista['sem_proximo'] == (df_lista['sem_atual'] + 1))
-        )
-        exito_mask = cons_mask & es_paga_proximo & avanzo_o_repite
-
-        df_list_filt = df_lista.copy()
-        df_list_filt['Considerado_IP'] = np.where(cons_mask, '✅', '❌')
-        df_list_filt['Rematriculado_IP'] = np.where(exito_mask, '✅', '❌')
-        df_list_filt['Motivo_exclusion'] = motivos
-
-        # --- Filtros (plegados para que la tabla quede a la vista) ---
-        conval_opts = ["Todos", "Solo Convalidados", "Excluir Convalidados"]
-        recurs_opts = ["Todos", "Solo Recursantes", "Excluir Recursantes"]
-        sems_atual_opts = sorted(list(df_lista['sem_atual'].unique()))
-        pago_atual_opts = ["Todos", "Pagó (Primera cuota Paga)", "No Pagó"]
-        pago_proximo_opts = ["Todos", "Pagó (Primera cuota Paga)", "No Pagó"]
-        estados_opts = sorted([str(e).title() for e in df_lista['estado_matricula'].unique() if pd.notna(e) and str(e).strip() != ''])
-        cons_opts = ["Todos", "Sí", "No"]
-        exito_opts = ["Todos", "Sí", "No"]
-
-        filtros_keys = [f"f{i}_{k}" for i in range(1, 10)]
-
-        def limpiar_filtros():
-            for filtro_key in filtros_keys:
-                st.session_state.pop(filtro_key, None)
-
-        # Se lee de session_state porque la etiqueta se arma antes que los widgets.
-        activos = sum([
-            st.session_state.get(f"f1_{k}", "Todos") != "Todos",
-            st.session_state.get(f"f2_{k}", "Todos") != "Todos",
-            bool(str(st.session_state.get(f"f3_{k}", "")).strip()),
-            st.session_state.get(f"f4_{k}", "Todos") != "Todos",
-            bool(st.session_state.get(f"f5_{k}", [])),
-            st.session_state.get(f"f6_{k}", "Todos") != "Todos",
-            st.session_state.get(f"f7_{k}", "Todos") != "Todos",
-            bool(st.session_state.get(f"f8_{k}", [])),
-            st.session_state.get(f"f9_{k}", "Todos") != "Todos",
-        ])
-        etiqueta_filtros = "Filtros de búsqueda" if not activos else f"Filtros de búsqueda · {activos} activo(s)"
-
-        # Arranca plegado para que la tabla quede a la vista, pero se abre solo si
-        # hay filtros puestos: así nunca queda oculto por qué la lista está recortada.
-        with st.expander(etiqueta_filtros, expanded=bool(activos)):
-            c_f1, c_f2, c_f3 = st.columns(3)
-            c_f4, c_f5, c_f6 = st.columns(3)
-            c_f7, c_f8, c_f9 = st.columns(3)
-
-            with c_f1: flt_conval = st.selectbox("Alumnos Convalidados", options=conval_opts, index=0, key=f"f1_{k}", help="Solo filtra lo que ves en la tabla; no cambia el cálculo del indicador.")
-            with c_f2: flt_recurs = st.selectbox("Alumnos Recursantes", options=recurs_opts, index=0, key=f"f2_{k}", help="Solo filtra lo que ves en la tabla; no cambia el cálculo del indicador.")
-            with c_f3: flt_busqueda = st.text_input("Buscar por Nombre o Matrícula", value="", placeholder="Nombre o número de matrícula...", key=f"f3_{k}")
-
-            with c_f4: flt_pago_atual = st.selectbox(f"Estado de Pago {p_base}", options=pago_atual_opts, index=0, key=f"f4_{k}")
-            with c_f5: flt_sem_atual = st.multiselect(f"Semestre en {p_base}", options=sems_atual_opts, placeholder="Todos", key=f"f5_{k}")
-            with c_f6: flt_cons = st.selectbox("Base: ¿Fue Considerado en Inicio?", options=cons_opts, index=0, key=f"f6_{k}")
-
-            with c_f7: flt_pago_proximo = st.selectbox(f"Estado de Pago {p_dest}", options=pago_proximo_opts, index=0, key=f"f7_{k}")
-            with c_f8: flt_estado = st.multiselect("Estado Matrícula", options=estados_opts, placeholder="Todos", key=f"f8_{k}")
-            with c_f9: flt_exito = st.selectbox("Éxito: ¿Fue Rematriculado?", options=exito_opts, index=0, key=f"f9_{k}")
-
-            st.button(
-                "Limpiar filtros",
-                icon=":material/refresh:",
-                key=f"clear_{k}",
-                on_click=limpiar_filtros,
-                disabled=not activos,
-            )
-
-        # --- APLICACIÓN DE FILTROS EN CASCADA ---
-        if flt_conval == "Solo Convalidados": df_list_filt = df_list_filt[is_conval]
-        elif flt_conval == "Excluir Convalidados": df_list_filt = df_list_filt[~is_conval]
-
-        if flt_recurs == "Solo Recursantes": df_list_filt = df_list_filt[is_recurs]
-        elif flt_recurs == "Excluir Recursantes": df_list_filt = df_list_filt[~is_recurs]
-
-        if flt_pago_atual == "Pagó (Primera cuota Paga)": df_list_filt = df_list_filt[es_paga_atual]
-        elif flt_pago_atual == "No Pagó": df_list_filt = df_list_filt[~es_paga_atual]
-
-        if flt_pago_proximo == "Pagó (Primera cuota Paga)": df_list_filt = df_list_filt[es_paga_proximo]
-        elif flt_pago_proximo == "No Pagó": df_list_filt = df_list_filt[~es_paga_proximo]
-
-        if flt_sem_atual:
-            df_list_filt = df_list_filt[df_list_filt['sem_atual'].isin(flt_sem_atual)]
-
-        if flt_estado:
-            if 'estado_matricula' in df_list_filt.columns:
-                flt_estado_lower = [e.lower() for e in flt_estado]
-                df_list_filt = df_list_filt[df_list_filt['estado_matricula'].isin(flt_estado_lower)]
-
-        if flt_cons == "Sí": df_list_filt = df_list_filt[df_list_filt['Considerado_IP'] == '✅']
-        elif flt_cons == "No": df_list_filt = df_list_filt[df_list_filt['Considerado_IP'] == '❌']
-
-        if flt_exito == "Sí": df_list_filt = df_list_filt[df_list_filt['Rematriculado_IP'] == '✅']
-        elif flt_exito == "No": df_list_filt = df_list_filt[df_list_filt['Rematriculado_IP'] == '❌']
-
-        if flt_busqueda.strip():
-            texto = flt_busqueda.strip()
-            por_nombre = df_list_filt['nombre_apellido'].astype(str).str.contains(texto, case=False, na=False)
-            por_matricula = df_list_filt['numero_catraca'].astype(str).str.contains(texto, case=False, na=False)
-            df_list_filt = df_list_filt[por_nombre | por_matricula]
-
-        # --- Resumen de lo que se está viendo ---
-        n_listados = len(df_list_filt)
-        n_base = int((df_list_filt['Considerado_IP'] == '✅').sum())
-        n_remat = int((df_list_filt['Rematriculado_IP'] == '✅').sum())
-
-        c_kpi1, c_kpi2, c_kpi3 = st.columns(3)
-        with c_kpi1:
-            render_kpi_card("Alumnos listados", f"{n_listados:,}".replace(",", "."), accent="#385623", background="#e2efd9", border="#a9d08e")
-        with c_kpi2:
-            render_kpi_card(f"En la base ({p_base})", f"{n_base:,}".replace(",", "."), accent="#385623", background="#e2efd9", border="#a9d08e")
-        with c_kpi3:
-            render_kpi_card(f"Rematriculados ({p_dest})", f"{n_remat:,}".replace(",", "."), accent="#385623", background="#e2efd9", border="#a9d08e")
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # --- Columnas ---
-        map_cols = {
-            'Considerado_IP': f'Base Inicio {p_base}',
-            'Motivo_exclusion': 'Motivo de exclusión',
-            'Rematriculado_IP': f'Éxito Rematrícula {p_dest}',
-            'numero_catraca': 'Número de Matrícula',
-            'nombre_apellido': 'Nombre',
-            'estado_matricula': 'Estado Matrícula',
-            'semestre_atual': f'Semestre {p_base}',
-            'semestre_proximo': f'Semestre {p_dest}',
-            'estado_pago_atual': f'Estado Pago {p_base}',
-            'estado_pago_proximo': f'Estado Pago {p_dest}',
-            'status_academico': 'Estatus Académico',
-            'tipo_alumno': 'Tipo Alumno',
-            'es_recursante': '¿Es recursante?',
-            'monto_pagado_atual': f'Monto {p_base}',
-            'monto_pagado_proximo': f'Monto {p_dest}',
-            'tipo_matricula': '¿Es convalidado?',
-            'fecha_cambio': 'Fecha Cambio',
-            'usuario_cambio': 'Usuario Modificación',
-            'desc_audit_log': 'Audit Log',
-        }
-        # El resto queda disponible en el selector, para no arrancar con 19 columnas.
-        cols_por_defecto = [
-            f'Base Inicio {p_base}', 'Motivo de exclusión', f'Éxito Rematrícula {p_dest}',
-            'Número de Matrícula', 'Nombre', 'Estado Matrícula',
-            f'Semestre {p_base}', f'Semestre {p_dest}',
-            f'Estado Pago {p_base}', f'Estado Pago {p_dest}',
-        ]
-
-        cols_finales = []
-        for col_origen, etiqueta in map_cols.items():
-            if col_origen in df_list_filt.columns:
-                df_list_filt = df_list_filt.rename(columns={col_origen: etiqueta})
-                cols_finales.append(etiqueta)
-
-        # Formato visual de texto (Mayúsculas Iniciales)
-        if 'Estado Matrícula' in cols_finales:
-            df_list_filt['Estado Matrícula'] = df_list_filt['Estado Matrícula'].str.title()
-        if 'Estatus Académico' in cols_finales:
-            df_list_filt['Estatus Académico'] = df_list_filt['Estatus Académico'].str.title()
-
-        # Semestre sin dato -> "-". Van como texto de un solo dígito (1 a 6), así que
-        # el orden alfabético sigue coincidiendo con el numérico.
-        for sem_col in [f'Semestre {p_base}', f'Semestre {p_dest}']:
-            if sem_col in cols_finales:
-                df_list_filt[sem_col] = (
-                    pd.to_numeric(df_list_filt[sem_col], errors='coerce')
-                    .astype('Int64').astype(str).replace('<NA>', SIN_DATO)
-                )
-
-        # Nulos y textos 'nan' a "-", solo en columnas de texto (no tocar números).
-        for c in cols_finales:
-            if pd.api.types.is_object_dtype(df_list_filt[c]):
-                df_list_filt[c] = df_list_filt[c].fillna(SIN_DATO)
-                df_list_filt[c] = df_list_filt[c].replace(
-                    ['', 'nan', 'NaN', 'None', '<NA>', 'null', 'Null'], SIN_DATO
-                )
-
-        cols_visibles = st.multiselect(
-            "Columnas a mostrar",
-            options=cols_finales,
-            default=[c for c in cols_por_defecto if c in cols_finales],
-            key=f"cols_{k}",
-            help="Las columnas de auditoría (Audit Log, Usuario, Fecha de Cambio) están disponibles acá.",
-        )
-        if not cols_visibles:
-            st.info("Seleccione al menos una columna para ver la tabla.")
-        else:
-            column_config = {
-                f'Semestre {p_base}': st.column_config.TextColumn(width="small"),
-                f'Semestre {p_dest}': st.column_config.TextColumn(width="small"),
-                f'Monto {p_base}': st.column_config.NumberColumn(label=f"Monto {p_base} (Gs.)", format="localized"),
-                f'Monto {p_dest}': st.column_config.NumberColumn(label=f"Monto {p_dest} (Gs.)", format="localized"),
-                'Nombre': st.column_config.TextColumn(width="medium", pinned=True),
-                'Motivo de exclusión': st.column_config.TextColumn(
-                    width="large",
-                    help="Por qué el alumno no entra en la base del indicador. Vacío = sí entra.",
-                ),
-            }
-            df_view = df_list_filt[cols_visibles]
-            st.dataframe(df_view, width="stretch", hide_index=True, column_config=column_config)
-
-            st.download_button(
-                "Descargar Lista (Excel)",
-                data=excel_bytes(df_view, "Alumnos_Filtrados"),
-                file_name=f"Lista_Alumnos_Filtrados_{p_base}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                icon=":material/download:",
-                width="stretch",
-                key=f"btn_dl_lista_{k}",
-                on_click=db_pia.log_export_callback, args=("Índice de Permanencia - Lista", "Excel")
-            )
-
-    # === METODOLOGÍA GLOBAL AL FINAL DE LA PÁGINA ===
-    st.divider()
+def render_metodologia(config, p_base, p_dest, p_ant):
     lim_primer_sem = pd.to_datetime(config["limite_primer_semestre"]).strftime("%d/%m/%Y")
     lim_otros_sem = pd.to_datetime(config["limite_otros_semestres"]).strftime("%d/%m/%Y")
-    st.markdown(f"""
-### Criterios y Metodología de Análisis
 
-A continuación se detallan las reglas lógicas y comerciales aplicadas para obtener los resultados del **Índice de Permanencia {p_base}**.
+    titulo_seccion(
+        "Criterios y Metodología de Análisis",
+        f"A continuación se detallan las reglas lógicas y comerciales aplicadas para obtener los resultados "
+        f"del Índice de Permanencia {p_base}.",
+    )
 
-#### 1. ¿Qué es la Permanencia?
+    with st.container(border=True):
+        titulo_seccion("1. ¿Qué es la Permanencia?")
+        st.markdown(f"""
 La permanencia mide cuántos alumnos que estudiaron en el periodo **{p_base}** continuaron en el siguiente periodo **{p_dest}**.
 
-- **Quiénes se consideran (base)**:
-  Todos los alumnos que pagaron correctamente su primera cuota en {p_base}.
+- **Quiénes se consideran (base)**: todos los alumnos que pagaron su primera cuota en {p_base} o que la negociaron y están al día (ver punto 6).
+- **Cuándo se considera que un alumno continuó (éxito)**: cuando el alumno
+    - pagó su primera cuota en {p_dest} (o la negoció y está al día), y
+    - avanzó de semestre o permaneció en el mismo (recursante por primera vez).
+""")
+        st.markdown(
+            "<div class='ip_aviso'><b>Nota:</b> el caso \"permaneció en el mismo semestre\" solo se contabiliza "
+            "cuando el filtro de Recursantes (ver punto 4) está activo — si está desactivado, esos alumnos quedan "
+            "fuera de la base y no llegan a evaluarse acá.</div>",
+            unsafe_allow_html=True,
+        )
 
-- **Cuándo se considera que un alumno continuó (éxito)**:
-  Cuando el alumno:
-  - Pagó su primera cuota en {p_dest}, y
-  - El alumno avanzó de semestre o permaneció en el mismo (recursante).
-
-  *Nota: el caso "permaneció en el mismo semestre (recursante)" solo se contabiliza en este criterio cuando el filtro de Recursantes (ver punto 4) está activo — si está desactivado, esos alumnos ya quedan fuera de la base y no llegan a evaluarse acá.*
-
----
-
-#### 2. Fechas importantes (bajas de matrícula)
-
+    with st.container(border=True):
+        titulo_seccion("2. Fechas importantes (bajas de matrícula)")
+        st.markdown(f"""
 Si el alumno tuvo un cambio de estado a **suspenso** o **trancado**:
 
-- **Antes del inicio de clases**:
-  No se tiene en cuenta en el análisis.
-  - {lim_primer_sem}: alumnos de 1º semestre
-  - {lim_otros_sem}: alumnos antiguos
-- **Después del inicio de clases**:
-  Sí se incluye en el análisis (como retenido o no retenido).
+- **Antes del inicio de clases**: no se tiene en cuenta en el análisis.
+    - **{lim_primer_sem}**: alumnos de 1º semestre
+    - **{lim_otros_sem}**: alumnos antiguos
+- **Después del inicio de clases**: sí se incluye en el análisis (como retenido o no retenido).
+""")
 
----
-
-#### 3. Alumnos que no continuaron
-
+    with st.container(border=True):
+        titulo_seccion("3. Alumnos que no continuaron")
+        st.markdown(f"""
 Los alumnos que estaban en {p_base} pero no siguieron en {p_dest} se clasifican así:
 
-
-- **Trancados**: si el alumno tiene el estado **trancado**, se contabiliza en esta categoría.  
-- **Reprobados**: si el alumno **no está trancado** y tiene al menos una materia reprobada, se contabiliza aquí.  
+- **Trancados**: si el alumno tiene el estado **trancado**, se contabiliza en esta categoría.
+- **Reprobados**: si el alumno **no está trancado** y tiene al menos una materia reprobada, se contabiliza aquí.
 - **Abandonos**: si el alumno **no está trancado** y **no tiene materias reprobadas**, se contabiliza en esta categoría.
+""")
 
-
----
-
-#### 4. Filtros del sistema
-
+    with st.container(border=True):
+        titulo_seccion("4. Filtros del sistema")
+        st.markdown(f"""
 El sistema permite activar o desactivar ciertos tipos de alumnos:
 
 - **Convalidados**
-- **Recursantes**: alumnos que ya cursaron en {p_ant} y están repitiendo (recursando) **el mismo semestre** en {p_base}.
+- **Recursantes**: alumnos que recursan el semestre **por primera vez**, es decir, que están en **el mismo semestre** en {p_base} y en {p_dest} (ej.: 2º semestre en {p_base} y 2º semestre de nuevo en {p_dest}). Si el filtro está activo, entran en la base y cuentan como rematriculados (si pagaron la primera cuota de {p_dest}).
 
 Si estos filtros están apagados, esos alumnos no se incluyen en el análisis, para que el indicador sea más preciso.
+""")
 
----
-
-#### 5. Exclusiones 
-
+    with st.container(border=True):
+        titulo_seccion("5. Exclusiones")
+        st.markdown(f"""
 - Alumnos convalidados en su primer semestre están siendo desconsiderados del cálculo; solo se incluyen aquellos alumnos convalidados que ya han cursado al menos un semestre.
-    """)
+- Alumnos que **ya venían recursando de periodos anteriores** (mismo semestre en {p_ant} y en {p_base}) quedan siempre fuera del análisis, sin importar el filtro de Recursantes. En la pestaña Alumnos aparecen en la vista "Fuera de la base" con el motivo correspondiente.
+""")
+
+    with st.container(border=True):
+        titulo_seccion(
+            "6. Análisis de pagos (primera cuota)",
+            f"Para {p_base} (base) y {p_dest} (rematrícula) se analiza la primera cuota del periodo "
+            "(cuota 1; si fue cancelada y reemitida, se toma la reemitida).",
+        )
+        si = _pill("Sí", RESULTADO_ESTILO[RESULTADO_REMATRICULADO])
+        no = _pill("No", RESULTADO_ESTILO[RESULTADO_NO_REMATRICULADO])
+        pagos = [
+            ("Paga", "", si),
+            ("Negociada - Paga / Renegociada - Paga", "Todas las cuotas de la negociación están pagadas.", si),
+            ("Negociada - Pendiente / Renegociada - Pendiente",
+             "La negociación tiene cuotas por vencer, pero ninguna vencida (alumno al día).", si),
+            ("Negociada - Vencida / Renegociada - Vencida", "Al menos una cuota de la negociación está vencida.", no),
+            ("Pendiente (sin negociar) / Sin Factura", "", no),
+        ]
+        filas = "".join(
+            f"<tr><td class='ip_td_izq'><b>{estado}</b></td><td class='ip_td_izq'>{desc}</td><td>{pill}</td></tr>"
+            for estado, desc, pill in pagos
+        )
+        st.markdown(
+            "<table class='ip_tabla'><thead><tr><th>Estado de la primera cuota</th><th>Descripción</th>"
+            f"<th>¿Cuenta como pagada?</th></tr></thead><tbody>{filas}</tbody></table>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("""
+- Cuando la primera cuota fue negociada, se analizan las cuotas generadas por la **negociación más reciente**. Si alguna de esas cuotas fue negociada de nuevo, se sigue esa nueva negociación (**Renegociada**).
+- Una cuota se considera **vencida** si no está pagada y su fecha de vencimiento es anterior a la fecha en que se actualizaron los datos. Por eso, un alumno al día puede pasar a vencido en una actualización posterior.
+- En la pestaña Alumnos, la columna de **Monto pagado** solo muestra el valor cuando la cuota está efectivamente pagada; en una negociación al día queda vacía.
+""")
