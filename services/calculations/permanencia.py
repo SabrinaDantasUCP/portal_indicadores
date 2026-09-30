@@ -94,6 +94,8 @@ def evaluar_base(df, incluir_convalidados=False, incluir_recursantes=False, peri
         (~df["sem_atual"].isin(BASE_SEMESTRES), "Semestre fuera del alcance (1º a 5º)"),
         (df["momento_cambio"] == "Antes del inicio de clases", "Baja antes del inicio de clases"),
         (~es_pago(df, "estado_pago_atual"), motivo_impago),
+        # Siempre fuera, sin importar el filtro de recursantes.
+        (es_recursante_anterior(df), "Recursante de períodos anteriores (excluido del análisis)"),
     ]
     if not incluir_convalidados:
         reglas.append((es_convalidado(df), "Convalidado (excluido del cálculo)"))
@@ -127,6 +129,8 @@ def prepare_permanencia_source(df_base, periodo=PERIODO_DEFAULT, config=None):
     df_lista["sem_atual"] = pd.to_numeric(df_lista.get("semestre_atual", 0), errors="coerce").fillna(0).astype(int)
     df_lista["sem_proximo"] = pd.to_numeric(df_lista.get("semestre_proximo", 0), errors="coerce").fillna(0).astype(int)
 
+    df_lista["recursante_primera_vez"] = np.where(es_recursante(df_lista), "SI", "-")
+
     df_lista = df_lista[df_lista["sem_atual"] != 6]
 
     if "analise_primer_periodo" in df_lista.columns and "tipo_matricula" in df_lista.columns:
@@ -138,9 +142,10 @@ def prepare_permanencia_source(df_base, periodo=PERIODO_DEFAULT, config=None):
         monto_col = f"monto_factura_{momento}"
         if monto_col in df_lista.columns:
             # Numérico, no texto: así la tabla ordena por valor. El símbolo "Gs."
-            # lo pone la vista. Solo se muestra el monto si la cuota está paga.
+            # lo pone la vista. Solo se muestra el monto si la cuota está paga
+            # (una negociación al día todavía no está pagada).
             montos = pd.to_numeric(df_lista[monto_col], errors="coerce")
-            df_lista[f"monto_pagado_{momento}"] = montos.where(es_pago(df_lista, f"estado_pago_{momento}"))
+            df_lista[f"monto_pagado_{momento}"] = montos.where(es_pagado_totalmente(df_lista, f"estado_pago_{momento}"))
         else:
             df_lista[f"monto_pagado_{momento}"] = np.nan
 
@@ -173,29 +178,16 @@ def calculate_permanencia_indicators(
         total_exito = len(poblacion_base[exito_mask])
         poblacion_nr = poblacion_base[~exito_mask]
 
-        c_trancados = 0
-        c_reprobados = 0
-        c_abandonos = 0
+        conteo_motivos = {col: 0 for col in MOTIVOS_NR.values()}
         ip_name = f"IP {indicator['r_nivel']}"
 
         if not poblacion_nr.empty:
-            is_trancado = poblacion_nr["estado_matricula"] == "trancado"
-            if "status_academico" in poblacion_nr.columns:
-                is_reprobado = (~is_trancado) & poblacion_nr["status_academico"].astype(str).str.contains(
-                    "reprovado|reprobado", case=False, na=False
-                )
-            else:
-                is_reprobado = pd.Series(False, index=poblacion_nr.index)
-
-            c_trancados = int(is_trancado.sum())
-            c_reprobados = int(is_reprobado.sum())
-            c_abandonos = int((~is_trancado & ~is_reprobado).sum())
+            motivo_nr = motivo_no_rematricula(poblacion_nr)
+            conteo_motivos = {col: int((motivo_nr == m).sum()) for m, col in MOTIVOS_NR.items()}
 
             nr_copy = poblacion_nr.copy()
             nr_copy["Indicador"] = ip_name
-            nr_copy["Motivo_NR"] = "Abandono"
-            nr_copy.loc[is_reprobado, "Motivo_NR"] = "Reprobado"
-            nr_copy.loc[is_trancado, "Motivo_NR"] = "Trancado"
+            nr_copy["Motivo_NR"] = motivo_nr
             df_todas_nr_list.append(nr_copy)
 
         no_rematriculados = total_base - total_exito
@@ -222,13 +214,70 @@ def calculate_permanencia_indicators(
             {
                 "Nivel": str(indicator["r_nivel"]),
                 "No rematriculados": no_rematriculados,
-                "Trancados": c_trancados,
-                "Reprobados": c_reprobados,
-                "Abandonos": c_abandonos,
+                **conteo_motivos,
             }
         )
 
     return pd.DataFrame(resultados_p), pd.DataFrame(resultados_nr), df_todas_nr_list
+
+
+# Motivos de no rematriculación, en orden de prioridad, con la columna del resumen.
+MOTIVOS_NR = {
+    "Trancado": "Trancados",
+    "Reprobado": "Reprobados",
+    "Abandono": "Abandonos",
+}
+
+
+def motivo_no_rematricula(df):
+    """Trancado > Reprobado (no trancado, con materia reprobada) > Abandono (el resto)."""
+    is_trancado = df["estado_matricula"] == "trancado"
+    if "status_academico" in df.columns:
+        is_reprobado = df["status_academico"].astype(str).str.contains("reprovado|reprobado", case=False, na=False)
+    else:
+        is_reprobado = pd.Series(False, index=df.index)
+    motivo = pd.Series("Abandono", index=df.index)
+    motivo[is_reprobado] = "Reprobado"
+    motivo[is_trancado] = "Trancado"
+    return motivo
+
+
+# Resultado de cada alumno en la lista.
+RESULTADO_REMATRICULADO = "Rematriculado"
+RESULTADO_NO_REMATRICULADO = "No rematriculado"
+RESULTADO_FUERA = "Fuera de la base"
+
+
+def clasificar_alumnos(df, incluir_convalidados=False, incluir_recursantes=False, periodo=None):
+    """Resultado de cada alumno con la misma regla que el resumen.
+
+    Devuelve un DataFrame (mismo índice que df) con: considerado, rematriculado,
+    resultado (texto) y motivo (por qué quedó fuera, por qué no se rematriculó,
+    o cómo se rematriculó)."""
+    considerado, motivos_exclusion = evaluar_base(df, incluir_convalidados, incluir_recursantes, periodo)
+    avanza_o_repite = (df["sem_proximo"] == df["sem_atual"]) | (df["sem_proximo"] == df["sem_atual"] + 1)
+    rematriculado = considerado & es_pago(df, "estado_pago_proximo") & avanza_o_repite
+    no_remat = considerado & ~rematriculado
+
+    sem_prox = df["sem_proximo"].astype(str) + "º"
+    motivo = pd.Series(motivos_exclusion, index=df.index)
+    motivo[rematriculado] = np.where(
+        df.loc[rematriculado, "sem_proximo"] == df.loc[rematriculado, "sem_atual"],
+        "Recursa el " + sem_prox[rematriculado] + " semestre",
+        "Avanzó al " + sem_prox[rematriculado] + " semestre",
+    )
+    motivo[no_remat] = motivo_no_rematricula(df[no_remat])
+
+    resultado = pd.Series(RESULTADO_FUERA, index=df.index)
+    resultado[rematriculado] = RESULTADO_REMATRICULADO
+    resultado[no_remat] = RESULTADO_NO_REMATRICULADO
+
+    return pd.DataFrame({
+        "considerado": considerado,
+        "rematriculado": rematriculado,
+        "resultado": resultado,
+        "motivo": motivo,
+    }, index=df.index)
 
 
 def es_convalidado(df):
@@ -237,13 +286,37 @@ def es_convalidado(df):
     return df["tipo_matricula"].astype(str).str.lower().str.contains("convalid", na=False)
 
 
-def es_recursante(df):
+def es_recursante_anterior(df):
+    """Ya venía recursando: estaba en el mismo semestre en el periodo anterior y
+    en el base (columna 'es_recursante' del ETL). Siempre queda fuera del análisis."""
     if "es_recursante" not in df.columns:
         return pd.Series(False, index=df.index)
     return df["es_recursante"].astype(str).str.strip().str.lower().isin(["si", "true", "1", "s"])
 
 
+def es_recursante(df):
+    """Recursa por primera vez: está en el mismo semestre en el periodo base y en
+    el destino (ej. 2º en 2026.1 y 2º en 2026.2) sin venir recursando de antes.
+    Es el único caso que controla el filtro "Incluir alumnos recursantes"."""
+    if "sem_atual" not in df.columns or "sem_proximo" not in df.columns:
+        return pd.Series(False, index=df.index)
+    repite = (df["sem_proximo"] > 0) & (df["sem_proximo"] == df["sem_atual"])
+    return repite & ~es_recursante_anterior(df)
+
+
 def es_pago(df, col):
+    """Primera cuota al día: pagada, o negociada/renegociada sin ninguna cuota
+    vencida ('Negociada - Pendiente'). Solo la negociación con cuota vencida
+    (o sin facturas) cuenta como no pagada."""
+    if col not in df.columns:
+        return pd.Series(False, index=df.index)
+    estado = df[col].astype(str).str.lower()
+    negociada_al_dia = estado.str.contains("negociada", na=False) & estado.str.contains("pendiente", na=False)
+    return es_pagado_totalmente(df, col) | negociada_al_dia
+
+
+def es_pagado_totalmente(df, col):
+    """Cuota efectivamente pagada (directa o todas las cuotas de la negociación)."""
     if col not in df.columns:
         return pd.Series(False, index=df.index)
     return df[col].astype(str).str.lower().str.contains("paga", na=False)
