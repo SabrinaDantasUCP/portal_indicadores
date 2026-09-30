@@ -1799,11 +1799,16 @@ def _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo):
     if df_ind_db is not None and not df_ind_db.empty and "promedio" in df_ind_db.columns:
         for _, fila in df_ind_db.iterrows():
             try:
-                nom = str(fila.get("indicador_nombre", ""))
-                mapa_indicadores[nom] = {
+                num_ind = int(fila.get("orden", 0))
+                nom = str(fila.get("indicador_nombre", "")).strip()
+                dato = {
                     "promedio": float(fila["promedio"]),
                     "descriptor": str(fila.get("descriptor", "")),
+                    "nombre_oficial": nom,
                 }
+                if num_ind > 0:
+                    mapa_indicadores[num_ind] = dato
+                mapa_indicadores[nom] = dato
             except (ValueError, TypeError):
                 continue
 
@@ -1815,7 +1820,11 @@ def _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo):
             for cri in dim["criterios"]:
                 cri_num = cri["n"]
                 cri_score = mapa_criterios.get(cri_num, cri["puntaje"])
-                ind_info = mapa_indicadores.get(cri["indicador"], {})
+                try:
+                    num_ind = int(cri["indicador"][:2])
+                except (ValueError, IndexError):
+                    num_ind = 0
+                ind_info = mapa_indicadores.get(num_ind, mapa_indicadores.get(cri["indicador"], {}))
                 ind_score = ind_info.get("promedio")
                 ind_desc = ind_info.get("descriptor") or cri["descriptor"]
 
