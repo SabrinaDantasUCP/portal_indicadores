@@ -420,7 +420,19 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
     # SUB-PESTAÑA 5: POR DOCENTE
     # --------------------------------------------------------------------------
     with tab_docente:
-        _render_subvista_por_docente(sede, periodo, carrera, tipo, df_filtrado, lista_docentes, df_detalle)
+        _render_subvista_por_docente(
+            sede,
+            periodo,
+            carrera,
+            tipo,
+            df_filtrado,
+            lista_docentes,
+            df_detalle,
+            filtro_docente_top=sel_docente,
+            filtro_materia_top=sel_materia,
+            filtro_seccion_top=sel_seccion,
+            filtro_grupo_top=sel_grupo,
+        )
 
     # --------------------------------------------------------------------------
     # SUB-PESTAÑA 6: ANÁLISIS PEDAGÓGICO
@@ -1012,7 +1024,19 @@ def _render_subvista_resultados_ev1(sede, periodo, carrera, tipo, df_filtrado: p
 # SUB-VISTA 5: POR DOCENTE
 # ==============================================================================
 
-def _render_subvista_por_docente(sede, periodo, carrera, tipo, df_filtrado: pd.DataFrame, lista_docentes: list, df_detalle: pd.DataFrame = None):
+def _render_subvista_por_docente(
+    sede,
+    periodo,
+    carrera,
+    tipo,
+    df_filtrado: pd.DataFrame,
+    lista_docentes: list,
+    df_detalle: pd.DataFrame = None,
+    filtro_docente_top: str = "Todos",
+    filtro_materia_top: str = "Todas",
+    filtro_seccion_top: str = "Todas",
+    filtro_grupo_top: str = "Todos",
+):
     st.markdown(
         """
         <div class="ev1-note ev1-note-privacy">
@@ -1026,6 +1050,35 @@ def _render_subvista_por_docente(sede, periodo, carrera, tipo, df_filtrado: pd.D
 
     df_doc_db = load_resultado_docentes(sede, periodo, carrera, tipo)
 
+    # Construcción de mapas bidireccionales entre identificador numérico (docente_id)
+    # y los formatos de nombres (bio: Nombres Apellidos / sql: Apellidos, Nombres)
+    mapa_bio_a_id = {}
+    mapa_id_a_bio = {}
+    if df_detalle is not None and not df_detalle.empty and "docente_id" in df_detalle.columns:
+        valid_det = df_detalle.dropna(subset=["docente_id", "docente"]).drop_duplicates(subset=["docente_id"])
+        for _, r in valid_det.iterrows():
+            d_id = r["docente_id"]
+            d_nom = str(r["docente"]).strip()
+            mapa_bio_a_id[d_nom] = d_id
+            mapa_id_a_bio[d_id] = d_nom
+    elif df_filtrado is not None and not df_filtrado.empty and "docente_id" in df_filtrado.columns:
+        valid_flt = df_filtrado.dropna(subset=["docente_id", "docente"]).drop_duplicates(subset=["docente_id"])
+        for _, r in valid_flt.iterrows():
+            d_id = r["docente_id"]
+            d_nom = str(r["docente"]).strip()
+            mapa_bio_a_id[d_nom] = d_id
+            mapa_id_a_bio[d_id] = d_nom
+
+    mapa_sql_a_id = {}
+    mapa_id_a_sql = {}
+    if df_doc_db is not None and not df_doc_db.empty and "docente_id" in df_doc_db.columns:
+        valid_doc = df_doc_db.dropna(subset=["docente_id", "docente"]).drop_duplicates(subset=["docente"])
+        for _, r in valid_doc.iterrows():
+            d_id = r["docente_id"]
+            d_nom = str(r["docente"]).strip()
+            mapa_sql_a_id[d_nom] = d_id
+            mapa_id_a_sql[d_id] = d_nom
+
     if df_doc_db is not None and not df_doc_db.empty:
         docentes_disponibles = sorted(df_doc_db["docente"].dropna().unique().tolist())
     else:
@@ -1034,9 +1087,29 @@ def _render_subvista_por_docente(sede, periodo, carrera, tipo, df_filtrado: pd.D
     if not docentes_disponibles:
         docentes_disponibles = list(PERFILES_DOCENTES_REFERENCIA.keys())
 
+    # Sincronización si el usuario seleccionó un docente en la barra superior de filtros
+    if "ev1_prev_filtro_docente_top" not in st.session_state:
+        st.session_state["ev1_prev_filtro_docente_top"] = filtro_docente_top
+
+    if st.session_state["ev1_prev_filtro_docente_top"] != filtro_docente_top:
+        st.session_state["ev1_prev_filtro_docente_top"] = filtro_docente_top
+        if filtro_docente_top != "Todos":
+            d_id_top = mapa_bio_a_id.get(filtro_docente_top)
+            nom_sql_top = mapa_id_a_sql.get(d_id_top)
+            if nom_sql_top and nom_sql_top in docentes_disponibles:
+                st.session_state["ev1_docente_selector"] = nom_sql_top
+
+    indice_default = 0
+    if filtro_docente_top != "Todos":
+        d_id_top = mapa_bio_a_id.get(filtro_docente_top)
+        nom_sql_top = mapa_id_a_sql.get(d_id_top)
+        if nom_sql_top and nom_sql_top in docentes_disponibles:
+            indice_default = docentes_disponibles.index(nom_sql_top)
+
     docente_elegido = st.selectbox(
         "Seleccione un docente para ver su análisis específico:",
         options=docentes_disponibles,
+        index=indice_default,
         key="ev1_docente_selector",
     )
 
@@ -1045,6 +1118,12 @@ def _render_subvista_por_docente(sede, periodo, carrera, tipo, df_filtrado: pd.D
         matches = df_doc_db[df_doc_db["docente"] == docente_elegido]
         if not matches.empty:
             fila_doc = matches.iloc[0]
+
+    docente_id_elegido = fila_doc.get("docente_id") if fila_doc is not None else None
+    if docente_id_elegido is None or pd.isna(docente_id_elegido):
+        docente_id_elegido = mapa_sql_a_id.get(docente_elegido, mapa_bio_a_id.get(docente_elegido))
+
+    nombre_bio = mapa_id_a_bio.get(docente_id_elegido, docente_elegido)
 
     if fila_doc is not None:
         score_doc = float(fila_doc.get("promedio", 0.0))
@@ -1087,8 +1166,12 @@ def _render_subvista_por_docente(sede, periodo, carrera, tipo, df_filtrado: pd.D
             unsafe_allow_html=True,
         )
     with col_meta:
-        st.markdown(f"### {escape(docente_elegido)}")
-        st.caption(f"Asignaciones asociadas: **{escape(meta_doc)}**")
+        if nombre_bio and nombre_bio != docente_elegido:
+            st.markdown(f"### {escape(nombre_bio)}")
+            st.caption(f"Registro evaluado: **{escape(docente_elegido)}** · Asignaciones asociadas: **{escape(meta_doc)}**")
+        else:
+            st.markdown(f"### {escape(docente_elegido)}")
+            st.caption(f"Asignaciones asociadas: **{escape(meta_doc)}**")
         st.write(f"**Nivel de satisfacción estimado:** {pct_aprox_fav}%")
         st.progress(pct_aprox_fav / 100.0)
 
@@ -1124,24 +1207,55 @@ def _render_subvista_por_docente(sede, periodo, carrera, tipo, df_filtrado: pd.D
     with col_ofertas:
         st.markdown("##### Detalle de ofertas del docente")
         df_of = None
-        if df_detalle is not None and not df_detalle.empty and "docente" in df_detalle.columns:
-            matches_det = df_detalle[df_detalle["docente"] == docente_elegido]
-            if not matches_det.empty:
-                cols_det = [c for c in ["materia", "seccion", "grupo", "alumnos_esperados", "alumnos_que_respondieron", "porcentaje_avance"] if c in matches_det.columns]
-                df_of = matches_det[cols_det].copy()
-                df_of = df_of.rename(
-                    columns={
-                        "materia": "Materia",
-                        "seccion": "Sección",
-                        "grupo": "Grupo",
-                        "alumnos_esperados": "Alumnos",
-                        "alumnos_que_respondieron": "Respondieron",
-                        "porcentaje_avance": "Avance %",
-                    }
-                )
 
-        if df_of is None or df_of.empty:
-            df_ofertas_doc = df_filtrado[df_filtrado["docente"] == docente_elegido]
+        # 1. Cargar desde df_detalle (indicador oficial avance_por_materia_seccion_grupo)
+        if df_detalle is not None and not df_detalle.empty:
+            matches_det = pd.DataFrame()
+            if docente_id_elegido is not None and "docente_id" in df_detalle.columns:
+                matches_det = df_detalle[df_detalle["docente_id"] == docente_id_elegido].copy()
+            if matches_det.empty and "docente" in df_detalle.columns:
+                matches_det = df_detalle[
+                    (df_detalle["docente"] == docente_elegido) | (df_detalle["docente"] == nombre_bio)
+                ].copy()
+
+            # Respetar filtros activos seleccionados en la barra superior
+            if not matches_det.empty:
+                if filtro_materia_top != "Todas" and "materia" in matches_det.columns:
+                    matches_det = matches_det[matches_det["materia"] == filtro_materia_top]
+                if filtro_seccion_top != "Todas" and "seccion" in matches_det.columns:
+                    matches_det = matches_det[matches_det["seccion"] == filtro_seccion_top]
+                if filtro_grupo_top != "Todos" and "grupo" in matches_det.columns:
+                    matches_det = matches_det[matches_det["grupo"] == filtro_grupo_top]
+
+                if not matches_det.empty:
+                    cols_det = [
+                        c for c in [
+                            "materia", "seccion", "grupo",
+                            "alumnos_esperados", "alumnos_que_respondieron", "porcentaje_avance",
+                        ]
+                        if c in matches_det.columns
+                    ]
+                    df_of = matches_det[cols_det].copy().rename(
+                        columns={
+                            "materia": "Materia",
+                            "seccion": "Sección",
+                            "grupo": "Grupo",
+                            "alumnos_esperados": "Alumnos",
+                            "alumnos_que_respondieron": "Respondieron",
+                            "porcentaje_avance": "Avance %",
+                        }
+                    )
+
+        # 2. Respaldo a partir de df_filtrado si df_detalle no está disponible o viene vacío
+        if (df_of is None or df_of.empty) and df_filtrado is not None and not df_filtrado.empty:
+            df_ofertas_doc = pd.DataFrame()
+            if docente_id_elegido is not None and "docente_id" in df_filtrado.columns:
+                df_ofertas_doc = df_filtrado[df_filtrado["docente_id"] == docente_id_elegido]
+            if df_ofertas_doc.empty and "docente" in df_filtrado.columns:
+                df_ofertas_doc = df_filtrado[
+                    (df_filtrado["docente"] == docente_elegido) | (df_filtrado["docente"] == nombre_bio)
+                ]
+
             if not df_ofertas_doc.empty:
                 resumen_ofertas_doc = (
                     df_ofertas_doc.groupby(["materia", "seccion", "grupo"])
@@ -1151,7 +1265,9 @@ def _render_subvista_por_docente(sede, periodo, carrera, tipo, df_filtrado: pd.D
                     )
                     .reset_index()
                 )
-                resumen_ofertas_doc["Avance %"] = (resumen_ofertas_doc["respuestas"] / resumen_ofertas_doc["total"] * 100.0).round(1)
+                resumen_ofertas_doc["Avance %"] = (
+                    resumen_ofertas_doc["respuestas"] / resumen_ofertas_doc["total"] * 100.0
+                ).round(1)
                 df_of = resumen_ofertas_doc.rename(
                     columns={
                         "materia": "Materia",
@@ -1163,17 +1279,26 @@ def _render_subvista_por_docente(sede, periodo, carrera, tipo, df_filtrado: pd.D
                 )
 
         if df_of is not None and not df_of.empty:
+            if "Alumnos" in df_of.columns:
+                df_of["Alumnos"] = pd.to_numeric(df_of["Alumnos"], errors="coerce").fillna(0).astype(int)
+            if "Respondieron" in df_of.columns:
+                df_of["Respondieron"] = pd.to_numeric(df_of["Respondieron"], errors="coerce").fillna(0).astype(int)
+            if "Avance %" in df_of.columns:
+                df_of["Avance %"] = pd.to_numeric(df_of["Avance %"], errors="coerce").fillna(0.0).round(1)
+
             st.dataframe(
                 df_of,
                 hide_index=True,
                 width="stretch",
                 column_config={
+                    "Alumnos": st.column_config.NumberColumn("Alumnos", format="%d"),
+                    "Respondieron": st.column_config.NumberColumn("Respondieron", format="%d"),
                     "Avance %": st.column_config.ProgressColumn(
                         "Avance %",
                         min_value=0,
                         max_value=100,
                         format="%.1f%%",
-                    )
+                    ),
                 },
                 key="ev1_tabla_doc_ofertas",
             )
