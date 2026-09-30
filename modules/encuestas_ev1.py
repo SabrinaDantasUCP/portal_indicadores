@@ -250,6 +250,53 @@ def _formatear_puntaje(valor: float) -> str:
     return f"{valor:.2f}".replace(".", ",")
 
 
+def _render_kpi_card_ev1(
+    titulo: str,
+    valor: str,
+    ayuda: str = "",
+    detalle: str = "",
+    color_acento: str = "#12263f",
+    color_fondo: str = "#f3f6fa",
+    color_borde: str = "#dbe3ed",
+):
+    """
+    Renderiza una tarjeta KPI con diseño moderno, sombra sutil, elevación suave en hover
+    y un tooltip explicativo en español (atributo HTML 'title') con cantidades y cálculo exacto.
+    """
+    attr_title = f'title="{escape(ayuda)}"' if ayuda else ""
+    st.markdown(
+        f"""
+        <div {attr_title} class="ev1-kpi-card" style="
+            background-color: {color_fondo};
+            border: 1px solid {color_borde};
+            border-radius: 10px;
+            padding: 16px 14px;
+            text-align: center;
+            height: 100%;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.04);
+            transition: transform 0.18s ease, box-shadow 0.18s ease;
+            cursor: help;
+        ">
+            <div style="
+                font-size: 0.76rem;
+                color: #55657a;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.03em;
+                margin-bottom: 5px;
+            ">
+                {escape(titulo)}
+            </div>
+            <div style="font-size: 1.75rem; color: {color_acento}; font-weight: 800; line-height: 1.15;">
+                {escape(valor)}
+            </div>
+            {f'<div style="font-size: 0.74rem; color: #64748b; margin-top: 5px; font-weight: 500;">{escape(detalle)}</div>' if detalle else ''}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 # ==============================================================================
 # FUNCIÓN PRINCIPAL DE RENDERIZADO DEL SUBMÓDULO EV1
 # ==============================================================================
@@ -264,50 +311,69 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
     st.markdown(
         """
         <style>
+        .ev1-kpi-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 14px rgba(0,0,0,0.08) !important;
+        }
         .ev1-note {
-            background-color: #eaf2fb;
+            background-color: #f0f6fd;
             border-left: 4px solid #245ea8;
-            padding: 11px 15px;
-            border-radius: 8px;
-            color: #1a4270;
-            font-size: 0.86rem;
-            margin-bottom: 15px;
+            padding: 12px 16px;
+            border-radius: 10px;
+            color: #1a3c63;
+            font-size: 0.88rem;
+            margin-bottom: 16px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+            line-height: 1.45;
         }
         .ev1-note-privacy {
-            background-color: #f1eef9;
-            border-left: 4px solid #7654a8;
-            color: #4b3273;
+            background-color: #f5f2fb;
+            border-left: 4px solid #6f42c1;
+            color: #41296d;
         }
         .ev1-card-teacher {
-            background-color: #12263f;
+            background: linear-gradient(135deg, #12263f 0%, #1a3b63 100%);
             color: #ffffff;
             padding: 22px;
             border-radius: 12px;
             text-align: center;
+            box-shadow: 0 4px 12px rgba(18, 38, 63, 0.15);
+            transition: transform 0.2s ease;
+            cursor: help;
+        }
+        .ev1-card-teacher:hover {
+            transform: translateY(-2px);
         }
         .ev1-card-teacher span {
-            font-size: 0.78rem;
+            font-size: 0.80rem;
             color: #c7d5e8;
             display: block;
         }
         .ev1-card-teacher strong {
-            font-size: 2.2rem;
+            font-size: 2.3rem;
             display: block;
             margin-top: 4px;
+            letter-spacing: -0.02em;
         }
         .ev1-criterio-box {
             background: #ffffff;
-            border: 1px solid #dbe3ed;
+            border: 1px solid #e2e8f0;
             border-radius: 10px;
             padding: 14px 16px;
             margin-bottom: 12px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.02);
+            transition: box-shadow 0.2s ease, transform 0.2s ease;
+        }
+        .ev1-criterio-box:hover {
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+            transform: translateY(-1px);
         }
         .ev1-indicador-box {
             margin-top: 8px;
-            background: #f6f8fb;
-            border-left: 3px solid #3c7bc4;
+            background: #f8fafc;
+            border-left: 3px solid #245ea8;
             border-radius: 6px;
-            padding: 8px 12px;
+            padding: 9px 13px;
         }
         </style>
         """,
@@ -478,13 +544,45 @@ def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.Data
     # Fila de KPIs principales
     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
     with kpi1:
-        render_kpi_card("Alumnos convocados", f"{alumnos_convocados:,}".replace(",", "."), accent="#12263f", background="#f3f6fa", border="#dbe3ed")
+        _render_kpi_card_ev1(
+            "Alumnos convocados",
+            f"{alumnos_convocados:,}".replace(",", "."),
+            ayuda="Cantidad total de estudiantes habilitados para responder la encuesta en este periodo y carrera.",
+            detalle="Matrícula convocada",
+            color_acento="#12263f",
+            color_fondo="#f3f6fa",
+            color_borde="#dbe3ed",
+        )
     with kpi2:
-        render_kpi_card("Evaluaciones esperadas", f"{total_esperadas:,}".replace(",", "."), accent="#245ea8", background="#eaf2fb", border="#c7d5e8")
+        _render_kpi_card_ev1(
+            "Evaluaciones esperadas",
+            f"{total_esperadas:,}".replace(",", "."),
+            ayuda="Total de evaluaciones asignadas sumando todas las materias y docentes que cursan los alumnos.",
+            detalle="Carga total asignada",
+            color_acento="#245ea8",
+            color_fondo="#eaf2fb",
+            color_borde="#c7d5e8",
+        )
     with kpi3:
-        render_kpi_card("Evaluaciones completadas", f"{completadas:,}".replace(",", "."), accent="#17845f", background="#e7f6f0", border="#b5e3d0")
+        _render_kpi_card_ev1(
+            "Evaluaciones completadas",
+            f"{completadas:,}".replace(",", "."),
+            ayuda="Cantidad de evaluaciones respondidas y finalizadas satisfactoriamente por los estudiantes.",
+            detalle=f"Avance del {porcentaje_avance:.1f}%",
+            color_acento="#17845f",
+            color_fondo="#e7f6f0",
+            color_borde="#b5e3d0",
+        )
     with kpi4:
-        render_kpi_card("Avance general", _formatear_porcentaje(porcentaje_avance), accent="#3c7bc4", background="#e8f0fe", border="#a9c6f5")
+        _render_kpi_card_ev1(
+            "Avance general",
+            _formatear_porcentaje(porcentaje_avance),
+            ayuda="Tasa de respuesta global: (Evaluaciones completadas / Evaluaciones esperadas) × 100.",
+            detalle=f"{completadas:,} de {total_esperadas:,} respondidas".replace(",", "."),
+            color_acento="#3c7bc4",
+            color_fondo="#e8f0fe",
+            color_borde="#a9c6f5",
+        )
 
     st.caption(f"Detalle actual: **{en_proceso}** en proceso · **{pendientes}** pendientes")
     st.divider()
@@ -503,6 +601,7 @@ def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.Data
                 .agg(
                     total=("estado", "count"),
                     completadas=("estado", lambda s: (s == "Completada").sum()),
+                    pendientes=("estado", lambda s: (s != "Completada").sum()),
                 )
                 .reset_index()
             )
@@ -519,19 +618,30 @@ def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.Data
                 range_x=[0, 100],
                 color="avance",
                 color_continuous_scale=[(0.0, "#bd3f4a"), (0.5, "#b87908"), (0.8, "#17845f"), (1.0, "#17845f")],
+                custom_data=["completadas", "pendientes", "total", "materia"],
             )
             fig_mat.update_traces(
                 texttemplate="%{text:.1f}%",
                 textposition="outside",
+                hovertemplate=(
+                    "<b>Materia: %{customdata[3]}</b><br>"
+                    "Tasa de respuesta: <b>%{x:.1f}%</b><br>"
+                    "Completadas: <b>%{customdata[0]:,}</b> evaluaciones<br>"
+                    "Pendientes: <b>%{customdata[1]:,}</b> evaluaciones<br>"
+                    "Total esperadas: <b>%{customdata[2]:,}</b> evaluaciones"
+                    "<extra></extra>"
+                ),
             )
             fig_mat.update_layout(
                 height=max(220, len(resumen_materia) * 45),
                 xaxis_title="Porcentaje de avance (%)",
                 yaxis_title=None,
                 coloraxis_showscale=False,
+                hoverlabel=dict(bgcolor="white", bordercolor="#dbe3ed", font_size=12),
                 margin=dict(l=10, r=40, t=10, b=10),
             )
             st.plotly_chart(fig_mat, use_container_width=True, key="ev1_grafico_materias")
+            st.caption("💡 *Toque o pase el cursor sobre cualquier barra para ver las cantidades de evaluaciones completadas y pendientes.*")
 
         st.markdown("##### Detalle del universo de evaluación (Cantidades por oferta)")
         if total_esperadas == 0:
@@ -566,18 +676,48 @@ def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.Data
                 hide_index=True,
                 width="stretch",
                 column_config={
-                    "Evaluaciones": st.column_config.NumberColumn("Evaluaciones", format="%d"),
-                    "Completadas": st.column_config.NumberColumn("Completadas", format="%d"),
-                    "Pendientes": st.column_config.NumberColumn("Pendientes", format="%d"),
+                    "Materia": st.column_config.TextColumn(
+                        "Materia",
+                        help="Nombre oficial de la asignatura curricular evaluada.",
+                    ),
+                    "Sección": st.column_config.TextColumn(
+                        "Sección",
+                        help="Sección académica o turno de cursado de los estudiantes.",
+                    ),
+                    "Grupo": st.column_config.TextColumn(
+                        "Grupo",
+                        help="Grupo académico (Teoría, Laboratorio, MO, MS, etc.).",
+                    ),
+                    "Docente": st.column_config.TextColumn(
+                        "Docente",
+                        help="Nombre del profesor asignado y evaluado en este grupo académico.",
+                    ),
+                    "Evaluaciones": st.column_config.NumberColumn(
+                        "Evaluaciones",
+                        format="%d",
+                        help="Total de evaluaciones esperadas asignadas para esta oferta académica.",
+                    ),
+                    "Completadas": st.column_config.NumberColumn(
+                        "Completadas",
+                        format="%d",
+                        help="Cantidad de evaluaciones respondidas efectivamente por los estudiantes.",
+                    ),
+                    "Pendientes": st.column_config.NumberColumn(
+                        "Pendientes",
+                        format="%d",
+                        help="Cantidad de evaluaciones que aún faltan responder por los alumnos.",
+                    ),
                     "Avance %": st.column_config.ProgressColumn(
                         "Avance %",
                         min_value=0,
                         max_value=100,
                         format="%.1f%%",
+                        help="Porcentaje de avance: (Completadas / Evaluaciones) × 100.",
                     ),
                 },
                 key="ev1_tabla_universo",
             )
+            st.caption("💡 *Pase el cursor o toque el encabezado de cualquier columna para conocer su definición y cálculo.*")
 
     with col_der:
         st.markdown("##### Avance global")
@@ -591,6 +731,12 @@ def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.Data
                     marker=dict(colors=["#245ea8", "#e4eaf2"]),
                     textinfo="none",
                     sort=False,
+                    hovertemplate=(
+                        "<b>Estado: %{label}</b><br>"
+                        "Cantidad: <b>%{value:,}</b> evaluaciones<br>"
+                        "Proporción: <b>%{percent}</b> del total asignado"
+                        "<extra></extra>"
+                    ),
                 )
             ]
         )
@@ -599,6 +745,7 @@ def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.Data
             margin=dict(l=10, r=10, t=10, b=10),
             showlegend=True,
             legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5),
+            hoverlabel=dict(bgcolor="white", bordercolor="#dbe3ed", font_size=12),
             annotations=[
                 dict(
                     text=f"<b>{_formatear_porcentaje(porcentaje_avance)}</b>",
@@ -610,6 +757,7 @@ def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.Data
             ],
         )
         st.plotly_chart(fig_donut, use_container_width=True, key="ev1_grafico_donut")
+        st.caption("💡 *Toque el gráfico de dona para ver la proporción y cantidad exacta de evaluaciones completadas vs abiertas.*")
 
         st.markdown("##### Estado de participación de alumnos")
         if not filtros_activos and fila_general is not None:
@@ -712,28 +860,44 @@ def _render_subvista_por_alumno(df_filtrado: pd.DataFrame):
 
     k1, k2, k3, k4 = st.columns(4)
     with k1:
-        render_kpi_card(
+        _render_kpi_card_ev1(
             "Completaron todo",
             f"{c_completos:,} ({pct_completos:.1f}%)".replace(",", "."),
-            accent="#17845f", background="#e7f6f0", border="#b5e3d0",
+            ayuda="Estudiantes que respondieron el 100% de las evaluaciones asignadas a sus docentes.",
+            detalle="100% de encuestas respondidas",
+            color_acento="#17845f",
+            color_fondo="#e7f6f0",
+            color_borde="#b5e3d0",
         )
     with k2:
-        render_kpi_card(
+        _render_kpi_card_ev1(
             "Avance parcial",
             f"{c_parcial:,} ({pct_parcial:.1f}%)".replace(",", "."),
-            accent="#b87908", background="#fff5d9", border="#ecd496",
+            ayuda="Estudiantes que respondieron al menos una evaluación pero tienen encuestas pendientes.",
+            detalle="Con evaluaciones pendientes",
+            color_acento="#b87908",
+            color_fondo="#fff5d9",
+            color_borde="#ecd496",
         )
     with k3:
-        render_kpi_card(
+        _render_kpi_card_ev1(
             "Sin iniciar",
             f"{c_sin_iniciar:,} ({pct_sin:.1f}%)".replace(",", "."),
-            accent="#bd3f4a", background="#fdecef", border="#f3b9c0",
+            ayuda="Estudiantes que aún no han completado ninguna evaluación asignada.",
+            detalle="0 encuestas respondidas",
+            color_acento="#bd3f4a",
+            color_fondo="#fdecef",
+            color_borde="#f3b9c0",
         )
     with k4:
-        render_kpi_card(
+        _render_kpi_card_ev1(
             "Promedio por alumno",
             f"{promedio_asignadas:.1f} evals".replace(".", ","),
-            accent="#245ea8", background="#eaf2fb", border="#c7d5e8",
+            ayuda="Promedio de encuestas a docentes que cada estudiante debe completar según sus materias cursadas.",
+            detalle="Carga media de encuestas",
+            color_acento="#245ea8",
+            color_fondo="#eaf2fb",
+            color_borde="#c7d5e8",
         )
 
     st.markdown("##### Distribución general de participación")
@@ -748,6 +912,12 @@ def _render_subvista_por_alumno(df_filtrado: pd.DataFrame):
                     marker=dict(colors=["#17845f", "#b87908", "#bd3f4a"]),
                     textinfo="percent+label",
                     sort=False,
+                    hovertemplate=(
+                        "<b>Estado: %{label}</b><br>"
+                        "Cantidad de alumnos: <b>%{value:,}</b><br>"
+                        "Participación: <b>%{percent}</b> de la matrícula convocada"
+                        "<extra></extra>"
+                    ),
                 )
             ]
         )
@@ -755,6 +925,7 @@ def _render_subvista_por_alumno(df_filtrado: pd.DataFrame):
             height=270,
             margin=dict(l=10, r=10, t=10, b=10),
             showlegend=False,
+            hoverlabel=dict(bgcolor="white", bordercolor="#dbe3ed", font_size=12),
         )
         st.plotly_chart(fig_donut_part, use_container_width=True, key="ev1_grafico_donut_part")
 
@@ -776,16 +947,28 @@ def _render_subvista_por_alumno(df_filtrado: pd.DataFrame):
                 "Avance parcial": "#b87908",
                 "Sin iniciar": "#bd3f4a",
             },
+            custom_data=["Porcentaje", "Cantidad de alumnos", "Estado"],
         )
-        fig_bar_part.update_traces(textposition="outside", texttemplate="%{text:,}")
+        fig_bar_part.update_traces(
+            textposition="outside",
+            texttemplate="%{text:,}",
+            hovertemplate=(
+                "<b>%{customdata[2]}</b><br>"
+                "Alumnos: <b>%{customdata[1]:,}</b> estudiantes<br>"
+                "Porcentaje: <b>%{customdata[0]:.1f}%</b> de la matrícula convocada"
+                "<extra></extra>"
+            ),
+        )
         fig_bar_part.update_layout(
             height=270,
             showlegend=False,
             margin=dict(l=10, r=40, t=10, b=10),
             xaxis_title="Cantidad de alumnos",
             yaxis_title=None,
+            hoverlabel=dict(bgcolor="white", bordercolor="#dbe3ed", font_size=12),
         )
         st.plotly_chart(fig_bar_part, use_container_width=True, key="ev1_grafico_bar_part")
+        st.caption("💡 *Toque los gráficos para visualizar las cantidades y porcentajes de estudiantes en cada nivel de participación.*")
 
     st.divider()
 
@@ -817,19 +1000,41 @@ def _render_subvista_por_alumno(df_filtrado: pd.DataFrame):
         hide_index=True,
         width="stretch",
         column_config={
-            "Alumnos convocados": st.column_config.NumberColumn("Alumnos convocados", format="%d"),
-            "Evaluaciones esperadas": st.column_config.NumberColumn("Esperadas", format="%d"),
-            "Completadas": st.column_config.NumberColumn("Completadas", format="%d"),
-            "Pendientes": st.column_config.NumberColumn("Pendientes", format="%d"),
+            "Materia": st.column_config.TextColumn(
+                "Materia",
+                help="Nombre oficial de la asignatura curricular.",
+            ),
+            "Alumnos convocados": st.column_config.NumberColumn(
+                "Alumnos convocados",
+                format="%d",
+                help="Cantidad de estudiantes únicos matriculados y convocados a responder en esta materia.",
+            ),
+            "Evaluaciones esperadas": st.column_config.NumberColumn(
+                "Esperadas",
+                format="%d",
+                help="Total de evaluaciones asignadas en la materia sumando todos sus docentes y grupos.",
+            ),
+            "Completadas": st.column_config.NumberColumn(
+                "Completadas",
+                format="%d",
+                help="Cantidad de evaluaciones respondidas efectivamente por los alumnos.",
+            ),
+            "Pendientes": st.column_config.NumberColumn(
+                "Pendientes",
+                format="%d",
+                help="Cantidad de evaluaciones pendientes de responder por parte de los alumnos.",
+            ),
             "Avance %": st.column_config.ProgressColumn(
                 "Avance %",
                 min_value=0,
                 max_value=100,
                 format="%.1f%%",
+                help="Porcentaje de avance en la materia: (Completadas / Esperadas) × 100.",
             ),
         },
         key="ev1_tabla_participacion_materias",
     )
+    st.caption("💡 *Pase el cursor o toque el encabezado de las columnas para ver los detalles y fórmulas de cálculo.*")
 
 
 # ==============================================================================
@@ -880,13 +1085,45 @@ def _render_subvista_materia_seccion_grupo(df_filtrado: pd.DataFrame):
 
     k1, k2, k3, k4 = st.columns(4)
     with k1:
-        render_kpi_card("Materias distintas", str(n_materias), accent="#12263f", background="#f3f6fa", border="#dbe3ed")
+        _render_kpi_card_ev1(
+            "Materias distintas",
+            str(n_materias),
+            ayuda="Cantidad total de asignaturas curriculares comprendidas en los filtros actuales.",
+            detalle="Asignaturas activas",
+            color_acento="#12263f",
+            color_fondo="#f3f6fa",
+            color_borde="#dbe3ed",
+        )
     with k2:
-        render_kpi_card("Docentes a evaluar", str(n_docentes), accent="#245ea8", background="#eaf2fb", border="#c7d5e8")
+        _render_kpi_card_ev1(
+            "Docentes a evaluar",
+            str(n_docentes),
+            ayuda="Cantidad de profesores asignados a estas ofertas académicas.",
+            detalle="Profesores evaluados",
+            color_acento="#245ea8",
+            color_fondo="#eaf2fb",
+            color_borde="#c7d5e8",
+        )
     with k3:
-        render_kpi_card("Ofertas completas (100%)", str(ofertas_completas), accent="#17845f", background="#e7f6f0", border="#b5e3d0")
+        _render_kpi_card_ev1(
+            "Ofertas completas (100%)",
+            str(ofertas_completas),
+            ayuda="Ofertas académicas donde todos los estudiantes convocados respondieron la encuesta.",
+            detalle="Avance total alcanzado",
+            color_acento="#17845f",
+            color_fondo="#e7f6f0",
+            color_borde="#b5e3d0",
+        )
     with k4:
-        render_kpi_card("Ofertas críticas (<50%)", str(ofertas_criticas), accent="#bd3f4a", background="#fdecef", border="#f3b9c0")
+        _render_kpi_card_ev1(
+            "Ofertas críticas (<50%)",
+            str(ofertas_criticas),
+            ayuda="Ofertas académicas con un avance inferior al 50% que requieren seguimiento prioritario.",
+            detalle="Menos del 50% respondido",
+            color_acento="#bd3f4a",
+            color_fondo="#fdecef",
+            color_borde="#f3b9c0",
+        )
 
     st.markdown("##### Detalle de cobertura académica")
     tabla_ofertas = ofertas[
@@ -909,16 +1146,25 @@ def _render_subvista_materia_seccion_grupo(df_filtrado: pd.DataFrame):
         hide_index=True,
         width="stretch",
         column_config={
+            "Materia": st.column_config.TextColumn("Materia", help="Nombre oficial de la asignatura curricular."),
+            "Sección": st.column_config.TextColumn("Sección", help="Sección académica o turno de cursada."),
+            "Grupo": st.column_config.TextColumn("Grupo", help="Grupo lectivo específico (Teoría, Laboratorio, etc.)."),
+            "Docente": st.column_config.TextColumn("Docente", help="Profesor evaluado en este grupo académico."),
+            "Alumnos": st.column_config.NumberColumn("Alumnos", format="%d", help="Cantidad de alumnos matriculados convocados a evaluar al docente."),
+            "Completadas": st.column_config.NumberColumn("Completadas", format="%d", help="Cantidad de encuestas respondidas por los estudiantes."),
+            "Pendientes": st.column_config.NumberColumn("Pendientes", format="%d", help="Cantidad de encuestas que aún faltan responder."),
             "Avance %": st.column_config.ProgressColumn(
                 "Avance %",
                 min_value=0,
                 max_value=100,
                 format="%.1f%%",
-            )
+                help="Tasa de respuesta alcanzada: (Completadas / Total de alumnos) × 100.",
+            ),
+            "Semáforo": st.column_config.TextColumn("Semáforo", help="Semáforo institucional: 🟢 Adecuado (≥ 80%) · 🟡 Seguimiento (50%–79,9%) · 🔴 Crítico (< 50%)."),
         },
         key="ev1_tabla_ofertas",
     )
-    st.caption("Semáforo institucional sugerido: 🟢 Verde ≥ 80% · 🟡 Amarillo 50%–79,9% · 🔴 Rojo < 50%.")
+    st.caption("💡 *Toque los encabezados para ver el significado de cada columna. Semáforo: 🟢 Adecuado (≥ 80%) · 🟡 Seguimiento (50%–79,9%) · 🔴 Crítico (< 50%).*")
 
 
 # ==============================================================================
@@ -976,13 +1222,45 @@ def _render_subvista_resultados_ev1(sede, periodo, carrera, tipo, df_filtrado: p
 
     k1, k2, k3, k4 = st.columns(4)
     with k1:
-        render_kpi_card("Promedio EV1", f"{promedio_ev1:.2f} / 5".replace(".", ","), accent="#12263f", background="#f3f6fa", border="#dbe3ed")
+        _render_kpi_card_ev1(
+            "Promedio EV1",
+            f"{promedio_ev1:.2f} / 5".replace(".", ","),
+            ayuda="Promedio global obtenido de todas las respuestas emitidas en la encuesta (escala 1 a 5).",
+            detalle="Escala Likert institucional",
+            color_acento="#12263f",
+            color_fondo="#f3f6fa",
+            color_borde="#dbe3ed",
+        )
     with k2:
-        render_kpi_card("Respuestas favorables (4-5)", _formatear_porcentaje(pct_fav), accent="#17845f", background="#e7f6f0", border="#b5e3d0")
+        _render_kpi_card_ev1(
+            "Respuestas favorables (4-5)",
+            _formatear_porcentaje(pct_fav),
+            ayuda="Porcentaje de respuestas en opciones 4 (De acuerdo) y 5 (Totalmente de acuerdo).",
+            detalle=f"{int(dist_4 + dist_5):,} respuestas emitidas".replace(",", "."),
+            color_acento="#17845f",
+            color_fondo="#e7f6f0",
+            color_borde="#b5e3d0",
+        )
     with k3:
-        render_kpi_card("Respuestas neutrales (3)", _formatear_porcentaje(pct_neu), accent="#b87908", background="#fff5d9", border="#ecd496")
+        _render_kpi_card_ev1(
+            "Respuestas neutrales (3)",
+            _formatear_porcentaje(pct_neu),
+            ayuda="Porcentaje de respuestas en opción 3 (Ni de acuerdo ni en desacuerdo).",
+            detalle=f"{int(dist_3):,} respuestas emitidas".replace(",", "."),
+            color_acento="#b87908",
+            color_fondo="#fff5d9",
+            color_borde="#ecd496",
+        )
     with k4:
-        render_kpi_card("Respuestas desfavorables (1-2)", _formatear_porcentaje(pct_desf), accent="#bd3f4a", background="#fdecef", border="#f3b9c0")
+        _render_kpi_card_ev1(
+            "Respuestas desfavorables (1-2)",
+            _formatear_porcentaje(pct_desf),
+            ayuda="Porcentaje de respuestas en opciones 1 (Totalmente en desacuerdo) y 2 (En desacuerdo).",
+            detalle=f"{int(dist_1 + dist_2):,} respuestas emitidas".replace(",", "."),
+            color_acento="#bd3f4a",
+            color_fondo="#fdecef",
+            color_borde="#f3b9c0",
+        )
 
     st.divider()
 
@@ -1000,6 +1278,7 @@ def _render_subvista_resultados_ev1(sede, periodo, carrera, tipo, df_filtrado: p
                 orientation="h",
                 text="promedio",
                 range_x=[0, 5],
+                custom_data=["promedio", "dimension_nombre"],
             )
         else:
             datos_dims = [
@@ -1014,20 +1293,29 @@ def _render_subvista_resultados_ev1(sede, periodo, carrera, tipo, df_filtrado: p
                 orientation="h",
                 text="score",
                 range_x=[0, 5],
+                custom_data=["score", "dim"],
             )
 
         fig_dim.update_traces(
             marker_color="#245ea8",
             textposition="outside",
             texttemplate="%{text:.2f}",
+            hovertemplate=(
+                "<b>Dimensión: %{customdata[1]}</b><br>"
+                "Puntaje promedio: <b>%{x:.2f} / 5,00</b><br>"
+                "<i>Valoración media otorgada por los estudiantes en este eje pedagógico</i>"
+                "<extra></extra>"
+            ),
         )
         fig_dim.update_layout(
             height=260,
             xaxis_title="Puntaje promedio (1 a 5)",
             yaxis_title=None,
+            hoverlabel=dict(bgcolor="white", bordercolor="#dbe3ed", font_size=12),
             margin=dict(l=10, r=40, t=10, b=10),
         )
         st.plotly_chart(fig_dim, use_container_width=True, key="ev1_grafico_dimensiones")
+        st.caption("💡 *Toque cualquier barra para ver el puntaje promedio exacto de la dimensión.*")
 
         st.markdown("##### Resultado consolidado por docente")
         if df_doc is not None and not df_doc.empty:
@@ -1059,7 +1347,20 @@ def _render_subvista_resultados_ev1(sede, periodo, carrera, tipo, df_filtrado: p
                 })
             tabla_doc = pd.DataFrame(filas_doc)
 
-        st.dataframe(tabla_doc, hide_index=True, width="stretch", key="ev1_tabla_res_docente")
+        st.dataframe(
+            tabla_doc,
+            hide_index=True,
+            width="stretch",
+            column_config={
+                "Docente": st.column_config.TextColumn("Docente", help="Nombre oficial del docente evaluado."),
+                "Promedio": st.column_config.NumberColumn("Promedio", format="%.2f", help="Puntaje promedio obtenido en la escala institucional de 1 a 5."),
+                "Lectura": st.column_config.TextColumn("Lectura", help="Categorización pedagógica según el puntaje promedio obtenido."),
+                "Evaluaciones": st.column_config.NumberColumn("Evaluaciones", format="%d", help="Cantidad de encuestas completadas que recibió el docente."),
+                "Respuestas válidas": st.column_config.NumberColumn("Respuestas válidas", format="%d", help="Suma total de ítems respondidos válidamente por los alumnos."),
+            },
+            key="ev1_tabla_res_docente",
+        )
+        st.caption("💡 *Pase el cursor sobre los encabezados para ver el significado de cada columna.*")
 
     with col_der:
         st.markdown("##### Distribución de respuestas")
@@ -1077,6 +1378,7 @@ def _render_subvista_resultados_ev1(sede, periodo, carrera, tipo, df_filtrado: p
         dist_datos = pd.DataFrame({
             "Puntaje": ["1 (Muy en desc.)", "2 (En desac.)", "3 (Neutral)", "4 (De acuerdo)", "5 (Totalmente)"],
             "Porcentaje": [pct_d1, pct_d2, pct_d3, pct_d4, pct_d5],
+            "Cantidad": [int(dist_1), int(dist_2), int(dist_3), int(dist_4), int(dist_5)],
             "Color": ["#bd3f4a", "#d97831", "#7654a8", "#245ea8", "#17845f"],
         })
         fig_dist = px.bar(
@@ -1093,16 +1395,28 @@ def _render_subvista_resultados_ev1(sede, periodo, carrera, tipo, df_filtrado: p
                 "5 (Totalmente)": "#17845f",
             },
             text="Porcentaje",
+            custom_data=["Puntaje", "Porcentaje", "Cantidad"],
         )
-        fig_dist.update_traces(texttemplate="%{text:.1f}%", textposition="inside")
+        fig_dist.update_traces(
+            texttemplate="%{text:.1f}%",
+            textposition="inside",
+            hovertemplate=(
+                "<b>Escala Likert: %{customdata[0]}</b><br>"
+                "Porcentaje: <b>%{x:.1f}%</b> del total<br>"
+                "Cantidad de respuestas: <b>%{customdata[2]:,}</b> votos emitidos"
+                "<extra></extra>"
+            ),
+        )
         fig_dist.update_layout(
             height=220,
             showlegend=False,
             xaxis_title="Porcentaje (%)",
             yaxis_title=None,
+            hoverlabel=dict(bgcolor="white", bordercolor="#dbe3ed", font_size=12),
             margin=dict(l=10, r=20, t=10, b=10),
         )
         st.plotly_chart(fig_dist, use_container_width=True, key="ev1_grafico_distribucion")
+        st.caption("💡 *Toque las barras para ver la cantidad exacta de votos emitidos en cada opción.*")
 
         # Obtener puntajes reales de la dimensión con mayor y menor puntaje
         score_mejor = None
@@ -1274,7 +1588,7 @@ def _render_subvista_por_docente(
     with col_card:
         st.markdown(
             f"""
-            <div class="ev1-card-teacher">
+            <div class="ev1-card-teacher" title="Puntaje promedio general del docente seleccionado obtenido en todas las encuestas respondidas por sus estudiantes.">
                 <span>Promedio del docente seleccionado</span>
                 <strong>{_formatear_puntaje(score_doc)}</strong>
                 <span>Lectura: {_descriptor_badge(descriptor_doc)}</span>
@@ -1316,10 +1630,28 @@ def _render_subvista_por_docente(
             orientation="h",
             text="Puntaje",
             range_x=[0, 5],
+            custom_data=["Puntaje", "Dimensión"],
         )
-        fig_doc_dim.update_traces(marker_color="#3c7bc4", textposition="outside", texttemplate="%{text:.2f}")
-        fig_doc_dim.update_layout(height=260, margin=dict(l=10, r=40, t=10, b=10), xaxis_title="Puntaje (1 a 5)", yaxis_title=None)
+        fig_doc_dim.update_traces(
+            marker_color="#3c7bc4",
+            textposition="outside",
+            texttemplate="%{text:.2f}",
+            hovertemplate=(
+                "<b>%{customdata[1]}</b><br>"
+                "Calificación del docente: <b>%{x:.2f} / 5,00</b><br>"
+                "<i>Promedio otorgado por sus alumnos en este eje</i>"
+                "<extra></extra>"
+            ),
+        )
+        fig_doc_dim.update_layout(
+            height=260,
+            margin=dict(l=10, r=40, t=10, b=10),
+            xaxis_title="Puntaje (1 a 5)",
+            yaxis_title=None,
+            hoverlabel=dict(bgcolor="white", bordercolor="#dbe3ed", font_size=12),
+        )
         st.plotly_chart(fig_doc_dim, use_container_width=True, key="ev1_grafico_doc_dim")
+        st.caption("💡 *Toque cualquier barra para ver la calificación obtenida por el profesor en cada dimensión.*")
 
     with col_ofertas:
         st.markdown("##### Detalle de ofertas del docente")
@@ -1408,17 +1740,22 @@ def _render_subvista_por_docente(
                 hide_index=True,
                 width="stretch",
                 column_config={
-                    "Alumnos": st.column_config.NumberColumn("Alumnos", format="%d"),
-                    "Respondieron": st.column_config.NumberColumn("Respondieron", format="%d"),
+                    "Materia": st.column_config.TextColumn("Materia", help="Nombre de la asignatura asignada al docente."),
+                    "Sección": st.column_config.TextColumn("Sección", help="Sección académica o turno lectivo."),
+                    "Grupo": st.column_config.TextColumn("Grupo", help="Grupo académico específico (Teoría, Laboratorio, etc.)."),
+                    "Alumnos": st.column_config.NumberColumn("Alumnos", format="%d", help="Cantidad total de estudiantes matriculados convocados a evaluar al docente."),
+                    "Respondieron": st.column_config.NumberColumn("Respondieron", format="%d", help="Cantidad de estudiantes que ya completaron la evaluación del docente."),
                     "Avance %": st.column_config.ProgressColumn(
                         "Avance %",
                         min_value=0,
                         max_value=100,
                         format="%.1f%%",
+                        help="Tasa de respuesta alcanzada: (Respondieron / Alumnos) × 100.",
                     ),
                 },
                 key="ev1_tabla_doc_ofertas",
             )
+            st.caption("💡 *Toque los encabezados para ver el detalle de alumnos matriculados y respuestas recibidas.*")
         else:
             st.info("Sin ofertas registradas para este docente con los filtros seleccionados.")
 
@@ -1491,11 +1828,11 @@ def _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo):
                             <div style="font-weight: 650; font-size: 0.90rem; color: #17243a;">
                                 Criterio {cri_num:02d}. {escape(cri['texto'])}
                             </div>
-                            <div style="font-weight: 750; font-size: 1.05rem; color: #245ea8; white-space: nowrap;">
-                                {_formatear_puntaje(cri_score)}
+                            <div title="Puntaje promedio obtenido en este criterio específico en la escala de 1 a 5" style="font-weight: 750; font-size: 1.05rem; color: #245ea8; white-space: nowrap; cursor: help;">
+                                {_formatear_puntaje(cri_score)} / 5
                             </div>
                         </div>
-                        <div class="ev1-indicador-box">
+                        <div class="ev1-indicador-box" title="Indicador pedagógico institucional y lectura descriptiva cualitativa">
                             <strong style="color: #245ea8; font-size: 0.82rem; display: block; margin-bottom: 2px;">
                                 {escape(cri['indicador'])}{score_ind_badge}
                             </strong>
