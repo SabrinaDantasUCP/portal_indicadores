@@ -330,35 +330,32 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
         # Modo fallback para desarrollo local offline con la estructura exacta del HTML
         df_base = pd.DataFrame(ASIGNACIONES_REFERENCIA)
 
-    # --- 3. FILTROS DINÁMICOS SUPERIORES ---
+    # --- 3. FILTROS DINÁMICOS SUPERIORES (CONFIDENCIALIDAD: SIN BÚSQUEDA POR ALUMNO) ---
     with st.expander("Filtros del Dashboard EV1", expanded=True):
-        col_filtro1, col_filtro2, col_filtro3, col_filtro4, col_filtro5, col_filtro6 = st.columns(6)
+        col_filtro1, col_filtro2, col_filtro3, col_filtro4, col_filtro5 = st.columns(5)
 
         # Opciones únicas ordenadas
-        lista_alumnos = ["Todos"] + sorted([str(a) for a in df_base["alumno"].dropna().unique() if str(a).strip()])
-        lista_docentes = ["Todos"] + sorted([str(d) for d in df_base["docente"].dropna().unique() if str(d).strip()])
         lista_materias = ["Todas"] + sorted([str(m) for m in df_base["materia"].dropna().unique() if str(m).strip()])
         lista_secciones = ["Todas"] + sorted([str(s) for s in df_base["seccion"].dropna().unique() if str(s).strip()])
         lista_grupos = ["Todos"] + sorted([str(g) for g in df_base["grupo"].dropna().unique() if str(g).strip()])
+        lista_docentes = ["Todos"] + sorted([str(d) for d in df_base["docente"].dropna().unique() if str(d).strip()])
         lista_estados = ["Todos", "Completada", "En proceso", "Pendiente"]
 
         with col_filtro1:
-            sel_alumno = st.selectbox("Alumno", options=lista_alumnos, key="ev1_filtro_alumno")
-        with col_filtro2:
-            sel_docente = st.selectbox("Docente", options=lista_docentes, key="ev1_filtro_docente")
-        with col_filtro3:
             sel_materia = st.selectbox("Materia", options=lista_materias, key="ev1_filtro_materia")
-        with col_filtro4:
+        with col_filtro2:
             sel_seccion = st.selectbox("Sección", options=lista_secciones, key="ev1_filtro_seccion")
-        with col_filtro5:
+        with col_filtro3:
             sel_grupo = st.selectbox("Grupo", options=lista_grupos, key="ev1_filtro_grupo")
-        with col_filtro6:
+        with col_filtro4:
+            sel_docente = st.selectbox("Docente", options=lista_docentes, key="ev1_filtro_docente")
+        with col_filtro5:
             sel_estado = st.selectbox("Estado", options=lista_estados, key="ev1_filtro_estado")
+
+    sel_alumno = "Todos"
 
     # Aplicación de los filtros sobre el conjunto de datos de asignaciones
     df_filtrado = df_base.copy()
-    if sel_alumno != "Todos":
-        df_filtrado = df_filtrado[df_filtrado["alumno"] == sel_alumno]
     if sel_docente != "Todos":
         df_filtrado = df_filtrado[df_filtrado["docente"] == sel_docente]
     if sel_materia != "Todas":
@@ -372,8 +369,7 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
 
     # Identificar si el usuario ha aplicado algún filtro en la pantalla
     filtros_activos = (
-        sel_alumno != "Todos"
-        or sel_docente != "Todos"
+        sel_docente != "Todos"
         or sel_materia != "Todas"
         or sel_seccion != "Todas"
         or sel_grupo != "Todos"
@@ -384,7 +380,7 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
     tab_avance, tab_alumno, tab_materia, tab_resultados, tab_docente, tab_pedagogico = st.tabs(
         [
             "Avance general",
-            "Por alumno",
+            "Participación de alumnos",
             "Materia · sección · grupo",
             "Resultados EV1",
             "Por docente",
@@ -537,17 +533,49 @@ def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.Data
             )
             st.plotly_chart(fig_mat, use_container_width=True, key="ev1_grafico_materias")
 
-        st.markdown("##### Detalle del universo de evaluación")
+        st.markdown("##### Detalle del universo de evaluación (Cantidades por oferta)")
         if total_esperadas == 0:
             st.info("Sin registros.")
         else:
-            cols_mostrar = [c for c in ["alumno", "materia", "seccion", "grupo", "docente", "estado"] if c in df_filtrado.columns]
-            df_tabla = df_filtrado[cols_mostrar].copy()
-            df_tabla.columns = [c.capitalize() for c in cols_mostrar]
+            # Resumen cuantitativo agregado por oferta (confidencialidad total de estudiantes)
+            resumen_universo = (
+                df_filtrado.groupby(["materia", "seccion", "grupo", "docente"])
+                .agg(
+                    total=("estado", "count"),
+                    completadas=("estado", lambda s: (s == "Completada").sum()),
+                    pendientes=("estado", lambda s: (s != "Completada").sum()),
+                )
+                .reset_index()
+            )
+            resumen_universo["Avance %"] = (
+                resumen_universo["completadas"] / resumen_universo["total"] * 100.0
+            ).round(1)
+            df_tabla = resumen_universo.rename(
+                columns={
+                    "materia": "Materia",
+                    "seccion": "Sección",
+                    "grupo": "Grupo",
+                    "docente": "Docente",
+                    "total": "Evaluaciones",
+                    "completadas": "Completadas",
+                    "pendientes": "Pendientes",
+                }
+            )
             st.dataframe(
                 df_tabla,
                 hide_index=True,
                 width="stretch",
+                column_config={
+                    "Evaluaciones": st.column_config.NumberColumn("Evaluaciones", format="%d"),
+                    "Completadas": st.column_config.NumberColumn("Completadas", format="%d"),
+                    "Pendientes": st.column_config.NumberColumn("Pendientes", format="%d"),
+                    "Avance %": st.column_config.ProgressColumn(
+                        "Avance %",
+                        min_value=0,
+                        max_value=100,
+                        format="%.1f%%",
+                    ),
+                },
                 key="ev1_tabla_universo",
             )
 
@@ -630,28 +658,29 @@ def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.Data
 
 
 # ==============================================================================
-# SUB-VISTA 2: POR ALUMNO
+# SUB-VISTA 2: PARTICIPACIÓN DE ALUMNOS (CANTIDADES AGREGADAS)
 # ==============================================================================
 
 def _render_subvista_por_alumno(df_filtrado: pd.DataFrame):
     st.markdown(
         """
         <div class="ev1-note ev1-note-privacy">
-            <strong>Protección del anonimato:</strong> El sistema permite identificar si una evaluación fue completada 
-            por motivos de control y seguimiento operativo, pero las respuestas y puntajes otorgados permanecen 
-            completamente anónimos y separados de la identidad del estudiante.
+            <strong>Confidencialidad y protección de datos:</strong> Por estricta política institucional y resguardo del anonimato,
+            no se presentan datos individuales identificatorios de los estudiantes. 
+            Esta vista consolida exclusivamente cantidades globales, estados agregados de participación y métricas por materia.
         </div>
         """,
         unsafe_allow_html=True,
     )
 
     if df_filtrado.empty:
-        st.info("Sin registros de alumnos para los filtros actuales.")
+        st.info("Sin registros de participación para los filtros actuales.")
         return
 
-    # Cálculo por alumno
+    # Agrupación interna por identificador para cómputo de métricas globales sin exponer identidades
+    id_col = "system_id" if "system_id" in df_filtrado.columns else "alumno"
     resumen_alumnos = (
-        df_filtrado.groupby("alumno")
+        df_filtrado.groupby(id_col)
         .agg(
             asignadas=("estado", "count"),
             completadas=("estado", lambda s: (s == "Completada").sum()),
@@ -677,41 +706,129 @@ def _render_subvista_por_alumno(df_filtrado: pd.DataFrame):
     c_sin_iniciar = int((resumen_alumnos["estado_alumno"] == "Sin iniciar").sum())
     promedio_asignadas = (resumen_alumnos["asignadas"].mean()) if total_alumnos > 0 else 0.0
 
+    pct_completos = (c_completos / total_alumnos * 100.0) if total_alumnos > 0 else 0.0
+    pct_parcial = (c_parcial / total_alumnos * 100.0) if total_alumnos > 0 else 0.0
+    pct_sin = (c_sin_iniciar / total_alumnos * 100.0) if total_alumnos > 0 else 0.0
+
     k1, k2, k3, k4 = st.columns(4)
     with k1:
-        render_kpi_card("Completaron todo", str(c_completos), accent="#17845f", background="#e7f6f0", border="#b5e3d0")
+        render_kpi_card(
+            "Completaron todo",
+            f"{c_completos:,} ({pct_completos:.1f}%)".replace(",", "."),
+            accent="#17845f", background="#e7f6f0", border="#b5e3d0",
+        )
     with k2:
-        render_kpi_card("Avance parcial", str(c_parcial), accent="#b87908", background="#fff5d9", border="#ecd496")
+        render_kpi_card(
+            "Avance parcial",
+            f"{c_parcial:,} ({pct_parcial:.1f}%)".replace(",", "."),
+            accent="#b87908", background="#fff5d9", border="#ecd496",
+        )
     with k3:
-        render_kpi_card("Sin iniciar", str(c_sin_iniciar), accent="#bd3f4a", background="#fdecef", border="#f3b9c0")
+        render_kpi_card(
+            "Sin iniciar",
+            f"{c_sin_iniciar:,} ({pct_sin:.1f}%)".replace(",", "."),
+            accent="#bd3f4a", background="#fdecef", border="#f3b9c0",
+        )
     with k4:
-        render_kpi_card("Promedio por alumno", f"{promedio_asignadas:.1f}".replace(".", ","), accent="#245ea8", background="#eaf2fb", border="#c7d5e8")
+        render_kpi_card(
+            "Promedio por alumno",
+            f"{promedio_asignadas:.1f} evals".replace(".", ","),
+            accent="#245ea8", background="#eaf2fb", border="#c7d5e8",
+        )
 
-    st.markdown("##### Estado de los alumnos convocados")
-    tabla_mostrar = resumen_alumnos.rename(
+    st.markdown("##### Distribución general de participación")
+    col_donut, col_bar = st.columns([1.0, 1.4])
+    with col_donut:
+        fig_donut_part = go.Figure(
+            data=[
+                go.Pie(
+                    labels=["Completaron todo", "Avance parcial", "Sin iniciar"],
+                    values=[c_completos, c_parcial, c_sin_iniciar],
+                    hole=0.62,
+                    marker=dict(colors=["#17845f", "#b87908", "#bd3f4a"]),
+                    textinfo="percent+label",
+                    sort=False,
+                )
+            ]
+        )
+        fig_donut_part.update_layout(
+            height=270,
+            margin=dict(l=10, r=10, t=10, b=10),
+            showlegend=False,
+        )
+        st.plotly_chart(fig_donut_part, use_container_width=True, key="ev1_grafico_donut_part")
+
+    with col_bar:
+        df_bar_part = pd.DataFrame({
+            "Estado": ["Completaron todo", "Avance parcial", "Sin iniciar"],
+            "Cantidad de alumnos": [c_completos, c_parcial, c_sin_iniciar],
+            "Porcentaje": [pct_completos, pct_parcial, pct_sin],
+        })
+        fig_bar_part = px.bar(
+            df_bar_part,
+            x="Cantidad de alumnos",
+            y="Estado",
+            orientation="h",
+            text="Cantidad de alumnos",
+            color="Estado",
+            color_discrete_map={
+                "Completaron todo": "#17845f",
+                "Avance parcial": "#b87908",
+                "Sin iniciar": "#bd3f4a",
+            },
+        )
+        fig_bar_part.update_traces(textposition="outside", texttemplate="%{text:,}")
+        fig_bar_part.update_layout(
+            height=270,
+            showlegend=False,
+            margin=dict(l=10, r=40, t=10, b=10),
+            xaxis_title="Cantidad de alumnos",
+            yaxis_title=None,
+        )
+        st.plotly_chart(fig_bar_part, use_container_width=True, key="ev1_grafico_bar_part")
+
+    st.divider()
+
+    st.markdown("##### Cantidades de participación agregadas por materia")
+    resumen_mat = (
+        df_filtrado.groupby("materia")
+        .agg(
+            alumnos=(id_col, "nunique"),
+            total=("estado", "count"),
+            completadas=("estado", lambda s: (s == "Completada").sum()),
+            pendientes=("estado", lambda s: (s != "Completada").sum()),
+        )
+        .reset_index()
+    )
+    resumen_mat["Avance %"] = (
+        resumen_mat["completadas"] / resumen_mat["total"] * 100.0
+    ).round(1)
+    tabla_mat = resumen_mat.rename(
         columns={
-            "alumno": "Alumno",
-            "asignadas": "Asignadas",
+            "materia": "Materia",
+            "alumnos": "Alumnos convocados",
+            "total": "Evaluaciones esperadas",
             "completadas": "Completadas",
-            "en_proceso": "En proceso",
             "pendientes": "Pendientes",
-            "avance": "Avance %",
-            "estado_alumno": "Estado",
         }
     )
     st.dataframe(
-        tabla_mostrar,
+        tabla_mat,
         hide_index=True,
         width="stretch",
         column_config={
+            "Alumnos convocados": st.column_config.NumberColumn("Alumnos convocados", format="%d"),
+            "Evaluaciones esperadas": st.column_config.NumberColumn("Esperadas", format="%d"),
+            "Completadas": st.column_config.NumberColumn("Completadas", format="%d"),
+            "Pendientes": st.column_config.NumberColumn("Pendientes", format="%d"),
             "Avance %": st.column_config.ProgressColumn(
                 "Avance %",
                 min_value=0,
                 max_value=100,
                 format="%.1f%%",
-            )
+            ),
         },
-        key="ev1_tabla_alumnos",
+        key="ev1_tabla_participacion_materias",
     )
 
 
