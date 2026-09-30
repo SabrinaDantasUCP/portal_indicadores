@@ -221,20 +221,24 @@ def render():
     _render_encabezado_encuesta(nombre, vigencia, semestres_habilitados, sede, carrera)
 
     # Si la encuesta es de estudiantes (EV1) o trae indicadores de resultados,
-    # se presentan las tres pestañas: Cobertura académica, Resultados generales
-    # y la nueva vista integral EV1 - Opinión Estudiante.
+    # se presentan las opciones de visualización.
+    # NOTA INSTITUCIONAL: Se ocultan (comentan) temporalmente las pestañas 'Cobertura académica'
+    # y 'Resultados generales' para dejar exclusivamente la vista integral 'EV1 - Opinión Estudiante'.
     if resultados_disponibles(sede, periodo, carrera, tipo) or tipo == TIPO_ALUMNOS_DOCENTE:
-        tab_cobertura, tab_resultados, tab_ev1 = st.tabs(
-            ["Cobertura académica", "Resultados generales", "EV1 - Opinión Estudiante"]
+        # tab_cobertura, tab_resultados, tab_ev1 = st.tabs(
+        #     ["Cobertura académica", "Resultados generales", "EV1 - Opinión Estudiante"]
+        # )
+        # with tab_cobertura:
+        #     _render_cobertura(fila_general, df_detalle, df_alumnos, periodo, tipo)
+        # with tab_resultados:
+        #     render_resultados_generales(sede, periodo, carrera, tipo)
+        # with tab_ev1:
+        #     render_ev1_opinion_estudiante(
+        #         sede, periodo, carrera, tipo, fila_general, df_detalle, df_alumnos
+        #     )
+        render_ev1_opinion_estudiante(
+            sede, periodo, carrera, tipo, fila_general, df_detalle, df_alumnos
         )
-        with tab_cobertura:
-            _render_cobertura(fila_general, df_detalle, df_alumnos, periodo, tipo)
-        with tab_resultados:
-            render_resultados_generales(sede, periodo, carrera, tipo)
-        with tab_ev1:
-            render_ev1_opinion_estudiante(
-                sede, periodo, carrera, tipo, fila_general, df_detalle, df_alumnos
-            )
     else:
         _render_cobertura(fila_general, df_detalle, df_alumnos, periodo, tipo)
 

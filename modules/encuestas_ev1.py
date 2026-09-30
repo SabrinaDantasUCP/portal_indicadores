@@ -577,16 +577,72 @@ def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.Data
             color_borde="#a9c6f5",
         )
 
-    # Nota de equivalencia a nivel materia oficial (fila_general)
-    if not filtros_activos and fila_general is not None and "encuestas_esperadas" in fila_general and "encuestas_respondidas" in fila_general:
+    # Tarjetas explicativas de correspondencia y jerarquía de datos (Estudiantes · Materias · Docentes)
+    # Permiten comprender la relación exacta entre los 3 niveles de análisis institucional
+    pct_pendientes = (pendientes / total_esperadas * 100.0) if total_esperadas > 0 else 0.0
+
+    if not filtros_activos and fila_general is not None:
         mat_esperadas = int(fila_general.get("encuestas_esperadas", 0))
         mat_respondidas = int(fila_general.get("encuestas_respondidas", 0))
         pct_mat = float(fila_general.get("porcentaje_avance_encuestas", 0.0))
-        st.caption(
-            f"📌 **Equivalencia a nivel materia:** Los alumnos respondieron **{mat_respondidas:,}** de **{mat_esperadas:,}** materias asignadas (**{pct_mat:.1f}%**). "
-            f"Dado que cada materia integra múltiples docentes (Teoría, Laboratorio, Práctica), se generan en total **{total_esperadas:,}** evaluaciones docentes asignadas."
+        alumnos_respondieron = int(fila_general.get("alumnos_unicos_que_respondieron_al_menos_una", 0))
+        pct_alumnos = float(fila_general.get("porcentaje_alumnos_que_respondieron_al_menos_una", 0.0))
+        if pct_alumnos == 0.0 and alumnos_convocados > 0:
+            pct_alumnos = (alumnos_respondieron / alumnos_convocados * 100.0)
+        alumnos_restantes = max(alumnos_convocados - alumnos_respondieron, 0)
+
+        st.markdown(
+            f"""
+            <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px 20px; margin: 18px 0 22px 0;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; border-bottom: 1px solid #e2e8f0; padding-bottom: 10px;">
+                    <div style="font-weight: 700; font-size: 0.96rem; color: #1e3a63; display: flex; align-items: center; gap: 8px;">
+                        <span>🧭</span> Correspondencia de Cifras: Estudiantes ➔ Materias ➔ Asignaciones Docentes
+                    </div>
+                    <div style="font-size: 0.78rem; background: #e2e8f0; color: #334155; padding: 4px 12px; border-radius: 12px; font-weight: 600;">
+                        Estado docente: {completadas:,} completadas ({porcentaje_avance:.1f}%) · {en_proceso:,} en proceso · {pendientes:,} pendientes ({pct_pendientes:.1f}%)
+                    </div>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px;">
+                    <div style="background: #ffffff; border: 1px solid #e2e8f0; border-top: 3px solid #12263f; border-radius: 8px; padding: 14px 16px;">
+                        <div style="font-size: 0.74rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em;">
+                            1. Nivel Estudiantes (Personas)
+                        </div>
+                        <div style="font-size: 1.25rem; font-weight: 800; color: #12263f; margin: 4px 0;">
+                            {alumnos_convocados:,} <span style="font-size: 0.8rem; font-weight: 500; color: #64748b;">convocados</span>
+                        </div>
+                        <div style="font-size: 0.80rem; color: #475569; line-height: 1.45;">
+                            <strong>{alumnos_respondieron:,}</strong> alumnos completaron evaluaciones (<strong>{pct_alumnos:.1f}%</strong> de participación activa). Restan {alumnos_restantes:,} sin participar.
+                        </div>
+                    </div>
+                    <div style="background: #ffffff; border: 1px solid #e2e8f0; border-top: 3px solid #245ea8; border-radius: 8px; padding: 14px 16px;">
+                        <div style="font-size: 0.74rem; font-weight: 700; color: #245ea8; text-transform: uppercase; letter-spacing: 0.04em;">
+                            2. Nivel Asignaturas (Materias)
+                        </div>
+                        <div style="font-size: 1.25rem; font-weight: 800; color: #245ea8; margin: 4px 0;">
+                            {mat_respondidas:,} <span style="font-size: 0.8rem; font-weight: 500; color: #64748b;">/ {mat_esperadas:,} materias</span>
+                        </div>
+                        <div style="font-size: 0.80rem; color: #475569; line-height: 1.45;">
+                            <strong>{pct_mat:.1f}%</strong> de materias respondidas. Cada estudiante cursa en promedio ~6 materias en su malla curricular.
+                        </div>
+                    </div>
+                    <div style="background: #ffffff; border: 1px solid #e2e8f0; border-top: 3px solid #17845f; border-radius: 8px; padding: 14px 16px;">
+                        <div style="font-size: 0.74rem; font-weight: 700; color: #17845f; text-transform: uppercase; letter-spacing: 0.04em;">
+                            3. Asignaciones Docentes (EV1)
+                        </div>
+                        <div style="font-size: 1.25rem; font-weight: 800; color: #17845f; margin: 4px 0;">
+                            {completadas:,} <span style="font-size: 0.8rem; font-weight: 500; color: #64748b;">/ {total_esperadas:,} asignaciones</span>
+                        </div>
+                        <div style="font-size: 0.80rem; color: #475569; line-height: 1.45;">
+                            <strong>{porcentaje_avance:.1f}%</strong> respondidas. Como una materia tiene varios docentes (Teoría, Práctica y Lab), se multiplican las evaluaciones docentes.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            """.replace(",", "."),
+            unsafe_allow_html=True,
         )
-    st.caption(f"Detalle actual: **{en_proceso:,}** en proceso · **{pendientes:,}** pendientes".replace(",", "."))
+    else:
+        st.caption(f"Estado de la selección: **{completadas:,}** completadas ({porcentaje_avance:.1f}%) · **{en_proceso:,}** en proceso · **{pendientes:,}** pendientes ({pct_pendientes:.1f}%)".replace(",", "."))
     st.divider()
 
     # Layout de dos columnas: gráfico/tabla izquierda vs donut/participación derecha
@@ -1862,7 +1918,6 @@ def _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo):
     fila_res = load_resultado_general(sede, periodo, carrera, tipo)
     n_resp_auditadas = int(fila_res.get("n_respuestas_validas", 668224)) if fila_res is not None and fila_res.get("n_respuestas_validas") is not None else 668224
     n_doc_auditados = int(fila_res.get("n_docentes_evaluados", 216)) if fila_res is not None and fila_res.get("n_docentes_evaluados") is not None else 216
-    vigencia_res = str(fila_res.get("vigencia", "22/06/2026 - 30/09/2026")) if fila_res is not None and fila_res.get("vigencia") else "22/06/2026 - 30/09/2026"
 
     st.divider()
     st.markdown("#### 📘 Origen de los Datos, Escala y Metodología de Cálculo")
@@ -1880,8 +1935,6 @@ def _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo):
                     <li><strong>Población evaluada:</strong> Estudiantes matriculados que cursaron materias en el periodo (Sede {escape(sede)}, Carrera {escape(carrera)}).</li>
                     <li><strong>Respuestas válidas procesadas:</strong> <strong style="color: #17845f;">{n_resp_auditadas:,}</strong> respuestas a ítems computadas.</li>
                     <li><strong>Docentes evaluados:</strong> <strong>{n_doc_auditados}</strong> profesores con carga horaria activa.</li>
-                    <li><strong>Periodo de vigencia:</strong> {escape(vigencia_res)}.</li>
-                    <li><strong>Procesamiento:</strong> Pipeline ETL institucional automatizado que consolida directamente las respuestas individuales de la base de datos.</li>
                 </ul>
             </div>
             """.replace(",", "."),
