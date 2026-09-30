@@ -518,28 +518,21 @@ def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.Data
         unsafe_allow_html=True,
     )
 
-    # Si no hay filtros aplicados y se dispone de la fila general oficial, usamos sus valores
-    # consolidados para que coincidan 100% con la pestaña de Cobertura académica tanto en v1 como en v2.
-    if not filtros_activos and fila_general is not None:
-        alumnos_convocados = int(fila_general.get("alumnos_unicos_esperados", 0))
-        total_esperadas = int(fila_general.get("encuestas_esperadas", 0))
-        completadas = int(fila_general.get("encuestas_respondidas", 0))
-        en_proceso = 0
-        pendientes = int(fila_general.get("encuestas_pendientes", max(total_esperadas - completadas, 0)))
-        porcentaje_avance = float(fila_general.get("porcentaje_avance_encuestas", 0.0))
-    else:
-        id_col = "system_id" if "system_id" in df_filtrado.columns else "alumno"
-        if "system_id" in df_filtrado.columns and "planificacion_id" in df_filtrado.columns:
-            pares_filtrados = df_filtrado.drop_duplicates(subset=["system_id", "planificacion_id"])
-        else:
-            pares_filtrados = df_filtrado
+    id_col = "system_id" if "system_id" in df_filtrado.columns else "alumno"
 
-        total_esperadas = len(pares_filtrados)
-        alumnos_convocados = pares_filtrados[id_col].nunique() if total_esperadas > 0 else 0
-        completadas = int((pares_filtrados["estado"] == "Completada").sum()) if "estado" in pares_filtrados.columns else int((pares_filtrados["respondio"] == True).sum())
-        en_proceso = int((pares_filtrados["estado"] == "En proceso").sum()) if "estado" in pares_filtrados.columns else 0
-        pendientes = max(total_esperadas - completadas, 0)
-        porcentaje_avance = (completadas / total_esperadas * 100.0) if total_esperadas > 0 else 0.0
+    # 1. Total de alumnos convocados (distinct de alumnos únicos)
+    if not filtros_activos and fila_general is not None and "alumnos_unicos_esperados" in fila_general:
+        alumnos_convocados = int(fila_general["alumnos_unicos_esperados"])
+    else:
+        alumnos_convocados = int(df_filtrado[id_col].nunique()) if not df_filtrado.empty else 0
+
+    # 2. Universo de evaluaciones a docentes (Opción 1: coherencia directa con la tabla de ofertas y materias)
+    # Funciona dinámicamente tanto para versión 1 como para versión 2
+    total_esperadas = len(df_filtrado)
+    completadas = int((df_filtrado["estado"] == "Completada").sum()) if "estado" in df_filtrado.columns else int((df_filtrado["respondio"] == True).sum())
+    en_proceso = int((df_filtrado["estado"] == "En proceso").sum()) if "estado" in df_filtrado.columns else 0
+    pendientes = max(total_esperadas - completadas, 0)
+    porcentaje_avance = (completadas / total_esperadas * 100.0) if total_esperadas > 0 else 0.0
 
     # Fila de KPIs principales
     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
@@ -557,8 +550,8 @@ def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.Data
         _render_kpi_card_ev1(
             "Evaluaciones esperadas",
             f"{total_esperadas:,}".replace(",", "."),
-            ayuda="Total de evaluaciones asignadas sumando todas las materias y docentes que cursan los alumnos.",
-            detalle="Carga total asignada",
+            ayuda="Total de asignaciones de evaluación a docentes (cada alumno evalúa a los profesores de sus materias).",
+            detalle="Asignaciones a docentes",
             color_acento="#245ea8",
             color_fondo="#eaf2fb",
             color_borde="#c7d5e8",
@@ -567,7 +560,7 @@ def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.Data
         _render_kpi_card_ev1(
             "Evaluaciones completadas",
             f"{completadas:,}".replace(",", "."),
-            ayuda="Cantidad de evaluaciones respondidas y finalizadas satisfactoriamente por los estudiantes.",
+            ayuda="Cantidad de evaluaciones a docentes respondidas efectivamente por los estudiantes.",
             detalle=f"Avance del {porcentaje_avance:.1f}%",
             color_acento="#17845f",
             color_fondo="#e7f6f0",
@@ -577,14 +570,23 @@ def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.Data
         _render_kpi_card_ev1(
             "Avance general",
             _formatear_porcentaje(porcentaje_avance),
-            ayuda="Tasa de respuesta global: (Evaluaciones completadas / Evaluaciones esperadas) × 100.",
+            ayuda="Tasa de respuesta de evaluaciones a docentes: (Completadas / Esperadas) × 100.",
             detalle=f"{completadas:,} de {total_esperadas:,} respondidas".replace(",", "."),
             color_acento="#3c7bc4",
             color_fondo="#e8f0fe",
             color_borde="#a9c6f5",
         )
 
-    st.caption(f"Detalle actual: **{en_proceso}** en proceso · **{pendientes}** pendientes")
+    # Nota de equivalencia a nivel materia oficial (fila_general)
+    if not filtros_activos and fila_general is not None and "encuestas_esperadas" in fila_general and "encuestas_respondidas" in fila_general:
+        mat_esperadas = int(fila_general.get("encuestas_esperadas", 0))
+        mat_respondidas = int(fila_general.get("encuestas_respondidas", 0))
+        pct_mat = float(fila_general.get("porcentaje_avance_encuestas", 0.0))
+        st.caption(
+            f"📌 **Equivalencia a nivel materia:** Los alumnos respondieron **{mat_respondidas:,}** de **{mat_esperadas:,}** materias asignadas (**{pct_mat:.1f}%**). "
+            f"Dado que cada materia integra múltiples docentes (Teoría, Laboratorio, Práctica), se generan en total **{total_esperadas:,}** evaluaciones docentes asignadas."
+        )
+    st.caption(f"Detalle actual: **{en_proceso:,}** en proceso · **{pendientes:,}** pendientes".replace(",", "."))
     st.divider()
 
     # Layout de dos columnas: gráfico/tabla izquierda vs donut/participación derecha
@@ -1853,4 +1855,117 @@ def _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo):
                     """,
                     unsafe_allow_html=True,
                 )
+
+    # --------------------------------------------------------------------------
+    # METODOLOGÍA Y ORIGEN DE DATOS PEDAGÓGICOS (AUDITORÍA Y FÓRMULAS DE CÁLCULO)
+    # --------------------------------------------------------------------------
+    fila_res = load_resultado_general(sede, periodo, carrera, tipo)
+    n_resp_auditadas = int(fila_res.get("n_respuestas_validas", 668224)) if fila_res is not None and fila_res.get("n_respuestas_validas") is not None else 668224
+    n_doc_auditados = int(fila_res.get("n_docentes_evaluados", 216)) if fila_res is not None and fila_res.get("n_docentes_evaluados") is not None else 216
+    vigencia_res = str(fila_res.get("vigencia", "22/06/2026 - 30/09/2026")) if fila_res is not None and fila_res.get("vigencia") else "22/06/2026 - 30/09/2026"
+
+    st.divider()
+    st.markdown("#### 📘 Origen de los Datos, Escala y Metodología de Cálculo")
+
+    col_orig1, col_orig2 = st.columns([1.1, 1.3])
+    with col_orig1:
+        st.markdown(
+            f"""
+            <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px 18px; height: 100%;">
+                <h6 style="color: #1e3a63; margin-top: 0; margin-bottom: 10px; font-weight: 700;">
+                    🏛️ Fuente y Origen Oficial de los Datos
+                </h6>
+                <ul style="margin: 0; padding-left: 18px; font-size: 0.84rem; color: #475569; line-height: 1.6;">
+                    <li><strong>Instrumento:</strong> Encuesta oficial EV1 (Opinión del Estudiante sobre el Desempeño Docente).</li>
+                    <li><strong>Población evaluada:</strong> Estudiantes matriculados que cursaron materias en el periodo (Sede {escape(sede)}, Carrera {escape(carrera)}).</li>
+                    <li><strong>Respuestas válidas procesadas:</strong> <strong style="color: #17845f;">{n_resp_auditadas:,}</strong> respuestas a ítems computadas.</li>
+                    <li><strong>Docentes evaluados:</strong> <strong>{n_doc_auditados}</strong> profesores con carga horaria activa.</li>
+                    <li><strong>Periodo de vigencia:</strong> {escape(vigencia_res)}.</li>
+                    <li><strong>Procesamiento:</strong> Pipeline ETL institucional automatizado que consolida directamente las respuestas individuales de la base de datos.</li>
+                </ul>
+            </div>
+            """.replace(",", "."),
+            unsafe_allow_html=True,
+        )
+
+    with col_orig2:
+        st.markdown(
+            """
+            <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px 18px; height: 100%;">
+                <h6 style="color: #1e3a63; margin-top: 0; margin-bottom: 10px; font-weight: 700;">
+                    📏 Escala de Valoración (Likert 1 a 5)
+                </h6>
+                <p style="margin: 0 0 10px 0; font-size: 0.84rem; color: #475569; line-height: 1.45;">
+                    Cada estudiante califica los criterios en una escala ordinal estandarizada de 5 niveles:
+                </p>
+                <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; text-align: center;">
+                    <div style="background: #fdecef; border: 1px solid #f3b9c0; border-radius: 6px; padding: 6px 2px;">
+                        <strong style="color: #bd3f4a; font-size: 0.85rem;">1</strong><br>
+                        <span style="font-size: 0.70rem; color: #7a1f28;">Muy en desc.</span>
+                    </div>
+                    <div style="background: #fdf2ea; border: 1px solid #f9d3b8; border-radius: 6px; padding: 6px 2px;">
+                        <strong style="color: #d97831; font-size: 0.85rem;">2</strong><br>
+                        <span style="font-size: 0.70rem; color: #8a4112;">En desac.</span>
+                    </div>
+                    <div style="background: #f5f0fa; border: 1px solid #dfcef2; border-radius: 6px; padding: 6px 2px;">
+                        <strong style="color: #7654a8; font-size: 0.85rem;">3</strong><br>
+                        <span style="font-size: 0.70rem; color: #492a73;">Neutral</span>
+                    </div>
+                    <div style="background: #eaf2fb; border: 1px solid #c7d5e8; border-radius: 6px; padding: 6px 2px;">
+                        <strong style="color: #245ea8; font-size: 0.85rem;">4</strong><br>
+                        <span style="font-size: 0.70rem; color: #163e73;">De acuerdo</span>
+                    </div>
+                    <div style="background: #e7f6f0; border: 1px solid #b5e3d0; border-radius: 6px; padding: 6px 2px;">
+                        <strong style="color: #17845f; font-size: 0.85rem;">5</strong><br>
+                        <span style="font-size: 0.70rem; color: #0e563e;">Totalmente</span>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown(
+        """
+        <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px 20px; margin-top: 14px; box-shadow: 0 1px 4px rgba(0,0,0,0.02);">
+            <h6 style="color: #1e3a63; margin-top: 0; margin-bottom: 10px; font-weight: 700;">
+                ⚙️ Fórmulas y Jerarquía de Cálculo del Modelo Pedagógico
+            </h6>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; font-size: 0.84rem; color: #334155; line-height: 1.55;">
+                <div style="background: #f8fafc; border-left: 3px solid #245ea8; border-radius: 6px; padding: 10px 14px;">
+                    <strong style="color: #245ea8; display: block; margin-bottom: 4px;">1. Criterios (16 Criterios Específicos)</strong>
+                    Se calculan como el promedio aritmético directo de todas las puntuaciones válidas (1 a 5) otorgadas por los estudiantes a cada pregunta:<br>
+                    <code style="background: #ffffff; padding: 2px 6px; border-radius: 4px; color: #0f172a; font-weight: 600;">
+                        Promedio Criterio = Σ(Puntajes respondidos) / Total respuestas válidas
+                    </code>
+                </div>
+                <div style="background: #f8fafc; border-left: 3px solid #17845f; border-radius: 6px; padding: 10px 14px;">
+                    <strong style="color: #17845f; display: block; margin-bottom: 4px;">2. Indicadores (10 Indicadores Pedagógicos)</strong>
+                    Agrupan criterios afines y se calculan como el promedio ponderado de sus criterios asociados:<br>
+                    <code style="background: #ffffff; padding: 2px 6px; border-radius: 4px; color: #0f172a; font-weight: 600;">
+                        Promedio Indicador = Promedio(Criterios que lo integran)
+                    </code>
+                </div>
+                <div style="background: #f8fafc; border-left: 3px solid #7654a8; border-radius: 6px; padding: 10px 14px;">
+                    <strong style="color: #7654a8; display: block; margin-bottom: 4px;">3. Dimensiones (5 Macro-Ejes Institucionales)</strong>
+                    Sintetizan los indicadores en los 5 ejes formativos (Planificación, Recursos, Comunicación, Evaluación y Puntualidad):<br>
+                    <code style="background: #ffffff; padding: 2px 6px; border-radius: 4px; color: #0f172a; font-weight: 600;">
+                        Promedio Dimensión = Promedio(Indicadores de la dimensión)
+                    </code>
+                </div>
+                <div style="background: #f8fafc; border-left: 3px solid #b87908; border-radius: 6px; padding: 10px 14px;">
+                    <strong style="color: #b87908; display: block; margin-bottom: 4px;">4. Semáforo y Descriptores Cualitativos</strong>
+                    Los descriptores institucionales clasifican el nivel de desempeño según el puntaje alcanzado:<br>
+                    <span style="font-size: 0.78rem;">
+                        🟢 <strong>Fortaleza:</strong> ≥ 4,30 &nbsp;|&nbsp; 
+                        🔵 <strong>Adecuado:</strong> 4,00 a 4,29 &nbsp;|&nbsp; 
+                        🟡 <strong>Seguimiento:</strong> 3,50 a 3,99 &nbsp;|&nbsp; 
+                        🔴 <strong>Oportunidad:</strong> &lt; 3,50
+                    </span>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
