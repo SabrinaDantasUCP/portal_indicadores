@@ -771,11 +771,11 @@ def _render_subvista_avance_general(
                     "Avance %": df_det_filtrado["porcentaje_avance"].fillna(0.0).round(1),
                 }).sort_values(["Materia", "Sección", "Grupo", "Docente"])
 
-                # Filtrado de ofertas según el estado institucional
+                # Filtrado de ofertas según el estado institucional (semáforo institucional)
                 if filtro_estado == "Completada":
-                    df_tabla = df_tabla[df_tabla["Avance %"] >= 100.0]
+                    df_tabla = df_tabla[df_tabla["Avance %"] >= 80.0]
                 elif filtro_estado == "Parcial":
-                    df_tabla = df_tabla[(df_tabla["Avance %"] >= 50.0) & (df_tabla["Avance %"] < 100.0)]
+                    df_tabla = df_tabla[(df_tabla["Avance %"] >= 50.0) & (df_tabla["Avance %"] < 80.0)]
                 elif filtro_estado == "Pendiente":
                     df_tabla = df_tabla[df_tabla["Avance %"] < 50.0]
             else:
@@ -1206,9 +1206,9 @@ def _render_subvista_materia_seccion_grupo(
 
         # Filtrado de ofertas según semáforo institucional
         if filtro_estado == "Completada":
-            ofertas = ofertas[ofertas["avance"] >= 100.0]
+            ofertas = ofertas[ofertas["avance"] >= 80.0]
         elif filtro_estado == "Parcial":
-            ofertas = ofertas[(ofertas["avance"] >= 50.0) & (ofertas["avance"] < 100.0)]
+            ofertas = ofertas[(ofertas["avance"] >= 50.0) & (ofertas["avance"] < 80.0)]
         elif filtro_estado == "Pendiente":
             ofertas = ofertas[ofertas["avance"] < 50.0]
     else:
@@ -1239,7 +1239,8 @@ def _render_subvista_materia_seccion_grupo(
 
     n_materias = ofertas["materia"].nunique()
     n_docentes = ofertas["docente"].nunique()
-    ofertas_completas = int((ofertas["avance"] == 100.0).sum())
+    ofertas_adecuadas = int((ofertas["avance"] >= 80.0).sum())
+    ofertas_totales_100 = int((ofertas["avance"] == 100.0).sum())
     ofertas_criticas = int((ofertas["avance"] < 50.0).sum())
 
     k1, k2, k3, k4 = st.columns(4)
@@ -1265,10 +1266,10 @@ def _render_subvista_materia_seccion_grupo(
         )
     with k3:
         _render_kpi_card_ev1(
-            "Ofertas completas (100%)",
-            str(ofertas_completas),
-            ayuda="Ofertas académicas donde todos los estudiantes convocados respondieron la encuesta.",
-            detalle="Avance total alcanzado",
+            "Ofertas adecuadas (≥80%)",
+            str(ofertas_adecuadas),
+            ayuda="Ofertas académicas con avance adecuado según el semáforo institucional (80% o más de respuestas).",
+            detalle=f"{ofertas_totales_100} con avance total (100%)",
             color_acento="#17845f",
             color_fondo="#e7f6f0",
             color_borde="#b5e3d0",
