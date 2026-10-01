@@ -227,7 +227,7 @@ def _etiqueta_estado_html(estado: str) -> str:
     estilo_base = "display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 0.76rem; font-weight: 700;"
     if estado == "Completada":
         return f'<span style="{estilo_base} color: #17845f; background-color: #e7f6f0;">● {escape(estado)}</span>'
-    elif estado == "En proceso":
+    elif estado in ("En proceso", "Parcial"):
         return f'<span style="{estilo_base} color: #b87908; background-color: #fff5d9;">● {escape(estado)}</span>'
     return f'<span style="{estilo_base} color: #bd3f4a; background-color: #fdecef;">● {escape(estado)}</span>'
 
@@ -405,7 +405,7 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
         lista_secciones = ["Todas"] + sorted([str(s) for s in df_base["seccion"].dropna().unique() if str(s).strip()])
         lista_grupos = ["Todos"] + sorted([str(g) for g in df_base["grupo"].dropna().unique() if str(g).strip()])
         lista_docentes = ["Todos"] + sorted([str(d) for d in df_base["docente"].dropna().unique() if str(d).strip()])
-        lista_estados = ["Todos", "Completada", "En proceso", "Pendiente"]
+        lista_estados = ["Todos", "Completada", "Parcial", "Pendiente"]
 
         with col_filtro1:
             sel_materia = st.selectbox("Materia", options=lista_materias, key="ev1_filtro_materia")
@@ -431,7 +431,18 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
     if sel_grupo != "Todos":
         df_filtrado = df_filtrado[df_filtrado["grupo"] == sel_grupo]
     if sel_estado != "Todos":
-        df_filtrado = df_filtrado[df_filtrado["estado"] == sel_estado]
+        if sel_estado == "Parcial":
+            # Alumnos que completaron parcialmente sus asignaciones en el universo base
+            id_col_base = "system_id" if "system_id" in df_base.columns else "alumno"
+            comp_series = (df_base["estado"] == "Completada") if "estado" in df_base.columns else (df_base["respondio"] == True)
+            resumen_alu_base = df_base.assign(_comp=comp_series).groupby(id_col_base).agg(
+                total=("_comp", "count"),
+                comp=("_comp", "sum"),
+            )
+            alumnos_parciales = set(resumen_alu_base[(resumen_alu_base["comp"] > 0) & (resumen_alu_base["comp"] < resumen_alu_base["total"])].index)
+            df_filtrado = df_filtrado[df_filtrado[id_col_base].isin(alumnos_parciales)]
+        else:
+            df_filtrado = df_filtrado[df_filtrado["estado"] == sel_estado]
 
     # Identificar si el usuario ha aplicado algún filtro en la pantalla
     filtros_activos = (
@@ -530,9 +541,20 @@ def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.Data
     # Funciona dinámicamente tanto para versión 1 como para versión 2
     total_esperadas = len(df_filtrado)
     completadas = int((df_filtrado["estado"] == "Completada").sum()) if "estado" in df_filtrado.columns else int((df_filtrado["respondio"] == True).sum())
-    en_proceso = int((df_filtrado["estado"] == "En proceso").sum()) if "estado" in df_filtrado.columns else 0
     pendientes = max(total_esperadas - completadas, 0)
     porcentaje_avance = (completadas / total_esperadas * 100.0) if total_esperadas > 0 else 0.0
+
+    # Alumnos con avance parcial en el universo mostrado / filtrado
+    if id_col and not df_filtrado.empty:
+        comp_series = (df_filtrado["estado"] == "Completada") if "estado" in df_filtrado.columns else (df_filtrado["respondio"] == True)
+        resumen_alu_flt = df_filtrado.assign(_comp=comp_series).groupby(id_col).agg(
+            total=("_comp", "count"),
+            comp=("_comp", "sum"),
+        )
+        c_parcial = int(((resumen_alu_flt["comp"] > 0) & (resumen_alu_flt["comp"] < resumen_alu_flt["total"])).sum())
+    else:
+        c_parcial = 0
+    pct_parcial = (c_parcial / alumnos_convocados * 100.0) if alumnos_convocados > 0 else 0.0
 
     # Fila de KPIs principales
     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
@@ -580,6 +602,7 @@ def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.Data
     # Tarjetas explicativas de correspondencia y jerarquía de datos (Estudiantes · Materias · Docentes)
     # Permiten comprender la relación exacta entre los 3 niveles de análisis institucional
     pct_pendientes = (pendientes / total_esperadas * 100.0) if total_esperadas > 0 else 0.0
+    n_doc_unicos = df_filtrado["docente"].dropna().nunique() if not df_filtrado.empty else 0
 
     if not filtros_activos and fila_general is not None:
         mat_esperadas = int(fila_general.get("encuestas_esperadas", 0))
@@ -599,7 +622,7 @@ def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.Data
                         <span>🧭</span> Correspondencia de Cifras: Estudiantes ➔ Materias ➔ Asignaciones Docentes
                     </div>
                     <div style="font-size: 0.78rem; background: #e2e8f0; color: #334155; padding: 4px 12px; border-radius: 12px; font-weight: 600;">
-                        Estado docente: {completadas:,} completadas ({porcentaje_avance:.1f}%) · {en_proceso:,} en proceso · {pendientes:,} pendientes ({pct_pendientes:.1f}%)
+                        Estado: {completadas:,} completadas ({porcentaje_avance:.1f}%) · {c_parcial:,} parcial ({pct_parcial:.1f}%) · {pendientes:,} pendientes ({pct_pendientes:.1f}%)
                     </div>
                 </div>
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px;">
@@ -633,7 +656,7 @@ def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.Data
                             {completadas:,} <span style="font-size: 0.8rem; font-weight: 500; color: #64748b;">/ {total_esperadas:,} asignaciones</span>
                         </div>
                         <div style="font-size: 0.80rem; color: #475569; line-height: 1.45;">
-                            <strong>{porcentaje_avance:.1f}%</strong> respondidas. Como una materia tiene varios docentes (Teoría, Práctica y Lab), se multiplican las evaluaciones docentes.
+                            <strong>{porcentaje_avance:.1f}%</strong> respondidas. Comprende a <strong>{n_doc_unicos} docentes</strong> con carga académica activa en sede (216 evaluados con respuestas en el ERP).
                         </div>
                     </div>
                 </div>
@@ -642,7 +665,7 @@ def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.Data
             unsafe_allow_html=True,
         )
     else:
-        st.caption(f"Estado de la selección: **{completadas:,}** completadas ({porcentaje_avance:.1f}%) · **{en_proceso:,}** en proceso · **{pendientes:,}** pendientes ({pct_pendientes:.1f}%)".replace(",", "."))
+        st.caption(f"Estado de la selección: **{completadas:,}** completadas ({porcentaje_avance:.1f}%) · **{c_parcial:,}** parcial ({pct_parcial:.1f}%) · **{pendientes:,}** pendientes ({pct_pendientes:.1f}%)".replace(",", "."))
     st.divider()
 
     # Layout de dos columnas: gráfico/tabla izquierda vs donut/participación derecha
@@ -842,13 +865,12 @@ def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.Data
                 .agg(
                     total=("estado", "count"),
                     completadas=("estado", lambda s: (s == "Completada").sum()),
-                    en_proceso=("estado", lambda s: (s == "En proceso").sum()),
                 )
                 .reset_index()
             )
             total_alu = len(resumen_alumnos)
             completaron_todo = int((resumen_alumnos["completadas"] == resumen_alumnos["total"]).sum())
-            sin_iniciar = int(((resumen_alumnos["completadas"] == 0) & (resumen_alumnos["en_proceso"] == 0)).sum())
+            sin_iniciar = int((resumen_alumnos["completadas"] == 0).sum())
             parcial = max(total_alu - completaron_todo - sin_iniciar, 0)
 
             pct_todo = (completaron_todo / total_alu * 100.0) if total_alu > 0 else 0
@@ -890,8 +912,7 @@ def _render_subvista_por_alumno(df_filtrado: pd.DataFrame):
         .agg(
             asignadas=("estado", "count"),
             completadas=("estado", lambda s: (s == "Completada").sum()),
-            en_proceso=("estado", lambda s: (s == "En proceso").sum()),
-            pendientes=("estado", lambda s: (s == "Pendiente").sum()),
+            pendientes=("estado", lambda s: (s != "Completada").sum()),
         )
         .reset_index()
     )
@@ -900,7 +921,7 @@ def _render_subvista_por_alumno(df_filtrado: pd.DataFrame):
     def _clasificar_estado_alumno(row):
         if row["completadas"] == row["asignadas"]:
             return "Completo"
-        elif row["completadas"] == 0 and row["en_proceso"] == 0:
+        elif row["completadas"] == 0:
             return "Sin iniciar"
         return "Parcial"
 
@@ -1601,6 +1622,10 @@ def _render_subvista_por_docente(
         index=indice_default,
         key="ev1_docente_selector",
     )
+    st.caption(
+        f"💡 Mostrando los **{len(docentes_disponibles)} docentes** evaluados con respuestas válidas registradas en el ERP "
+        f"(la sede cuenta con **213 docentes** con carga horaria y alumnos activos en el periodo)."
+    )
 
     fila_doc = None
     if df_doc_db is not None and not df_doc_db.empty:
@@ -1934,7 +1959,7 @@ def _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo):
                     <li><strong>Instrumento:</strong> Encuesta oficial EV1 (Opinión del Estudiante sobre el Desempeño Docente).</li>
                     <li><strong>Población evaluada:</strong> Estudiantes matriculados que cursaron materias en el periodo (Sede {escape(sede)}, Carrera {escape(carrera)}).</li>
                     <li><strong>Respuestas válidas procesadas:</strong> <strong style="color: #17845f;">{n_resp_auditadas:,}</strong> respuestas a ítems computadas.</li>
-                    <li><strong>Docentes evaluados:</strong> <strong>{n_doc_auditados}</strong> profesores con carga horaria activa.</li>
+                    <li><strong>Docentes evaluados:</strong> <strong>{n_doc_auditados}</strong> profesores con respuestas válidas registradas en el ERP (la sede cuenta con 213 docentes con carga horaria activa en el periodo).</li>
                 </ul>
             </div>
             """.replace(",", "."),
