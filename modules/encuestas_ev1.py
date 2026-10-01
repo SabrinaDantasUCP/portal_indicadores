@@ -759,7 +759,7 @@ def _render_subvista_avance_general(
             st.info("Sin registros.")
         else:
             # Resumen cuantitativo por oferta (confidencialidad total de estudiantes)
-            if df_det_filtrado is not None and not df_det_filtrado.empty and filtro_estado == "Todos":
+            if df_det_filtrado is not None and not df_det_filtrado.empty:
                 df_tabla = pd.DataFrame({
                     "Materia": df_det_filtrado["materia"],
                     "Sección": df_det_filtrado["seccion"],
@@ -770,6 +770,14 @@ def _render_subvista_avance_general(
                     "Pendientes": (df_det_filtrado["alumnos_esperados"].fillna(0) - df_det_filtrado["alumnos_que_respondieron"].fillna(0)).astype(int),
                     "Avance %": df_det_filtrado["porcentaje_avance"].fillna(0.0).round(1),
                 }).sort_values(["Materia", "Sección", "Grupo", "Docente"])
+
+                # Filtrado de ofertas según el estado institucional
+                if filtro_estado == "Completada":
+                    df_tabla = df_tabla[df_tabla["Avance %"] >= 100.0]
+                elif filtro_estado == "Parcial":
+                    df_tabla = df_tabla[(df_tabla["Avance %"] >= 50.0) & (df_tabla["Avance %"] < 100.0)]
+                elif filtro_estado == "Pendiente":
+                    df_tabla = df_tabla[df_tabla["Avance %"] < 50.0]
             else:
                 resumen_universo = (
                     df_filtrado.groupby(["materia", "seccion", "grupo", "docente"])
@@ -1182,9 +1190,8 @@ def _render_subvista_materia_seccion_grupo(
         return
 
     # Construcción de la tabla de ofertas académicas (Materia, Sección, Grupo, Docente)
-    # Si df_det_filtrado está disponible y no hay filtro individual de estado,
-    # se utilizan las cantidades oficiales del nivel de oferta (resuelve el sesgo de co-docencia)
-    if df_det_filtrado is not None and not df_det_filtrado.empty and filtro_estado == "Todos":
+    # Si df_det_filtrado está disponible, se utilizan las cantidades oficiales del nivel de oferta
+    if df_det_filtrado is not None and not df_det_filtrado.empty:
         ofertas = pd.DataFrame({
             "materia": df_det_filtrado["materia"],
             "seccion": df_det_filtrado["seccion"],
@@ -1196,6 +1203,14 @@ def _render_subvista_materia_seccion_grupo(
             "total": df_det_filtrado["alumnos_esperados"].fillna(0).astype(int),
             "avance": df_det_filtrado["porcentaje_avance"].fillna(0.0).round(1),
         }).sort_values(["materia", "seccion", "grupo", "docente"])
+
+        # Filtrado de ofertas según semáforo institucional
+        if filtro_estado == "Completada":
+            ofertas = ofertas[ofertas["avance"] >= 100.0]
+        elif filtro_estado == "Parcial":
+            ofertas = ofertas[(ofertas["avance"] >= 50.0) & (ofertas["avance"] < 100.0)]
+        elif filtro_estado == "Pendiente":
+            ofertas = ofertas[ofertas["avance"] < 50.0]
     else:
         ofertas = (
             df_filtrado.groupby(["materia", "seccion", "grupo", "docente"])
@@ -1217,6 +1232,10 @@ def _render_subvista_materia_seccion_grupo(
         return "🔴 Crítico"
 
     ofertas["estado_oferta"] = ofertas["avance"].map(_badge_semaforo_texto)
+
+    if ofertas.empty:
+        st.info("No se encontraron ofertas académicas para la combinación de filtros seleccionada.")
+        return
 
     n_materias = ofertas["materia"].nunique()
     n_docentes = ofertas["docente"].nunique()
