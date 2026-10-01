@@ -444,6 +444,18 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
         else:
             df_filtrado = df_filtrado[df_filtrado["estado"] == sel_estado]
 
+    # Filtrado dinámico sobre df_detalle (ofertas académicas oficiales sin sesgo de co-docencia)
+    df_det_filtrado = df_detalle.copy() if df_detalle is not None and not df_detalle.empty else None
+    if df_det_filtrado is not None:
+        if sel_materia != "Todas":
+            df_det_filtrado = df_det_filtrado[df_det_filtrado["materia"] == sel_materia]
+        if sel_seccion != "Todas":
+            df_det_filtrado = df_det_filtrado[df_det_filtrado["seccion"] == sel_seccion]
+        if sel_grupo != "Todos":
+            df_det_filtrado = df_det_filtrado[df_det_filtrado["grupo"] == sel_grupo]
+        if sel_docente != "Todos":
+            df_det_filtrado = df_det_filtrado[df_det_filtrado["docente"] == sel_docente]
+
     # Identificar si el usuario ha aplicado algún filtro en la pantalla
     filtros_activos = (
         sel_docente != "Todos"
@@ -469,7 +481,14 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
     # SUB-PESTAÑA 1: AVANCE GENERAL
     # --------------------------------------------------------------------------
     with tab_avance:
-        _render_subvista_avance_general(df_filtrado, df_base, fila_general, filtros_activos)
+        _render_subvista_avance_general(
+            df_filtrado,
+            df_base,
+            fila_general,
+            filtros_activos,
+            df_det_filtrado=df_det_filtrado,
+            filtro_estado=sel_estado,
+        )
 
     # --------------------------------------------------------------------------
     # SUB-PESTAÑA 2: POR ALUMNO
@@ -481,7 +500,11 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
     # SUB-PESTAÑA 3: MATERIA · SECCIÓN · GRUPO
     # --------------------------------------------------------------------------
     with tab_materia:
-        _render_subvista_materia_seccion_grupo(df_filtrado)
+        _render_subvista_materia_seccion_grupo(
+            df_filtrado,
+            df_det_filtrado=df_det_filtrado,
+            filtro_estado=sel_estado,
+        )
 
     # --------------------------------------------------------------------------
     # SUB-PESTAÑA 4: RESULTADOS EV1
@@ -518,7 +541,14 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
 # SUB-VISTA 1: AVANCE GENERAL
 # ==============================================================================
 
-def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.DataFrame, fila_general=None, filtros_activos: bool = False):
+def _render_subvista_avance_general(
+    df_filtrado: pd.DataFrame,
+    df_total: pd.DataFrame,
+    fila_general=None,
+    filtros_activos: bool = False,
+    df_det_filtrado: pd.DataFrame = None,
+    filtro_estado: str = "Todos",
+):
     st.markdown(
         """
         <div class="ev1-note">
@@ -728,30 +758,42 @@ def _render_subvista_avance_general(df_filtrado: pd.DataFrame, df_total: pd.Data
         if total_esperadas == 0:
             st.info("Sin registros.")
         else:
-            # Resumen cuantitativo agregado por oferta (confidencialidad total de estudiantes)
-            resumen_universo = (
-                df_filtrado.groupby(["materia", "seccion", "grupo", "docente"])
-                .agg(
-                    total=("estado", "count"),
-                    completadas=("estado", lambda s: (s == "Completada").sum()),
-                    pendientes=("estado", lambda s: (s != "Completada").sum()),
+            # Resumen cuantitativo por oferta (confidencialidad total de estudiantes)
+            if df_det_filtrado is not None and not df_det_filtrado.empty and filtro_estado == "Todos":
+                df_tabla = pd.DataFrame({
+                    "Materia": df_det_filtrado["materia"],
+                    "Sección": df_det_filtrado["seccion"],
+                    "Grupo": df_det_filtrado["grupo"],
+                    "Docente": df_det_filtrado["docente"],
+                    "Evaluaciones": df_det_filtrado["alumnos_esperados"].fillna(0).astype(int),
+                    "Completadas": df_det_filtrado["alumnos_que_respondieron"].fillna(0).astype(int),
+                    "Pendientes": (df_det_filtrado["alumnos_esperados"].fillna(0) - df_det_filtrado["alumnos_que_respondieron"].fillna(0)).astype(int),
+                    "Avance %": df_det_filtrado["porcentaje_avance"].fillna(0.0).round(1),
+                }).sort_values(["Materia", "Sección", "Grupo", "Docente"])
+            else:
+                resumen_universo = (
+                    df_filtrado.groupby(["materia", "seccion", "grupo", "docente"])
+                    .agg(
+                        total=("estado", "count"),
+                        completadas=("estado", lambda s: (s == "Completada").sum()),
+                        pendientes=("estado", lambda s: (s != "Completada").sum()),
+                    )
+                    .reset_index()
                 )
-                .reset_index()
-            )
-            resumen_universo["Avance %"] = (
-                resumen_universo["completadas"] / resumen_universo["total"] * 100.0
-            ).round(1)
-            df_tabla = resumen_universo.rename(
-                columns={
-                    "materia": "Materia",
-                    "seccion": "Sección",
-                    "grupo": "Grupo",
-                    "docente": "Docente",
-                    "total": "Evaluaciones",
-                    "completadas": "Completadas",
-                    "pendientes": "Pendientes",
-                }
-            )
+                resumen_universo["Avance %"] = (
+                    resumen_universo["completadas"] / resumen_universo["total"] * 100.0
+                ).round(1)
+                df_tabla = resumen_universo.rename(
+                    columns={
+                        "materia": "Materia",
+                        "seccion": "Sección",
+                        "grupo": "Grupo",
+                        "docente": "Docente",
+                        "total": "Evaluaciones",
+                        "completadas": "Completadas",
+                        "pendientes": "Pendientes",
+                    }
+                )
             st.dataframe(
                 df_tabla,
                 hide_index=True,
@@ -1120,7 +1162,11 @@ def _render_subvista_por_alumno(df_filtrado: pd.DataFrame):
 # SUB-VISTA 3: MATERIA · SECCIÓN · GRUPO
 # ==============================================================================
 
-def _render_subvista_materia_seccion_grupo(df_filtrado: pd.DataFrame):
+def _render_subvista_materia_seccion_grupo(
+    df_filtrado: pd.DataFrame,
+    df_det_filtrado: pd.DataFrame = None,
+    filtro_estado: str = "Todos",
+):
     st.markdown(
         """
         <div class="ev1-note">
@@ -1135,18 +1181,33 @@ def _render_subvista_materia_seccion_grupo(df_filtrado: pd.DataFrame):
         st.info("Sin registros de ofertas académicas para los filtros actuales.")
         return
 
-    # Agrupación por oferta académica (Materia, Sección, Grupo, Docente)
-    ofertas = (
-        df_filtrado.groupby(["materia", "seccion", "grupo", "docente"])
-        .agg(
-            alumnos=("alumno", "nunique"),
-            completadas=("estado", lambda s: (s == "Completada").sum()),
-            pendientes=("estado", lambda s: (s != "Completada").sum()),
-            total=("estado", "count"),
+    # Construcción de la tabla de ofertas académicas (Materia, Sección, Grupo, Docente)
+    # Si df_det_filtrado está disponible y no hay filtro individual de estado,
+    # se utilizan las cantidades oficiales del nivel de oferta (resuelve el sesgo de co-docencia)
+    if df_det_filtrado is not None and not df_det_filtrado.empty and filtro_estado == "Todos":
+        ofertas = pd.DataFrame({
+            "materia": df_det_filtrado["materia"],
+            "seccion": df_det_filtrado["seccion"],
+            "grupo": df_det_filtrado["grupo"],
+            "docente": df_det_filtrado["docente"],
+            "alumnos": df_det_filtrado["alumnos_esperados"].fillna(0).astype(int),
+            "completadas": df_det_filtrado["alumnos_que_respondieron"].fillna(0).astype(int),
+            "pendientes": (df_det_filtrado["alumnos_esperados"].fillna(0) - df_det_filtrado["alumnos_que_respondieron"].fillna(0)).astype(int),
+            "total": df_det_filtrado["alumnos_esperados"].fillna(0).astype(int),
+            "avance": df_det_filtrado["porcentaje_avance"].fillna(0.0).round(1),
+        }).sort_values(["materia", "seccion", "grupo", "docente"])
+    else:
+        ofertas = (
+            df_filtrado.groupby(["materia", "seccion", "grupo", "docente"])
+            .agg(
+                alumnos=("alumno", "nunique"),
+                completadas=("estado", lambda s: (s == "Completada").sum()),
+                pendientes=("estado", lambda s: (s != "Completada").sum()),
+                total=("estado", "count"),
+            )
+            .reset_index()
         )
-        .reset_index()
-    )
-    ofertas["avance"] = (ofertas["completadas"] / ofertas["total"] * 100.0).round(1)
+        ofertas["avance"] = (ofertas["completadas"] / ofertas["total"] * 100.0).round(1)
 
     def _badge_semaforo_texto(p):
         if p >= 80.0:
