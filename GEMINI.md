@@ -40,3 +40,7 @@ Este documento define las reglas fundamentales e inquebrantables de desarrollo p
         - Ejecutar `git pull origin teste`.
         - Reiniciar el servicio: `sudo systemctl restart streamlit_app_test.service`.
         - Validar estado del servicio y respuesta HTTP `200 OK` en `http://10.20.8.82:8502/_stcore/health`.
+
+7. **Detalle Exhaustivo de Cambios en Git (Local y Remoto)**:
+   - Siempre que se realicen cambios, commits o procesos de subida en Git (tanto en el repositorio local como en el remoto), se debe reportar y detallar de forma precisa y minuciosa cuáles fueron las modificaciones efectuadas.
+   - Toda descripción, mensaje de commit y reporte de cambios debe estar redactado en **español**, indicando los archivos intervenidos, el propósito de la modificación y cómo se garantiza el cumplimiento de las demás reglas (no regresión, estabilidad, codificación UTF-8 y preservación de código útil).
