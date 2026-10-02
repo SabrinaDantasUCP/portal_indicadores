@@ -466,7 +466,7 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
     )
 
     # --- 4. SUB-PESTAÑAS DE NAVEGACIÓN EV1 ---
-    tab_avance, tab_alumno, tab_materia, tab_resultados, tab_docente, tab_pedagogico = st.tabs(
+    tab_avance, tab_alumno, tab_materia, tab_resultados, tab_docente, tab_pedagogico, tab_explicacion = st.tabs(
         [
             "Avance general",
             "Participación de alumnos",
@@ -474,6 +474,7 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
             "Resultados EV1",
             "Por docente",
             "Análisis pedagógico",
+            "Explicación",
         ]
     )
 
@@ -535,6 +536,12 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
     # --------------------------------------------------------------------------
     with tab_pedagogico:
         _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo)
+
+    # --------------------------------------------------------------------------
+    # SUB-PESTAÑA 7: EXPLICACIÓN Y GUÍA METODOLÓGICA
+    # --------------------------------------------------------------------------
+    with tab_explicacion:
+        _render_subvista_explicacion(df_base, df_detalle, fila_general)
 
 
 # ==============================================================================
@@ -632,7 +639,10 @@ def _render_subvista_avance_general(
     # Tarjetas explicativas de correspondencia y jerarquía de datos (Estudiantes · Materias · Docentes)
     # Permiten comprender la relación exacta entre los 3 niveles de análisis institucional
     pct_pendientes = (pendientes / total_esperadas * 100.0) if total_esperadas > 0 else 0.0
-    n_doc_unicos = df_filtrado["docente"].dropna().nunique() if not df_filtrado.empty else 0
+    if df_det_filtrado is not None and not df_det_filtrado.empty:
+        n_doc_unicos = df_det_filtrado["docente"].dropna().nunique()
+    else:
+        n_doc_unicos = df_filtrado["docente"].dropna().nunique() if not df_filtrado.empty else 0
 
     if not filtros_activos and fila_general is not None:
         mat_esperadas = int(fila_general.get("encuestas_esperadas", 0))
@@ -686,7 +696,7 @@ def _render_subvista_avance_general(
                             {completadas:,} <span style="font-size: 0.8rem; font-weight: 500; color: #64748b;">/ {total_esperadas:,} asignaciones</span>
                         </div>
                         <div style="font-size: 0.80rem; color: #475569; line-height: 1.45;">
-                            <strong>{porcentaje_avance:.1f}%</strong> respondidas. Comprende a <strong>{n_doc_unicos} docentes</strong> con carga académica activa en sede (216 evaluados con respuestas en el ERP).
+                            <strong>{porcentaje_avance:.1f}%</strong> respondidas. Comprende a los <strong>{n_doc_unicos} docentes</strong> de la oferta académica oficial (216 con resultados evaluados en el ERP). <em>Consulte detalles en la pestaña <strong>Explicación</strong></em>.
                         </div>
                     </div>
                 </div>
@@ -2127,4 +2137,295 @@ def _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo):
         """,
         unsafe_allow_html=True,
     )
+
+
+# ==============================================================================
+# SUB-PESTAÑA 7: EXPLICACIÓN Y GUÍA METODOLÓGICA DE INDICADORES EV1
+# ==============================================================================
+
+def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=None):
+    """
+    Sub-vista explicativa y de auditoría metodológica de la encuesta EV1:
+    - Desglose del universo docente (217 ofertas, 216 evaluados, 213 en captura individual).
+    - Documentación del caso Gessica Ordano y la co-docencia de cátedra.
+    - Jerarquía de 3 niveles de cifras (Estudiantes -> Materias -> Asignaciones a Docentes).
+    - Semáforo institucional de cobertura de ofertas (>=80%, 50-79.9%, <50%).
+    - Resolución metodológica de co-docencia y comisiones de práctica.
+    - Confidencialidad y anonimato institucional.
+    - Glosario de términos y métricas de desempeño.
+    """
+    st.markdown(
+        """
+        <div style="background: linear-gradient(135deg, #12263f 0%, #1e3a63 100%); color: #ffffff; padding: 22px 26px; border-radius: 12px; margin-bottom: 22px; box-shadow: 0 4px 12px rgba(18, 38, 63, 0.12);">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                <div>
+                    <h4 style="margin: 0; font-size: 1.35rem; font-weight: 800; letter-spacing: -0.01em; color: #ffffff;">
+                        📖 Guía Metodológica y Explicación de Indicadores EV1
+                    </h4>
+                    <p style="margin: 6px 0 0 0; font-size: 0.88rem; color: #c7d5e8; line-height: 1.45;">
+                        Documentación técnica y metodológica sobre la jerarquía de cifras, el universo docente, las reglas de co-docencia y los semáforos institucionales de la evaluación estudiantil.
+                    </p>
+                </div>
+                <div style="background: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.3); padding: 6px 14px; border-radius: 20px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase;">
+                    Transparencia y Calidad Académica
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # --------------------------------------------------------------------------
+    # 1. EL UNIVERSO DE DOCENTES (217 vs 216 vs 213)
+    # --------------------------------------------------------------------------
+    st.markdown("#### 1. Universo de Docentes: ¿Por qué existen 217, 216 y 213?")
+    st.caption("Cada cifra representa una etapa distinta del ciclo de vida del dato entre la planificación académica, la captura de encuestas y el procesamiento de resultados:")
+
+    c_doc1, c_doc2, c_doc3 = st.columns(3)
+    with c_doc1:
+        st.markdown(
+            """
+            <div style="background: #ffffff; border: 1px solid #dbe3ed; border-top: 4px solid #12263f; border-radius: 10px; padding: 16px 18px; height: 100%; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
+                <div style="font-size: 0.76rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em;">
+                    Planificación Académica
+                </div>
+                <div style="font-size: 1.85rem; font-weight: 800; color: #12263f; margin: 4px 0;">
+                    217 <span style="font-size: 0.88rem; font-weight: 600; color: #475569;">docentes</span>
+                </div>
+                <div style="font-size: 0.84rem; color: #1e293b; font-weight: 700; margin-bottom: 6px;">
+                    Universo Oficial de Ofertas
+                </div>
+                <div style="font-size: 0.80rem; color: #475569; line-height: 1.5;">
+                    Corresponde al total de profesores que tienen asignación horaria oficial (materia · sección · grupo) en Medicina Ciudad del Este para el periodo 2026.1 (<strong>1.289 ofertas académicas</strong>). Es la cifra rectora visible en la pestaña <em>Materia · sección · grupo</em>.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with c_doc2:
+        st.markdown(
+            """
+            <div style="background: #ffffff; border: 1px solid #dbe3ed; border-top: 4px solid #17845f; border-radius: 10px; padding: 16px 18px; height: 100%; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
+                <div style="font-size: 0.76rem; font-weight: 700; color: #17845f; text-transform: uppercase; letter-spacing: 0.04em;">
+                    Resultados Evaluados
+                </div>
+                <div style="font-size: 1.85rem; font-weight: 800; color: #17845f; margin: 4px 0;">
+                    216 <span style="font-size: 0.88rem; font-weight: 600; color: #475569;">docentes</span>
+                </div>
+                <div style="font-size: 0.84rem; color: #1e293b; font-weight: 700; margin-bottom: 6px;">
+                    Docentes con Puntaje en ERP
+                </div>
+                <div style="font-size: 0.80rem; color: #475569; line-height: 1.5;">
+                    Profesores que recibieron respuestas efectivas de los estudiantes y cuyos promedios, dimensiones e indicadores fueron procesados por el ETL. De los 217 docentes, <strong>216 cuentan con evaluación consolidada</strong>. Solo 1 docente no tuvo formulario propio.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with c_doc3:
+        st.markdown(
+            """
+            <div style="background: #ffffff; border: 1px solid #dbe3ed; border-top: 4px solid #245ea8; border-radius: 10px; padding: 16px 18px; height: 100%; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
+                <div style="font-size: 0.76rem; font-weight: 700; color: #245ea8; text-transform: uppercase; letter-spacing: 0.04em;">
+                    Captura Individual
+                </div>
+                <div style="font-size: 1.85rem; font-weight: 800; color: #245ea8; margin: 4px 0;">
+                    213 <span style="font-size: 0.88rem; font-weight: 600; color: #475569;">docentes</span>
+                </div>
+                <div style="font-size: 0.84rem; color: #1e293b; font-weight: 700; margin-bottom: 6px;">
+                    Registros en Tabla de Alumnos
+                </div>
+                <div style="font-size: 0.80rem; color: #475569; line-height: 1.5;">
+                    Docentes con filas individuales directas en el archivo de respuestas estudiante por estudiante (<code>df_alumnos</code>). 4 docentes de co-docencia tuvieron sus respuestas canalizadas o consolidadas a nivel de cátedra en dicha base operativa.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    # Detalle de la docente restante y co-docencia
+    st.markdown(
+        """
+        <div style="background-color: #f0f6fd; border-left: 4px solid #245ea8; border-radius: 8px; padding: 14px 18px; margin-top: 14px; font-size: 0.84rem; color: #1e3a63; line-height: 1.55;">
+            <strong>📌 Caso Explicativo: Prof. Gessica Adriana Ordano López y la Co-Docencia</strong><br>
+            • La profesora <strong>Gessica Ordano</strong> cuenta con una única asignación académica en el semestre: <em>Medicina Comunitaria</em>, Sección <em>I</em>, Grupo <em>Teórica</em> (68 estudiantes matriculados).<br>
+            • Dicha cátedra fue planificada en modalidad de <strong>co-docencia compartida</strong> con la <strong>Dra. Ana Michelli Luis Giménez</strong>.<br>
+            • Al momento de emitir las encuestas a los alumnos, el formulario de evaluación se habilitó exclusivamente bajo la titularidad de <strong>Ana Michelli Luis Giménez</strong>, quien recibió las 31 encuestas respondidas (promedio institucional de <strong>4,88</strong> y 496 respuestas válidas en el ERP).<br>
+            • Al no existir un formulario independiente emitido a nombre de la Prof. Ordano, recibió 0 respuestas directas, por lo que el algoritmo de resultados del ETL no generó fila de puntaje individual para ella (216 evaluados de 217 planificados). De forma semejante, docentes como <em>Mirna Romero Franco</em>, <em>Patricia Fox Jiménez</em> y <em>Sara Mareco Romero</em> operaron bajo dinámicas de cátedra compartida.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.divider()
+
+    # --------------------------------------------------------------------------
+    # 2. JERARQUÍA Y CORRESPONDENCIA DE CIFRAS (3 NIVELES)
+    # --------------------------------------------------------------------------
+    st.markdown("#### 2. Jerarquía de Datos: Estudiantes ➔ Materias ➔ Asignaciones a Docentes")
+    st.caption("Comprende la correspondencia matemática exacta entre la matrícula estudiantil, las inscripciones curriculares y las evaluaciones a profesores:")
+
+    n1, n2, n3 = st.columns(3)
+    with n1:
+        st.markdown(
+            """
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; height: 100%;">
+                <div style="font-size: 0.74rem; font-weight: 700; color: #12263f; text-transform: uppercase;">Nivel 1: Personas Físicas</div>
+                <div style="font-size: 1.5rem; font-weight: 800; color: #12263f; margin: 4px 0;">6.978 alumnos</div>
+                <div style="font-size: 0.82rem; color: #475569; line-height: 1.5;">
+                    Total de estudiantes convocados en Medicina CDE.<br>
+                    • <strong>4.701 completaron al menos una encuesta</strong> (<strong>67,4%</strong> de participación activa).<br>
+                    • <strong>4.531 completaron el 100%</strong> de sus encuestas (<strong>64,9%</strong>).<br>
+                    • 2.277 alumnos no iniciaron su participación.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with n2:
+        st.markdown(
+            """
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; height: 100%;">
+                <div style="font-size: 0.74rem; font-weight: 700; color: #245ea8; text-transform: uppercase;">Nivel 2: Inscripciones a Materias</div>
+                <div style="font-size: 1.5rem; font-weight: 800; color: #245ea8; margin: 4px 0;">44.289 materias</div>
+                <div style="font-size: 0.82rem; color: #475569; line-height: 1.5;">
+                    Cada estudiante cursa en promedio ~6 materias en su malla curricular (6.978 × ~6.35 materias).<br>
+                    • <strong>29.565 materias fueron respondidas</strong> (<strong>66,7%</strong> de avance a nivel asignatura).<br>
+                    • Refleja la cobertura curricular sin desglosar comisiones prácticas.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with n3:
+        st.markdown(
+            """
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; height: 100%;">
+                <div style="font-size: 0.74rem; font-weight: 700; color: #17845f; text-transform: uppercase;">Nivel 3: Asignaciones a Docentes (EV1)</div>
+                <div style="font-size: 1.5rem; font-weight: 800; color: #17845f; margin: 4px 0;">61.753 asignaciones</div>
+                <div style="font-size: 0.82rem; color: #475569; line-height: 1.5;">
+                    La encuesta real EV1 evalúa a los profesores de teoría y comisiones prácticas (Laboratorio, MO, MS).<br>
+                    • Un alumno evalúa en promedio a ~8,8 docentes.<br>
+                    • <strong>41.781 evaluaciones fueron respondidas</strong> (<strong>67,7%</strong> de avance total EV1).
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.divider()
+
+    # --------------------------------------------------------------------------
+    # 3. SEMÁFORO INSTITUCIONAL DE COBERTURA DE OFERTAS (1.289 OFERTAS)
+    # --------------------------------------------------------------------------
+    st.markdown("#### 3. Semáforo Institucional de Cobertura Académica (1.289 Ofertas)")
+    st.caption("Clasificación de las ofertas académicas (materia · sección · grupo · docente) según su representatividad estadística y tasa de respuesta:")
+
+    s1, s2, s3 = st.columns(3)
+    with s1:
+        st.markdown(
+            """
+            <div style="background: #e7f6f0; border: 1px solid #b5e3d0; border-top: 4px solid #17845f; border-radius: 10px; padding: 16px; height: 100%;">
+                <div style="font-size: 0.76rem; font-weight: 700; color: #17845f; text-transform: uppercase;">🟢 Adecuado (≥ 80,0%)</div>
+                <div style="font-size: 1.85rem; font-weight: 800; color: #17845f; margin: 4px 0;">317 ofertas</div>
+                <div style="font-size: 0.80rem; color: #2d5a43; line-height: 1.5;">
+                    <strong>24,6% del universo total.</strong><br>
+                    • Incluye las <strong>18 ofertas</strong> con avance perfecto del 100%.<br>
+                    • Se consideran plenamente validadas y representativas para la toma de decisiones pedagógicas institucionales.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with s2:
+        st.markdown(
+            """
+            <div style="background: #fef9e7; border: 1px solid #f6e2a2; border-top: 4px solid #b87908; border-radius: 10px; padding: 16px; height: 100%;">
+                <div style="font-size: 0.76rem; font-weight: 700; color: #b87908; text-transform: uppercase;">🟡 Seguimiento (50,0% - 79,9%)</div>
+                <div style="font-size: 1.85rem; font-weight: 800; color: #b87908; margin: 4px 0;">754 ofertas</div>
+                <div style="font-size: 0.80rem; color: #644a14; line-height: 1.5;">
+                    <strong>58,5% del universo total.</strong><br>
+                    • Ofertas con participación activa y mayoritaria, en proceso de consolidación para alcanzar el estándar óptimo del 80%.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with s3:
+        st.markdown(
+            """
+            <div style="background: #fdecef; border: 1px solid #f3b9c0; border-top: 4px solid #bd3f4a; border-radius: 10px; padding: 16px; height: 100%;">
+                <div style="font-size: 0.76rem; font-weight: 700; color: #bd3f4a; text-transform: uppercase;">🔴 Crítico (&lt; 50,0%)</div>
+                <div style="font-size: 1.85rem; font-weight: 800; color: #bd3f4a; margin: 4px 0;">218 ofertas</div>
+                <div style="font-size: 0.80rem; color: #6e272d; line-height: 1.5;">
+                    <strong>16,9% del universo total.</strong><br>
+                    • Ofertas con baja tasa de respuesta que requieren seguimiento prioritario de las coordinaciones de carrera para estimular la participación estudiantil.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown(
+        """
+        <div style="margin-top: 10px; font-size: 0.82rem; color: #475569; text-align: center; font-weight: 500;">
+            📐 <em>Balance matemático exacto: 317 (Adecuadas) + 754 (Seguimiento) + 218 (Críticas) = <strong>1.289 ofertas académicas totales</strong> (100%).</em>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.divider()
+
+    # --------------------------------------------------------------------------
+    # 4. RESOLUCIÓN DE CO-DOCENCIA Y CONFIDENCIALIDAD
+    # --------------------------------------------------------------------------
+    col_izq_met, col_der_met = st.columns(2)
+
+    with col_izq_met:
+        st.markdown("#### 4. Metodología de Co-Docencia")
+        st.markdown(
+            """
+            En la carrera de Medicina es habitual la cátedra compartida:
+            - **Módulos Teóricos y Prácticos**: Un docente dicta teoría y otro profesor conduce la práctica clínica o de laboratorio.
+            - **Subgrupos MO y MS**: Divisiones por turnos y habilidades (Miembro Operativo y Miembro Superior).
+            - **Resolución técnica implementada**: Cuando dos docentes comparten un grupo (ej. *Anatomía I, Sección A, G2-MS* con la Dra. Rossana Cañete), la tabla de ofertas toma la matrícula real completa del grupo (32 alumnos) para cada docente asignado, calculando su avance de respuestas de manera justa e independiente.
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with col_der_met:
+        st.markdown("#### 5. Confidencialidad y Anonimato")
+        st.markdown(
+            """
+            Por estricta política institucional de aseguramiento de la calidad:
+            - **Anonimato total del estudiante**: No se publican nombres, cédulas ni identificadores de los estudiantes en ningún reporte ni exportación.
+            - **Métricas consolidadas**: Toda la información se presenta agregada cuantitativamente por materia, sección, grupo y docente.
+            - **Garantía ética**: El resguardo de la identidad asegura la sinceridad, validez y libertad de opinión de los estudiantes al evaluar la labor docente.
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.divider()
+
+    # --------------------------------------------------------------------------
+    # 6. GLOSARIO DE TÉRMINOS Y SIGLAS
+    # --------------------------------------------------------------------------
+    st.markdown("#### 6. Glosario de Indicadores y Siglas Institucionales")
+    with st.expander("📚 Ver Glosario Completo de Términos (EV1, MO, MS, Criterios, Dimensiones)", expanded=False):
+        st.markdown(
+            """
+            | Término / Sigla | Definición Institucional |
+            | :--- | :--- |
+            | **EV1** | Encuesta de Valoración Estudiantil a la Docencia (Opinión del Estudiante sobre el desempeño profesoral). |
+            | **Oferta Académica** | Unidad mínima de análisis docente compuesta por: *Materia + Sección + Grupo + Docente*. Existen 1.289 ofertas en 2026.1. |
+            | **Grupo MO** | Grupo práctico de simulación o laboratorio (*Miembro Operativo*). |
+            | **Grupo MS** | Grupo práctico de habilidades clínicas y anatomía (*Miembro Superior*). |
+            | **Criterios (16)** | Preguntas específicas del cuestionario evaluadas en escala Likert del 1 al 5. |
+            | **Indicadores (10)** | Agrupaciones intermedias de criterios que miden aspectos clave de la práctica docente. |
+            | **Dimensiones (5)** | Macro-ejes formativos: *Planificación y Organización, Metodología y Recursos, Interacción y Comunicación, Evaluación del Aprendizaje, y Cumplimiento y Responsabilidad*. |
+            | **Respuestas Favorables** | Porcentaje de estudiantes que calificaron con 4 o 5 (satisfecho / muy satisfecho). |
+            | **Escala de Desempeño** | 🟢 **Fortaleza** (≥ 4,30) · 🔵 **Adecuado** (4,00 a 4,29) · 🟡 **Seguimiento** (3,50 a 3,99) · 🔴 **Oportunidad** (&lt; 3,50). |
+            """
+        )
 
