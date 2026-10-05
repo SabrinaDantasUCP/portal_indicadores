@@ -684,7 +684,7 @@ def _render_subvista_avance_general(
             <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px 20px; margin: 18px 0 22px 0;">
                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; border-bottom: 1px solid #e2e8f0; padding-bottom: 10px;">
                     <div style="font-weight: 700; font-size: 0.96rem; color: #1e3a63; display: flex; align-items: center; gap: 8px;">
-                        <span>🧭</span> Correspondencia de Cifras: Estudiantes ➔ Materias ➔ Asignaciones Docentes
+                        Correspondencia de Cifras: Estudiantes ➔ Materias ➔ Asignaciones Docentes
                     </div>
                     <div style="font-size: 0.78rem; background: #e2e8f0; color: #334155; padding: 4px 12px; border-radius: 12px; font-weight: 600;">
                         Estado: {completadas:,} completadas ({porcentaje_avance:.1f}%) · {c_parcial:,} parcial ({pct_parcial:.1f}%) · {pendientes:,} pendientes ({pct_pendientes:.1f}%)
@@ -787,7 +787,7 @@ def _render_subvista_avance_general(
                 margin=dict(l=10, r=40, t=10, b=10),
             )
             st.plotly_chart(fig_mat, use_container_width=True, key="ev1_grafico_materias")
-            st.caption("💡 *Toque o pase el cursor sobre cualquier barra para ver las cantidades de evaluaciones completadas y pendientes.*")
+            st.caption("*Toque o pase el cursor sobre cualquier barra para ver las cantidades de evaluaciones completadas y pendientes.*")
 
     with col_der:
         st.markdown("##### Avance global")
@@ -827,7 +827,7 @@ def _render_subvista_avance_general(
             ],
         )
         st.plotly_chart(fig_donut, use_container_width=True, key="ev1_grafico_donut")
-        st.caption("💡 *Toque el gráfico de dona para ver la proporción y cantidad exacta de evaluaciones completadas vs abiertas.*")
+        st.caption("*Toque el gráfico de dona para ver la proporción y cantidad exacta de evaluaciones completadas vs abiertas.*")
 
         st.markdown("##### Estado de participación de alumnos")
         if not filtros_activos and fila_general is not None:
@@ -969,7 +969,7 @@ def _render_subvista_avance_general(
             },
             key="ev1_tabla_universo",
         )
-        st.caption("💡 *Pase el cursor o toque el encabezado de cualquier columna para conocer su definición y cálculo.*")
+        st.caption("*Pase el cursor o toque el encabezado de cualquier columna para conocer su definición y cálculo.*")
 
 
 # ==============================================================================
@@ -1138,7 +1138,7 @@ def _render_subvista_por_alumno(df_filtrado: pd.DataFrame):
             hoverlabel=dict(bgcolor="white", bordercolor="#dbe3ed", font_size=12),
         )
         st.plotly_chart(fig_bar_part, use_container_width=True, key="ev1_grafico_bar_part")
-        st.caption("💡 *Toque los gráficos para visualizar las cantidades y porcentajes de estudiantes en cada nivel de participación.*")
+        st.caption("*Toque los gráficos para visualizar las cantidades y porcentajes de estudiantes en cada nivel de participación.*")
 
     st.divider()
 
@@ -1204,7 +1204,7 @@ def _render_subvista_por_alumno(df_filtrado: pd.DataFrame):
         },
         key="ev1_tabla_participacion_materias",
     )
-    st.caption("💡 *Pase el cursor o toque el encabezado de las columnas para ver los detalles y fórmulas de cálculo.*")
+    st.caption("*Pase el cursor o toque el encabezado de las columnas para ver los detalles y fórmulas de cálculo.*")
 
 
 # ==============================================================================
@@ -1365,7 +1365,7 @@ def _render_subvista_materia_seccion_grupo(
         },
         key="ev1_tabla_ofertas",
     )
-    st.caption("💡 *Toque los encabezados para ver el significado de cada columna. Semáforo: 🟢 Adecuado (≥ 80%) · 🟡 Seguimiento (50%–79,9%) · 🔴 Crítico (< 50%).*")
+    st.caption("*Toque los encabezados para ver el significado de cada columna. Semáforo: 🟢 Adecuado (≥ 80%) · 🟡 Seguimiento (50%–79,9%) · 🔴 Crítico (< 50%).*")
 
 
 # ==============================================================================
@@ -1508,7 +1508,7 @@ def _render_subvista_resultados_ev1(sede, periodo, carrera, tipo, df_filtrado: p
             margin=dict(l=10, r=40, t=10, b=10),
         )
         st.plotly_chart(fig_dim, use_container_width=True, key="ev1_grafico_dimensiones")
-        st.caption("💡 *Toque cualquier barra para ver el puntaje promedio exacto de la dimensión.*")
+        st.caption("*Toque cualquier barra para ver el puntaje promedio exacto de la dimensión.*")
 
         st.markdown("##### Resultado consolidado por docente")
         if df_doc is not None and not df_doc.empty:
@@ -1553,7 +1553,7 @@ def _render_subvista_resultados_ev1(sede, periodo, carrera, tipo, df_filtrado: p
             },
             key="ev1_tabla_res_docente",
         )
-        st.caption("💡 *Pase el cursor sobre los encabezados para ver el significado de cada columna.*")
+        st.caption("*Pase el cursor sobre los encabezados para ver el significado de cada columna.*")
 
     with col_der:
         st.markdown("##### Distribución de respuestas")
@@ -1609,7 +1609,7 @@ def _render_subvista_resultados_ev1(sede, periodo, carrera, tipo, df_filtrado: p
             margin=dict(l=10, r=20, t=10, b=10),
         )
         st.plotly_chart(fig_dist, use_container_width=True, key="ev1_grafico_distribucion")
-        st.caption("💡 *Toque las barras para ver la cantidad exacta de votos emitidos en cada opción.*")
+        st.caption("*Toque las barras para ver la cantidad exacta de votos emitidos en cada opción.*")
 
         # Obtener puntajes reales de la dimensión con mayor y menor puntaje
         score_mejor = None
@@ -1737,7 +1737,7 @@ def _render_subvista_por_docente(
         key="ev1_docente_selector",
     )
     st.caption(
-        f"💡 Mostrando los **{len(docentes_disponibles)} docentes** evaluados con respuestas válidas registradas en el ERP "
+        f"Mostrando los **{len(docentes_disponibles)} docentes** evaluados con respuestas válidas registradas en el ERP "
         f"(de los **217 docentes** de la oferta oficial en la sede {escape(str(sede))}; 213 con carga horaria individual activa y 1 sin evaluaciones directas por co-docencia: Gessica Ordano López). "
         f"Consulte la pestaña **Explicación** para más detalles."
     )
@@ -1849,7 +1849,7 @@ def _render_subvista_por_docente(
             hoverlabel=dict(bgcolor="white", bordercolor="#dbe3ed", font_size=12),
         )
         st.plotly_chart(fig_doc_dim, use_container_width=True, key="ev1_grafico_doc_dim")
-        st.caption("💡 *Toque cualquier barra para ver la calificación obtenida por el profesor en cada dimensión.*")
+        st.caption("*Toque cualquier barra para ver la calificación obtenida por el profesor en cada dimensión.*")
 
     with col_ofertas:
         st.markdown("##### Detalle de ofertas del docente")
@@ -1953,13 +1953,13 @@ def _render_subvista_por_docente(
                 },
                 key="ev1_tabla_doc_ofertas",
             )
-            st.caption("💡 *Toque los encabezados para ver el detalle de alumnos matriculados y respuestas recibidas.*")
+            st.caption("*Toque los encabezados para ver el detalle de alumnos matriculados y respuestas recibidas.*")
         else:
             st.info("Sin ofertas registradas para este docente con los filtros seleccionados.")
 
     # --- Desglose Pedagógico del Docente Seleccionado ---
     st.divider()
-    st.markdown("#### 🌳 Análisis Pedagógico del Docente Seleccionado")
+    st.markdown("#### Análisis Pedagógico del Docente Seleccionado")
     st.caption(
         f"Desglose completo de las **5 Dimensiones**, **10 Indicadores** y **16 Criterios** evaluados por los estudiantes para "
         f"**{escape(nombre_bio or docente_elegido)}**, con sus calificaciones específicas, promedios de indicadores y descriptores cualitativos oficiales."
@@ -2185,7 +2185,7 @@ def _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo):
             float(fila_sel.get("promedio_dim_5", score_sel)),
         ]
         st.markdown(
-            f"##### 👨‍🏫 Desempeño Pedagógico: **{escape(doc_sel)}** (Promedio General: **{_formatear_puntaje(score_sel)} / 5,00** — {_descriptor_badge(_calcular_descriptor_cualitativo(score_sel))})"
+            f"##### Desempeño Pedagógico: **{escape(doc_sel)}** (Promedio General: **{_formatear_puntaje(score_sel)} / 5,00** — {_descriptor_badge(_calcular_descriptor_cualitativo(score_sel))})"
         )
         _render_arbol_pedagogico(
             sede,
@@ -2208,7 +2208,7 @@ def _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo):
                 else 4.38
             )
             st.markdown(
-                f"##### 🏛️ Promedios Institucionales de la Carrera (Promedio General: **{_formatear_puntaje(prom_gen)} / 5,00** — {_descriptor_badge(_calcular_descriptor_cualitativo(prom_gen))})"
+                f"##### Promedios Institucionales de la Carrera (Promedio General: **{_formatear_puntaje(prom_gen)} / 5,00** — {_descriptor_badge(_calcular_descriptor_cualitativo(prom_gen))})"
             )
             _render_arbol_pedagogico(
                 sede,
@@ -2229,7 +2229,7 @@ def _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo):
     n_doc_auditados = int(fila_res.get("n_docentes_evaluados", 216)) if fila_res is not None and fila_res.get("n_docentes_evaluados") is not None else 216
 
     st.divider()
-    st.markdown("#### 📘 Origen de los Datos, Escala y Metodología de Cálculo")
+    st.markdown("#### Origen de los Datos, Escala y Metodología de Cálculo")
 
     col_orig1, col_orig2 = st.columns([1.1, 1.3])
     with col_orig1:
@@ -2237,7 +2237,7 @@ def _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo):
             f"""
             <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px 18px; height: 100%;">
                 <h6 style="color: #1e3a63; margin-top: 0; margin-bottom: 10px; font-weight: 700;">
-                    🏛️ Fuente y Origen Oficial de los Datos
+                    Fuente y Origen Oficial de los Datos
                 </h6>
                 <ul style="margin: 0; padding-left: 18px; font-size: 0.84rem; color: #475569; line-height: 1.6;">
                     <li><strong>Instrumento:</strong> Encuesta oficial EV1 (Opinión del Estudiante sobre el Desempeño Docente).</li>
@@ -2255,7 +2255,7 @@ def _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo):
             """
             <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px 18px; height: 100%;">
                 <h6 style="color: #1e3a63; margin-top: 0; margin-bottom: 10px; font-weight: 700;">
-                    📏 Escala de Valoración (Likert 1 a 5)
+                    Escala de Valoración (Likert 1 a 5)
                 </h6>
                 <p style="margin: 0 0 10px 0; font-size: 0.84rem; color: #475569; line-height: 1.45;">
                     Cada estudiante califica los criterios en una escala ordinal estandarizada de 5 niveles:
@@ -2291,7 +2291,7 @@ def _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo):
         """
         <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px 20px; margin-top: 14px; box-shadow: 0 1px 4px rgba(0,0,0,0.02);">
             <h6 style="color: #1e3a63; margin-top: 0; margin-bottom: 10px; font-weight: 700;">
-                ⚙️ Fórmulas y Jerarquía de Cálculo del Modelo Pedagógico
+                Fórmulas y Jerarquía de Cálculo del Modelo Pedagógico
             </h6>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; font-size: 0.84rem; color: #334155; line-height: 1.55;">
                 <div style="background: #f8fafc; border-left: 3px solid #245ea8; border-radius: 6px; padding: 10px 14px;">
@@ -2353,7 +2353,7 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
                 <div>
                     <h4 style="margin: 0; font-size: 1.35rem; font-weight: 800; letter-spacing: -0.01em; color: #ffffff;">
-                        📖 Guía Metodológica y Explicación de Indicadores EV1
+                        Guía Metodológica y Explicación de Indicadores EV1
                     </h4>
                     <p style="margin: 6px 0 0 0; font-size: 0.88rem; color: #c7d5e8; line-height: 1.45;">
                         Documentación técnica y metodológica sobre la jerarquía de cifras, el universo docente, las reglas de co-docencia y los semáforos institucionales de la evaluación estudiantil.
@@ -2440,7 +2440,7 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
     st.markdown(
         """
         <div style="background-color: #f0f6fd; border-left: 4px solid #245ea8; border-radius: 8px; padding: 14px 18px; margin-top: 14px; font-size: 0.84rem; color: #1e3a63; line-height: 1.55;">
-            <strong>📌 Caso Explicativo: Prof. Gessica Adriana Ordano López y la Co-Docencia</strong><br>
+            <strong>Caso Explicativo: Prof. Gessica Adriana Ordano López y la Co-Docencia</strong><br>
             • La profesora <strong>Gessica Ordano</strong> cuenta con una única asignación académica en el semestre: <em>Medicina Comunitaria</em>, Sección <em>I</em>, Grupo <em>Teórica</em> (68 estudiantes matriculados).<br>
             • Dicha cátedra fue planificada en modalidad de <strong>co-docencia compartida</strong> con la <strong>Dra. Ana Michelli Luis Giménez</strong>.<br>
             • Al momento de emitir las encuestas a los alumnos, el formulario de evaluación se habilitó exclusivamente bajo la titularidad de <strong>Ana Michelli Luis Giménez</strong>, quien recibió las 31 encuestas respondidas (promedio institucional de <strong>4,88</strong> y 496 respuestas válidas en el ERP).<br>
@@ -2562,7 +2562,7 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
     st.markdown(
         """
         <div style="margin-top: 10px; font-size: 0.82rem; color: #475569; text-align: center; font-weight: 500;">
-            📐 <em>Balance matemático exacto: 317 (Adecuadas) + 754 (Seguimiento) + 218 (Críticas) = <strong>1.289 ofertas académicas totales</strong> (100%).</em>
+            <em>Balance matemático exacto: 317 (Adecuadas) + 754 (Seguimiento) + 218 (Críticas) = <strong>1.289 ofertas académicas totales</strong> (100%).</em>
         </div>
         """,
         unsafe_allow_html=True,
@@ -2605,7 +2605,7 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
     # 6. GLOSARIO DE TÉRMINOS Y SIGLAS
     # --------------------------------------------------------------------------
     st.markdown("#### 6. Glosario de Indicadores y Siglas Institucionales")
-    with st.expander("📚 Ver Glosario Completo de Términos (EV1, MO, MS, Criterios, Dimensiones)", expanded=False):
+    with st.expander("Ver Glosario Completo de Términos (EV1, MO, MS, Criterios, Dimensiones)", expanded=False):
         st.markdown(
             """
             | Término / Sigla | Definición Institucional |
