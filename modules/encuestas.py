@@ -151,10 +151,10 @@ def select_encuesta():
                 listar_tipos_encuesta(sede, periodo, carrera) if sede and periodo and carrera else []
             )
             tipo = st.selectbox(
-                "Encuesta",
+                "Instrumento",
                 options=[t for t, _ in tipos_opts],
                 index=None,
-                placeholder="Elija una encuesta...",
+                placeholder="Elija un instrumento...",
                 key="encuestas_tipo",
                 disabled=not (sede and periodo and carrera),
                 format_func=lambda t: dict(tipos_opts).get(t, t),
@@ -167,7 +167,7 @@ def select_encuesta():
     elif not carrera:
         st.info("Seleccione la **carrera** que desea visualizar para continuar.")
     elif not tipo:
-        st.info("Seleccione la **encuesta** que desea visualizar para continuar.")
+        st.info("Seleccione el **instrumento** que desea visualizar para continuar.")
     return sede, periodo, carrera, tipo
 
 

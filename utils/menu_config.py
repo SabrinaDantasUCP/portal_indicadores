@@ -99,9 +99,9 @@ INDICADORES_VERSION = [
         ],
     },
     {
-        "name": "Encuestas",
+        "name": "Instrumentos de Evaluación Docente",
         "permission": "encuestas",
-        "target_category": "Encuestas",
+        "target_category": "Instrumentos de Evaluación Docente",
         "icon": "poll",
         "pages": [
             {"title": "Avance de Encuesta", "slug": "encuestas_avance", "module": "encuestas", "icon": "fact_check"},

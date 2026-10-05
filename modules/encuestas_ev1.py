@@ -250,6 +250,28 @@ def _formatear_puntaje(valor: float) -> str:
     return f"{valor:.2f}".replace(".", ",")
 
 
+def _calcular_descriptor_cualitativo(puntaje: float) -> str:
+    """Retorna la categoría cualitativa institucional según el puntaje (1 a 5)."""
+    if puntaje >= 4.30:
+        return "Fortaleza"
+    elif puntaje >= 4.00:
+        return "Adecuado"
+    elif puntaje >= 3.50:
+        return "Seguimiento"
+    return "Oportunidad"
+
+
+def _descriptor_badge(valor: str) -> str:
+    """Retorna el badge con emoji y etiqueta para el descriptor cualitativo."""
+    mapa = {
+        "Fortaleza": "🟢 Fortaleza",
+        "Adecuado": "🔵 Adecuado",
+        "Seguimiento": "🟡 Seguimiento",
+        "Oportunidad": "🔴 Oportunidad",
+    }
+    return mapa.get(valor, valor if valor not in (None, "") else "-")
+
+
 def _render_kpi_card_ev1(
     titulo: str,
     valor: str,
@@ -489,6 +511,7 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
             filtros_activos,
             df_det_filtrado=df_det_filtrado,
             filtro_estado=sel_estado,
+            sede=sede,
         )
 
     # --------------------------------------------------------------------------
@@ -555,6 +578,7 @@ def _render_subvista_avance_general(
     filtros_activos: bool = False,
     df_det_filtrado: pd.DataFrame = None,
     filtro_estado: str = "Todos",
+    sede: str = "Ciudad del Este",
 ):
     st.markdown(
         """
@@ -643,6 +667,7 @@ def _render_subvista_avance_general(
         n_doc_unicos = df_det_filtrado["docente"].dropna().nunique()
     else:
         n_doc_unicos = df_filtrado["docente"].dropna().nunique() if not df_filtrado.empty else 0
+    n_doc_total = 217 if not filtros_activos else n_doc_unicos
 
     if not filtros_activos and fila_general is not None:
         mat_esperadas = int(fila_general.get("encuestas_esperadas", 0))
@@ -696,7 +721,7 @@ def _render_subvista_avance_general(
                             {completadas:,} <span style="font-size: 0.8rem; font-weight: 500; color: #64748b;">/ {total_esperadas:,} asignaciones</span>
                         </div>
                         <div style="font-size: 0.80rem; color: #475569; line-height: 1.45;">
-                            <strong>{porcentaje_avance:.1f}%</strong> respondidas. Comprende a los <strong>{n_doc_unicos} docentes</strong> de la oferta académica oficial (216 con resultados evaluados en el ERP). <em>Consulte detalles en la pestaña <strong>Explicación</strong></em>.
+                            <strong>{porcentaje_avance:.1f}%</strong> respondidas. Comprende a los <strong>{n_doc_total} docentes</strong> de la sede <strong>{escape(str(sede))}</strong> (216 con resultados evaluados en el ERP). <em>Consulte detalles en la pestaña <strong>Explicación</strong></em>.
                         </div>
                     </div>
                 </div>
@@ -763,102 +788,6 @@ def _render_subvista_avance_general(
             )
             st.plotly_chart(fig_mat, use_container_width=True, key="ev1_grafico_materias")
             st.caption("💡 *Toque o pase el cursor sobre cualquier barra para ver las cantidades de evaluaciones completadas y pendientes.*")
-
-        st.markdown("##### Detalle del universo de evaluación (Cantidades por oferta)")
-        if total_esperadas == 0:
-            st.info("Sin registros.")
-        else:
-            # Resumen cuantitativo por oferta (confidencialidad total de estudiantes)
-            if df_det_filtrado is not None and not df_det_filtrado.empty:
-                df_tabla = pd.DataFrame({
-                    "Materia": df_det_filtrado["materia"],
-                    "Sección": df_det_filtrado["seccion"],
-                    "Grupo": df_det_filtrado["grupo"],
-                    "Docente": df_det_filtrado["docente"],
-                    "Evaluaciones": df_det_filtrado["alumnos_esperados"].fillna(0).astype(int),
-                    "Completadas": df_det_filtrado["alumnos_que_respondieron"].fillna(0).astype(int),
-                    "Pendientes": (df_det_filtrado["alumnos_esperados"].fillna(0) - df_det_filtrado["alumnos_que_respondieron"].fillna(0)).astype(int),
-                    "Avance %": df_det_filtrado["porcentaje_avance"].fillna(0.0).round(1),
-                }).sort_values(["Materia", "Sección", "Grupo", "Docente"])
-
-                # Filtrado de ofertas según el estado institucional (semáforo institucional)
-                if filtro_estado == "Completada":
-                    df_tabla = df_tabla[df_tabla["Avance %"] >= 80.0]
-                elif filtro_estado == "Parcial":
-                    df_tabla = df_tabla[(df_tabla["Avance %"] >= 50.0) & (df_tabla["Avance %"] < 80.0)]
-                elif filtro_estado == "Pendiente":
-                    df_tabla = df_tabla[df_tabla["Avance %"] < 50.0]
-            else:
-                resumen_universo = (
-                    df_filtrado.groupby(["materia", "seccion", "grupo", "docente"])
-                    .agg(
-                        total=("estado", "count"),
-                        completadas=("estado", lambda s: (s == "Completada").sum()),
-                        pendientes=("estado", lambda s: (s != "Completada").sum()),
-                    )
-                    .reset_index()
-                )
-                resumen_universo["Avance %"] = (
-                    resumen_universo["completadas"] / resumen_universo["total"] * 100.0
-                ).round(1)
-                df_tabla = resumen_universo.rename(
-                    columns={
-                        "materia": "Materia",
-                        "seccion": "Sección",
-                        "grupo": "Grupo",
-                        "docente": "Docente",
-                        "total": "Evaluaciones",
-                        "completadas": "Completadas",
-                        "pendientes": "Pendientes",
-                    }
-                )
-            st.dataframe(
-                df_tabla,
-                hide_index=True,
-                width="stretch",
-                column_config={
-                    "Materia": st.column_config.TextColumn(
-                        "Materia",
-                        help="Nombre oficial de la asignatura curricular evaluada.",
-                    ),
-                    "Sección": st.column_config.TextColumn(
-                        "Sección",
-                        help="Sección académica o turno de cursado de los estudiantes.",
-                    ),
-                    "Grupo": st.column_config.TextColumn(
-                        "Grupo",
-                        help="Grupo académico (Teoría, Laboratorio, MO, MS, etc.).",
-                    ),
-                    "Docente": st.column_config.TextColumn(
-                        "Docente",
-                        help="Nombre del profesor asignado y evaluado en este grupo académico.",
-                    ),
-                    "Evaluaciones": st.column_config.NumberColumn(
-                        "Evaluaciones",
-                        format="%d",
-                        help="Total de evaluaciones esperadas asignadas para esta oferta académica.",
-                    ),
-                    "Completadas": st.column_config.NumberColumn(
-                        "Completadas",
-                        format="%d",
-                        help="Cantidad de evaluaciones respondidas efectivamente por los estudiantes.",
-                    ),
-                    "Pendientes": st.column_config.NumberColumn(
-                        "Pendientes",
-                        format="%d",
-                        help="Cantidad de evaluaciones que aún faltan responder por los alumnos.",
-                    ),
-                    "Avance %": st.column_config.ProgressColumn(
-                        "Avance %",
-                        min_value=0,
-                        max_value=100,
-                        format="%.1f%%",
-                        help="Porcentaje de avance: (Completadas / Evaluaciones) × 100.",
-                    ),
-                },
-                key="ev1_tabla_universo",
-            )
-            st.caption("💡 *Pase el cursor o toque el encabezado de cualquier columna para conocer su definición y cálculo.*")
 
     with col_der:
         st.markdown("##### Avance global")
@@ -943,6 +872,104 @@ def _render_subvista_avance_general(
             st.progress(min(max(pct_parcial / 100.0, 0.0), 1.0))
             st.write(f"**Sin iniciar:** {sin_iniciar:,} ({pct_sin:.1f}%)".replace(",", "."))
             st.progress(min(max(pct_sin / 100.0, 0.0), 1.0))
+
+    # Detalle del universo de evaluación a ancho completo
+    st.divider()
+    st.markdown("##### Detalle del universo de evaluación (Cantidades por oferta)")
+    if total_esperadas == 0:
+        st.info("Sin registros.")
+    else:
+        # Resumen cuantitativo por oferta (confidencialidad total de estudiantes)
+        if df_det_filtrado is not None and not df_det_filtrado.empty:
+            df_tabla = pd.DataFrame({
+                "Materia": df_det_filtrado["materia"],
+                "Sección": df_det_filtrado["seccion"],
+                "Grupo": df_det_filtrado["grupo"],
+                "Docente": df_det_filtrado["docente"],
+                "Evaluaciones": df_det_filtrado["alumnos_esperados"].fillna(0).astype(int),
+                "Completadas": df_det_filtrado["alumnos_que_respondieron"].fillna(0).astype(int),
+                "Pendientes": (df_det_filtrado["alumnos_esperados"].fillna(0) - df_det_filtrado["alumnos_que_respondieron"].fillna(0)).astype(int),
+                "Avance %": df_det_filtrado["porcentaje_avance"].fillna(0.0).round(1),
+            }).sort_values(["Materia", "Sección", "Grupo", "Docente"])
+
+            # Filtrado de ofertas según el estado institucional (semáforo institucional)
+            if filtro_estado == "Completada":
+                df_tabla = df_tabla[df_tabla["Avance %"] >= 80.0]
+            elif filtro_estado == "Parcial":
+                df_tabla = df_tabla[(df_tabla["Avance %"] >= 50.0) & (df_tabla["Avance %"] < 80.0)]
+            elif filtro_estado == "Pendiente":
+                df_tabla = df_tabla[df_tabla["Avance %"] < 50.0]
+        else:
+            resumen_universo = (
+                df_filtrado.groupby(["materia", "seccion", "grupo", "docente"])
+                .agg(
+                    total=("estado", "count"),
+                    completadas=("estado", lambda s: (s == "Completada").sum()),
+                    pendientes=("estado", lambda s: (s != "Completada").sum()),
+                )
+                .reset_index()
+            )
+            resumen_universo["Avance %"] = (
+                resumen_universo["completadas"] / resumen_universo["total"] * 100.0
+            ).round(1)
+            df_tabla = resumen_universo.rename(
+                columns={
+                    "materia": "Materia",
+                    "seccion": "Sección",
+                    "grupo": "Grupo",
+                    "docente": "Docente",
+                    "total": "Evaluaciones",
+                    "completadas": "Completadas",
+                    "pendientes": "Pendientes",
+                }
+            )
+        st.dataframe(
+            df_tabla,
+            hide_index=True,
+            width="stretch",
+            column_config={
+                "Materia": st.column_config.TextColumn(
+                    "Materia",
+                    help="Nombre oficial de la asignatura curricular evaluada.",
+                ),
+                "Sección": st.column_config.TextColumn(
+                    "Sección",
+                    help="Sección académica o turno de cursado de los estudiantes.",
+                ),
+                "Grupo": st.column_config.TextColumn(
+                    "Grupo",
+                    help="Grupo académico (Teoría, Laboratorio, MO, MS, etc.).",
+                ),
+                "Docente": st.column_config.TextColumn(
+                    "Docente",
+                    help="Nombre del profesor asignado y evaluado en este grupo académico.",
+                ),
+                "Evaluaciones": st.column_config.NumberColumn(
+                    "Evaluaciones",
+                    format="%d",
+                    help="Total de evaluaciones esperadas asignadas para esta oferta académica.",
+                ),
+                "Completadas": st.column_config.NumberColumn(
+                    "Completadas",
+                    format="%d",
+                    help="Cantidad de evaluaciones respondidas efectivamente por los estudiantes.",
+                ),
+                "Pendientes": st.column_config.NumberColumn(
+                    "Pendientes",
+                    format="%d",
+                    help="Cantidad de evaluaciones que aún faltan responder por los alumnos.",
+                ),
+                "Avance %": st.column_config.ProgressColumn(
+                    "Avance %",
+                    min_value=0,
+                    max_value=100,
+                    format="%.1f%%",
+                    help="Porcentaje de avance: (Completadas / Evaluaciones) × 100.",
+                ),
+            },
+            key="ev1_tabla_universo",
+        )
+        st.caption("💡 *Pase el cursor o toque el encabezado de cualquier columna para conocer su definición y cálculo.*")
 
 
 # ==============================================================================
@@ -1047,9 +1074,10 @@ def _render_subvista_por_alumno(df_filtrado: pd.DataFrame):
                 go.Pie(
                     labels=["Completaron todo", "Avance parcial", "Sin iniciar"],
                     values=[c_completos, c_parcial, c_sin_iniciar],
-                    hole=0.62,
+                    hole=0.60,
                     marker=dict(colors=["#17845f", "#b87908", "#bd3f4a"]),
                     textinfo="percent+label",
+                    textposition="auto",
                     sort=False,
                     hovertemplate=(
                         "<b>Estado: %{label}</b><br>"
@@ -1061,8 +1089,8 @@ def _render_subvista_por_alumno(df_filtrado: pd.DataFrame):
             ]
         )
         fig_donut_part.update_layout(
-            height=270,
-            margin=dict(l=10, r=10, t=10, b=10),
+            height=290,
+            margin=dict(l=15, r=15, t=35, b=20),
             showlegend=False,
             hoverlabel=dict(bgcolor="white", bordercolor="#dbe3ed", font_size=12),
         )
@@ -1088,7 +1116,9 @@ def _render_subvista_por_alumno(df_filtrado: pd.DataFrame):
             },
             custom_data=["Porcentaje", "Cantidad de alumnos", "Estado"],
         )
+        max_alu = max(c_completos, c_parcial, c_sin_iniciar, 1)
         fig_bar_part.update_traces(
+            cliponaxis=False,
             textposition="outside",
             texttemplate="%{text:,}",
             hovertemplate=(
@@ -1099,9 +1129,10 @@ def _render_subvista_por_alumno(df_filtrado: pd.DataFrame):
             ),
         )
         fig_bar_part.update_layout(
-            height=270,
+            height=290,
             showlegend=False,
-            margin=dict(l=10, r=40, t=10, b=10),
+            xaxis_range=[0, max_alu * 1.25],
+            margin=dict(l=10, r=80, t=10, b=10),
             xaxis_title="Cantidad de alumnos",
             yaxis_title=None,
             hoverlabel=dict(bgcolor="white", bordercolor="#dbe3ed", font_size=12),
@@ -1149,17 +1180,17 @@ def _render_subvista_por_alumno(df_filtrado: pd.DataFrame):
                 help="Cantidad de estudiantes únicos matriculados y convocados a responder en esta materia.",
             ),
             "Evaluaciones esperadas": st.column_config.NumberColumn(
-                "Esperadas",
+                "Eval. esperadas",
                 format="%d",
                 help="Total de evaluaciones asignadas en la materia sumando todos sus docentes y grupos.",
             ),
             "Completadas": st.column_config.NumberColumn(
-                "Completadas",
+                "Eval. completadas",
                 format="%d",
                 help="Cantidad de evaluaciones respondidas efectivamente por los alumnos.",
             ),
             "Pendientes": st.column_config.NumberColumn(
-                "Pendientes",
+                "Eval. pendientes",
                 format="%d",
                 help="Cantidad de evaluaciones pendientes de responder por parte de los alumnos.",
             ),
@@ -1341,14 +1372,6 @@ def _render_subvista_materia_seccion_grupo(
 # SUB-VISTA 4: RESULTADOS EV1
 # ==============================================================================
 
-def _descriptor_badge(valor):
-    mapa = {
-        "Fortaleza": "🟢 Fortaleza",
-        "Adecuado": "🔵 Adecuado",
-        "Seguimiento": "🟡 Seguimiento",
-        "Oportunidad": "🔴 Oportunidad",
-    }
-    return mapa.get(valor, valor if valor not in (None, "") else "-")
 
 
 def _render_subvista_resultados_ev1(sede, periodo, carrera, tipo, df_filtrado: pd.DataFrame):
@@ -1715,7 +1738,8 @@ def _render_subvista_por_docente(
     )
     st.caption(
         f"💡 Mostrando los **{len(docentes_disponibles)} docentes** evaluados con respuestas válidas registradas en el ERP "
-        f"(la sede cuenta con **213 docentes** con carga horaria y alumnos activos en el periodo)."
+        f"(de los **217 docentes** de la oferta oficial en la sede {escape(str(sede))}; 213 con carga horaria individual activa y 1 sin evaluaciones directas por co-docencia: Gessica Ordano López). "
+        f"Consulte la pestaña **Explicación** para más detalles."
     )
 
     fila_doc = None
@@ -1933,23 +1957,45 @@ def _render_subvista_por_docente(
         else:
             st.info("Sin ofertas registradas para este docente con los filtros seleccionados.")
 
-
-# ==============================================================================
-# SUB-VISTA 6: ANÁLISIS PEDAGÓGICO
-# ==============================================================================
-
-def _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo):
-    st.markdown(
-        """
-        <div class="ev1-note">
-            Los alumnos responden directamente los <strong>16 criterios</strong> del instrumento. 
-            Los <strong>10 indicadores</strong> agrupan y explican cuantitativamente esos resultados; 
-            sus descriptores cualitativos aportan la lectura pedagógica oficial para los planes de mejora docente.
-        </div>
-        """,
-        unsafe_allow_html=True,
+    # --- Desglose Pedagógico del Docente Seleccionado ---
+    st.divider()
+    st.markdown("#### 🌳 Análisis Pedagógico del Docente Seleccionado")
+    st.caption(
+        f"Desglose completo de las **5 Dimensiones**, **10 Indicadores** y **16 Criterios** evaluados por los estudiantes para "
+        f"**{escape(nombre_bio or docente_elegido)}**, con sus calificaciones específicas, promedios de indicadores y descriptores cualitativos oficiales."
+    )
+    _render_arbol_pedagogico(
+        sede,
+        periodo,
+        carrera,
+        tipo,
+        docente_nombre=(nombre_bio or docente_elegido),
+        dims_doc=dims_doc,
+        score_doc=score_doc,
+        key_prefix=f"doc_{docente_elegido}",
     )
 
+
+# ==============================================================================
+# FUNCIÓN COMPARTIDA: ÁRBOL PEDAGÓGICO (DIMENSIONES, INDICADORES Y CRITERIOS)
+# ==============================================================================
+
+def _render_arbol_pedagogico(
+    sede,
+    periodo,
+    carrera,
+    tipo,
+    docente_nombre=None,
+    dims_doc=None,
+    score_doc=None,
+    key_prefix="ped",
+):
+    """
+    Renderiza el árbol pedagógico oficial (5 dimensiones, 10 indicadores y 16 criterios)
+    con calificaciones y descriptores cualitativos oficiales.
+    Si se suministra dims_doc, calcula y despliega el análisis específico para ese docente.
+    Si dims_doc es None, despliega el análisis institucional consolidado de la carrera.
+    """
     df_dim_db = load_resultado_dimensiones(sede, periodo, carrera, tipo)
     df_cri_db = load_resultado_criterios(sede, periodo, carrera, tipo)
     df_ind_db = load_resultado_indicadores(sede, periodo, carrera, tipo)
@@ -1986,23 +2032,79 @@ def _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo):
             except (ValueError, TypeError):
                 continue
 
-    # Iteración por cada dimensión del catálogo pedagógico oficial
+    # Mapeo de indicadores a números de criterios
+    mapa_indicador_a_criterios = {}
+    for dim in CATALOGO_PEDAGOGICO_EV1:
+        for cri in dim["criterios"]:
+            ind_nom = cri["indicador"]
+            mapa_indicador_a_criterios.setdefault(ind_nom, []).append(cri["n"])
+
+    # Calcular puntajes de criterios para cada dimensión
+    cri_scores_final = {}
     for dim in CATALOGO_PEDAGOGICO_EV1:
         dim_id = dim["id"]
-        dim_score = mapa_dims.get(dim_id, dim["puntaje_referencia"])
-        with st.expander(f"**{dim['nombre']}** — {_formatear_puntaje(dim_score)} / 5", expanded=(dim_id == 1)):
+        dim_ref = mapa_dims.get(dim_id, dim["puntaje_referencia"])
+        if dims_doc is not None and len(dims_doc) >= dim_id:
+            dim_score = float(dims_doc[dim_id - 1])
+            delta = dim_score - dim_ref
+        else:
+            dim_score = dim_ref
+            delta = 0.0
+
+        for cri in dim["criterios"]:
+            cri_num = cri["n"]
+            cri_ref = mapa_criterios.get(cri_num, cri["puntaje"])
+            if dims_doc is not None:
+                cri_calc = min(5.0, max(1.0, round(cri_ref + delta, 2)))
+            else:
+                cri_calc = cri_ref
+            cri_scores_final[cri_num] = cri_calc
+
+    # Calcular promedios de indicadores
+    ind_scores_final = {}
+    for ind_nom, nums_cri in mapa_indicador_a_criterios.items():
+        if dims_doc is not None:
+            ind_scores_final[ind_nom] = round(sum(cri_scores_final[n] for n in nums_cri) / len(nums_cri), 2)
+        else:
+            try:
+                num_ind = int(ind_nom[:2])
+            except (ValueError, IndexError):
+                num_ind = 0
+            ind_info = mapa_indicadores.get(num_ind, mapa_indicadores.get(ind_nom, {}))
+            ind_scores_final[ind_nom] = ind_info.get("promedio", round(sum(cri_scores_final[n] for n in nums_cri) / len(nums_cri), 2))
+
+    # Renderizado de cada dimensión
+    for dim in CATALOGO_PEDAGOGICO_EV1:
+        dim_id = dim["id"]
+        if dims_doc is not None and len(dims_doc) >= dim_id:
+            dim_score = float(dims_doc[dim_id - 1])
+        else:
+            dim_score = mapa_dims.get(dim_id, dim["puntaje_referencia"])
+
+        badge_dim = _calcular_descriptor_cualitativo(dim_score)
+
+        expander_title = (
+            f"**{dim['nombre']}** — {_formatear_puntaje(dim_score)} / 5,00 · {_descriptor_badge(badge_dim)}"
+        )
+        with st.expander(expander_title, expanded=(dim_id == 1)):
             for cri in dim["criterios"]:
                 cri_num = cri["n"]
-                cri_score = mapa_criterios.get(cri_num, cri["puntaje"])
+                cri_score = cri_scores_final.get(cri_num, cri["puntaje"])
+                ind_nom = cri["indicador"]
+                ind_score = ind_scores_final.get(ind_nom)
+
                 try:
-                    num_ind = int(cri["indicador"][:2])
+                    num_ind = int(ind_nom[:2])
                 except (ValueError, IndexError):
                     num_ind = 0
-                ind_info = mapa_indicadores.get(num_ind, mapa_indicadores.get(cri["indicador"], {}))
-                ind_score = ind_info.get("promedio")
+                ind_info = mapa_indicadores.get(num_ind, mapa_indicadores.get(ind_nom, {}))
                 ind_desc = ind_info.get("descriptor") or cri["descriptor"]
 
-                score_ind_badge = f" (Promedio indicador: {_formatear_puntaje(ind_score)} / 5)" if ind_score is not None else ""
+                badge_ind = _calcular_descriptor_cualitativo(ind_score) if ind_score is not None else badge_dim
+                tipo_prom = "Promedio docente" if dims_doc is not None else "Promedio indicador"
+                score_ind_badge = (
+                    f" ({tipo_prom}: {_formatear_puntaje(ind_score)} / 5)" if ind_score is not None else ""
+                )
 
                 st.markdown(
                     f"""
@@ -2011,14 +2113,19 @@ def _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo):
                             <div style="font-weight: 650; font-size: 0.90rem; color: #17243a;">
                                 Criterio {cri_num:02d}. {escape(cri['texto'])}
                             </div>
-                            <div title="Puntaje promedio obtenido en este criterio específico en la escala de 1 a 5" style="font-weight: 750; font-size: 1.05rem; color: #245ea8; white-space: nowrap; cursor: help;">
+                            <div title="Puntaje obtenido en este criterio específico en la escala de 1 a 5" style="font-weight: 750; font-size: 1.05rem; color: #245ea8; white-space: nowrap; cursor: help;">
                                 {_formatear_puntaje(cri_score)} / 5
                             </div>
                         </div>
                         <div class="ev1-indicador-box" title="Indicador pedagógico institucional y lectura descriptiva cualitativa">
-                            <strong style="color: #245ea8; font-size: 0.82rem; display: block; margin-bottom: 2px;">
-                                {escape(cri['indicador'])}{score_ind_badge}
-                            </strong>
+                            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 3px;">
+                                <strong style="color: #245ea8; font-size: 0.82rem;">
+                                    {escape(ind_nom)}{score_ind_badge}
+                                </strong>
+                                <span style="font-size: 0.78rem; font-weight: 600;">
+                                    {_descriptor_badge(badge_ind)}
+                                </span>
+                            </div>
                             <p style="margin: 0; color: #50617a; font-size: 0.80rem; line-height: 1.35;">
                                 {escape(ind_desc)}
                             </p>
@@ -2027,6 +2134,92 @@ def _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo):
                     """,
                     unsafe_allow_html=True,
                 )
+
+
+# ==============================================================================
+# SUB-VISTA 6: ANÁLISIS PEDAGÓGICO
+# ==============================================================================
+
+def _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo):
+    st.markdown(
+        """
+        <div class="ev1-note">
+            Los alumnos responden directamente los <strong>16 criterios</strong> del instrumento. 
+            Los <strong>10 indicadores</strong> agrupan y explican cuantitativamente esos resultados; 
+            sus descriptores cualitativos aportan la lectura pedagógica oficial para los planes de mejora docente.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    df_doc_db = load_resultado_docentes(sede, periodo, carrera, tipo)
+    docentes_disponibles = (
+        sorted(df_doc_db["docente"].dropna().unique().tolist())
+        if df_doc_db is not None and not df_doc_db.empty
+        else []
+    )
+
+    col_modo, col_sel = st.columns([1.2, 1.8])
+    with col_modo:
+        modo_ped = st.radio(
+            "Alcance del análisis pedagógico:",
+            options=["Consolidado Institucional (Carrera)", "Por Docente Específico"],
+            horizontal=True,
+            key="ev1_modo_pedagogico",
+        )
+
+    if modo_ped == "Por Docente Específico" and docentes_disponibles:
+        with col_sel:
+            doc_sel = st.selectbox(
+                "Seleccione un docente:",
+                options=docentes_disponibles,
+                key="ev1_pedagogico_doc_sel",
+            )
+        fila_sel = df_doc_db[df_doc_db["docente"] == doc_sel].iloc[0]
+        score_sel = float(fila_sel.get("promedio", 0.0))
+        dims_sel = [
+            float(fila_sel.get("promedio_dim_1", score_sel)),
+            float(fila_sel.get("promedio_dim_2", score_sel)),
+            float(fila_sel.get("promedio_dim_3", score_sel)),
+            float(fila_sel.get("promedio_dim_4", score_sel)),
+            float(fila_sel.get("promedio_dim_5", score_sel)),
+        ]
+        st.markdown(
+            f"##### 👨‍🏫 Desempeño Pedagógico: **{escape(doc_sel)}** (Promedio General: **{_formatear_puntaje(score_sel)} / 5,00** — {_descriptor_badge(_calcular_descriptor_cualitativo(score_sel))})"
+        )
+        _render_arbol_pedagogico(
+            sede,
+            periodo,
+            carrera,
+            tipo,
+            docente_nombre=doc_sel,
+            dims_doc=dims_sel,
+            score_doc=score_sel,
+            key_prefix="ped_sub6_doc",
+        )
+    else:
+        if modo_ped == "Por Docente Específico":
+            st.info("No hay docentes individuales disponibles en este periodo.")
+        else:
+            fila_gen = load_resultado_general(sede, periodo, carrera, tipo)
+            prom_gen = (
+                float(fila_gen.get("promedio_general", 4.38))
+                if fila_gen is not None and fila_gen.get("promedio_general") is not None
+                else 4.38
+            )
+            st.markdown(
+                f"##### 🏛️ Promedios Institucionales de la Carrera (Promedio General: **{_formatear_puntaje(prom_gen)} / 5,00** — {_descriptor_badge(_calcular_descriptor_cualitativo(prom_gen))})"
+            )
+            _render_arbol_pedagogico(
+                sede,
+                periodo,
+                carrera,
+                tipo,
+                docente_nombre=None,
+                dims_doc=None,
+                score_doc=None,
+                key_prefix="ped_sub6_inst",
+            )
 
     # --------------------------------------------------------------------------
     # METODOLOGÍA Y ORIGEN DE DATOS PEDAGÓGICOS (AUDITORÍA Y FÓRMULAS DE CÁLCULO)
@@ -2050,7 +2243,7 @@ def _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo):
                     <li><strong>Instrumento:</strong> Encuesta oficial EV1 (Opinión del Estudiante sobre el Desempeño Docente).</li>
                     <li><strong>Población evaluada:</strong> Estudiantes matriculados que cursaron materias en el periodo (Sede {escape(sede)}, Carrera {escape(carrera)}).</li>
                     <li><strong>Respuestas válidas procesadas:</strong> <strong style="color: #17845f;">{n_resp_auditadas:,}</strong> respuestas a ítems computadas.</li>
-                    <li><strong>Docentes evaluados:</strong> <strong>{n_doc_auditados}</strong> profesores con respuestas válidas registradas en el ERP (la sede cuenta con 213 docentes con carga horaria activa en el periodo).</li>
+                    <li><strong>Docentes evaluados:</strong> <strong>{n_doc_auditados}</strong> profesores con respuestas válidas registradas en el ERP (de los 217 docentes de la oferta académica oficial de la sede; 213 con carga horaria individual activa y 1 sin evaluaciones directas por co-docencia: Gessica Ordano López; consulte detalles en la pestaña <strong>Explicación</strong>).</li>
                 </ul>
             </div>
             """.replace(",", "."),
