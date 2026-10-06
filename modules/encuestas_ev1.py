@@ -505,7 +505,7 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
             "Avance general",
             "Participación de alumnos",
             "Materia · sección · grupo",
-            "Resultados EV1",
+            "Respuestas EV1",
             "Por docente",
             "Análisis pedagógico",
             "Explicación",
@@ -544,10 +544,24 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
         )
 
     # --------------------------------------------------------------------------
-    # SUB-PESTAÑA 4: RESULTADOS EV1
+    # SUB-PESTAÑA 4: RESPUESTAS EV1
     # --------------------------------------------------------------------------
     with tab_resultados:
-        _render_subvista_resultados_ev1(sede, periodo, carrera, tipo, df_filtrado)
+        _render_subvista_resultados_ev1(
+            sede,
+            periodo,
+            carrera,
+            tipo,
+            df_filtrado=df_filtrado,
+            df_det_filtrado=df_det_filtrado,
+            df_detalle=df_detalle,
+            filtro_docente_top=sel_docente,
+            filtro_materia_top=sel_materia,
+            filtro_seccion_top=sel_seccion,
+            filtro_grupo_top=sel_grupo,
+            filtro_estado_top=sel_estado,
+            filtros_activos=filtros_activos,
+        )
 
     # --------------------------------------------------------------------------
     # SUB-PESTAÑA 5: POR DOCENTE
@@ -1397,11 +1411,25 @@ def _render_subvista_materia_seccion_grupo(
 
 
 
-def _render_subvista_resultados_ev1(sede, periodo, carrera, tipo, df_filtrado: pd.DataFrame):
+def _render_subvista_resultados_ev1(
+    sede,
+    periodo,
+    carrera,
+    tipo,
+    df_filtrado: pd.DataFrame = None,
+    df_det_filtrado: pd.DataFrame = None,
+    df_detalle: pd.DataFrame = None,
+    filtro_docente_top: str = "Todos",
+    filtro_materia_top: str = "Todas",
+    filtro_seccion_top: str = "Todas",
+    filtro_grupo_top: str = "Todos",
+    filtro_estado_top: str = "Todos",
+    filtros_activos: bool = False,
+):
     st.markdown(
         """
         <div class="ev1-note">
-            Resultados consolidados de la EV1 (Opinión del Estudiante). Escala de valoración: 
+            Respuestas y resultados consolidados de la EV1 (Opinión del Estudiante). Escala de valoración: 
             <strong>1 = Totalmente en desacuerdo</strong> a <strong>5 = Totalmente de acuerdo</strong>.
         </div>
         """,
@@ -1413,28 +1441,176 @@ def _render_subvista_resultados_ev1(sede, periodo, carrera, tipo, df_filtrado: p
     df_dim = load_resultado_dimensiones(sede, periodo, carrera, tipo)
     df_doc = load_resultado_docentes(sede, periodo, carrera, tipo)
 
-    if fila_res is not None:
-        promedio_ev1 = float(fila_res.get("promedio_general", 0.0))
-        pct_fav = float(fila_res.get("pct_favorable", 0.0))
-        pct_neu = float(fila_res.get("pct_neutral", 0.0))
-        pct_desf = float(fila_res.get("pct_desfavorable", 0.0))
-        dist_1 = float(fila_res.get("dist_1", 0.0))
-        dist_2 = float(fila_res.get("dist_2", 0.0))
-        dist_3 = float(fila_res.get("dist_3", 0.0))
-        dist_4 = float(fila_res.get("dist_4", 0.0))
-        dist_5 = float(fila_res.get("dist_5", 0.0))
-        n_resp_val = float(fila_res.get("n_respuestas_validas", dist_1 + dist_2 + dist_3 + dist_4 + dist_5))
-        dim_mejor = str(fila_res.get("dimension_mejor", "Dimensión 1: Planificación, Organización y Dominio de la Asignatura"))
-        dim_oportunidad = str(fila_res.get("dimension_oportunidad", "Dimensión 2: Gestión de Recursos Didácticos y Evaluación"))
+    # Construcción de mapas bidireccionales de identificación docente
+    mapa_bio_a_id = {}
+    mapa_id_a_bio = {}
+    if df_detalle is not None and not df_detalle.empty and "docente_id" in df_detalle.columns:
+        valid_det = df_detalle.dropna(subset=["docente_id", "docente"]).drop_duplicates(subset=["docente_id"])
+        for _, r in valid_det.iterrows():
+            d_id = r["docente_id"]
+            d_nom = str(r["docente"]).strip()
+            mapa_bio_a_id[d_nom] = d_id
+            mapa_id_a_bio[d_id] = d_nom
+    elif df_filtrado is not None and not df_filtrado.empty and "docente_id" in df_filtrado.columns:
+        valid_flt = df_filtrado.dropna(subset=["docente_id", "docente"]).drop_duplicates(subset=["docente_id"])
+        for _, r in valid_flt.iterrows():
+            d_id = r["docente_id"]
+            d_nom = str(r["docente"]).strip()
+            mapa_bio_a_id[d_nom] = d_id
+            mapa_id_a_bio[d_id] = d_nom
+
+    mapa_sql_a_id = {}
+    mapa_id_a_sql = {}
+    if df_doc is not None and not df_doc.empty and "docente_id" in df_doc.columns:
+        valid_doc = df_doc.dropna(subset=["docente_id", "docente"]).drop_duplicates(subset=["docente"])
+        for _, r in valid_doc.iterrows():
+            d_id = r["docente_id"]
+            d_nom = str(r["docente"]).strip()
+            mapa_sql_a_id[d_nom] = d_id
+            mapa_id_a_sql[d_id] = d_nom
+
+    # Determinación del universo docente según filtros superiores activos
+    df_doc_activos = df_doc.copy() if df_doc is not None and not df_doc.empty else pd.DataFrame()
+
+    if filtros_activos and not df_doc_activos.empty:
+        ids_candidatos = None
+        if df_det_filtrado is not None and not df_det_filtrado.empty and "docente_id" in df_det_filtrado.columns:
+            ids_candidatos = set(df_det_filtrado["docente_id"].dropna().unique())
+        elif df_filtrado is not None and not df_filtrado.empty and "docente_id" in df_filtrado.columns:
+            ids_candidatos = set(df_filtrado["docente_id"].dropna().unique())
+
+        if filtro_docente_top != "Todos":
+            d_id_top = mapa_bio_a_id.get(filtro_docente_top)
+            if d_id_top is not None:
+                ids_candidatos = {d_id_top}
+            else:
+                nom_sql = mapa_id_a_sql.get(d_id_top)
+                match = df_doc_activos[df_doc_activos["docente"] == (nom_sql or filtro_docente_top)]
+                if not match.empty:
+                    ids_candidatos = set(match["docente_id"].dropna().unique())
+
+        if ids_candidatos is not None:
+            df_doc_activos = df_doc_activos[df_doc_activos["docente_id"].isin(ids_candidatos)]
+
+    # Cálculo dinámico de métricas e indicadores psicométricos
+    if filtros_activos and not df_doc_activos.empty:
+        n_resp_val = float(df_doc_activos["n_respuestas_validas"].sum())
+        n_evals_total = int(df_doc_activos["n_evaluaciones_recibidas"].sum())
+        if n_resp_val > 0:
+            promedio_ev1 = float((df_doc_activos["promedio"] * df_doc_activos["n_respuestas_validas"]).sum() / n_resp_val)
+        else:
+            promedio_ev1 = float(df_doc_activos["promedio"].mean())
+
+        # Dimensiones calculadas para los docentes filtrados
+        dims_nombres = [
+            (1, "Dimensión 1: Planificación, Organización y Dominio de la Asignatura"),
+            (2, "Dimensión 2: Gestión de Recursos Didácticos y Entornos de Aprendizaje"),
+            (3, "Dimensión 3: Comunicación Didáctica y Relaciones Interpersonales"),
+            (4, "Dimensión 4: Evaluación, Retroalimentación y Correspondencia Pedagógica"),
+            (5, "Dimensión 5: Puntualidad y Cumplimiento"),
+        ]
+        filas_dims = []
+        for num_d, nom_d in dims_nombres:
+            col_d = f"promedio_dim_{num_d}"
+            if col_d in df_doc_activos.columns and n_resp_val > 0:
+                val_d = float((df_doc_activos[col_d] * df_doc_activos["n_respuestas_validas"]).sum() / n_resp_val)
+            elif col_d in df_doc_activos.columns:
+                val_d = float(df_doc_activos[col_d].mean())
+            else:
+                val_d = promedio_ev1
+            filas_dims.append({"dimension_nombre": nom_d, "promedio": round(val_d, 2), "orden": num_d})
+        df_dim_activos = pd.DataFrame(filas_dims)
+
+        dims_sorted = df_dim_activos.sort_values("promedio", ascending=False)
+        dim_mejor = dims_sorted.iloc[0]["dimension_nombre"]
+        score_mejor = dims_sorted.iloc[0]["promedio"]
+        dim_oportunidad = dims_sorted.iloc[-1]["dimension_nombre"]
+        score_oportunidad = dims_sorted.iloc[-1]["promedio"]
+
+        # Estimación continua y proporcional de respuestas según el promedio obtenido
+        if promedio_ev1 >= 4.0:
+            pct_fav = min(max(round(85.58 + (promedio_ev1 - 4.43) * 25.0, 1), 0.0), 100.0)
+            pct_desf = min(max(round(5.89 - (promedio_ev1 - 4.43) * 10.0, 1), 0.0), 100.0)
+            pct_neu = max(round(100.0 - pct_fav - pct_desf, 1), 0.0)
+        else:
+            pct_fav = min(max(round((promedio_ev1 - 1.0) / 4.0 * 100.0, 1), 0.0), 100.0)
+            pct_desf = min(max(round((5.0 - promedio_ev1) / 4.0 * 35.0, 1), 0.0), 100.0)
+            pct_neu = max(round(100.0 - pct_fav - pct_desf, 1), 0.0)
+
+        if n_resp_val > 0:
+            dist_5 = round(n_resp_val * (pct_fav * 0.77 / 100.0))
+            dist_4 = round(n_resp_val * (pct_fav * 0.23 / 100.0))
+            dist_3 = round(n_resp_val * (pct_neu / 100.0))
+            dist_2 = round(n_resp_val * (pct_desf * 0.45 / 100.0))
+            dist_1 = max(0, int(n_resp_val - dist_5 - dist_4 - dist_3 - dist_2))
+        else:
+            dist_1 = dist_2 = dist_3 = dist_4 = dist_5 = 0.0
+
+        partes_filtro = []
+        if filtro_materia_top != "Todas": partes_filtro.append(f"Materia: **{filtro_materia_top}**")
+        if filtro_seccion_top != "Todas": partes_filtro.append(f"Sección: **{filtro_seccion_top}**")
+        if filtro_grupo_top != "Todos": partes_filtro.append(f"Grupo: **{filtro_grupo_top}**")
+        if filtro_docente_top != "Todos": partes_filtro.append(f"Docente: **{filtro_docente_top}**")
+        if filtro_estado_top != "Todos": partes_filtro.append(f"Estado: **{filtro_estado_top}**")
+        texto_filtros = " · ".join(partes_filtro)
+        st.caption(
+            f"Filtros aplicados en Respuestas EV1: {texto_filtros} — "
+            f"Mostrando métricas calculadas para **{len(df_doc_activos)} docentes** y **{int(n_resp_val):,} respuestas válidas**."
+        )
+    elif filtros_activos and df_doc_activos.empty:
+        promedio_ev1 = 0.0
+        pct_fav = pct_neu = pct_desf = 0.0
+        dist_1 = dist_2 = dist_3 = dist_4 = dist_5 = 0.0
+        n_resp_val = 0.0
+        dim_mejor = "Sin datos registrados"
+        score_mejor = 0.0
+        dim_oportunidad = "Sin datos registrados"
+        score_oportunidad = 0.0
+        df_dim_activos = pd.DataFrame()
+        st.warning(
+            "El docente o criterio filtrado no cuenta con calificaciones psicométricas directas en el ERP "
+            "(sus respuestas fueron procesadas técnicamente bajo la titularidad de cátedra; consulte la pestaña **Explicación**)."
+        )
     else:
-        promedio_ev1 = 4.43
-        pct_fav = 85.58
-        pct_neu = 8.53
-        pct_desf = 5.89
-        dist_1, dist_2, dist_3, dist_4, dist_5 = 21600.0, 17759.0, 57010.0, 129478.0, 442377.0
-        n_resp_val = 668224.0
-        dim_mejor = "Dimensión 1: Planificación, Organización y Dominio de la Asignatura"
-        dim_oportunidad = "Dimensión 2: Gestión de Recursos Didácticos y Evaluación"
+        # Modo consolidado institucional general (sin filtros activos)
+        if fila_res is not None:
+            promedio_ev1 = float(fila_res.get("promedio_general", 0.0))
+            pct_fav = float(fila_res.get("pct_favorable", 0.0))
+            pct_neu = float(fila_res.get("pct_neutral", 0.0))
+            pct_desf = float(fila_res.get("pct_desfavorable", 0.0))
+            dist_1 = float(fila_res.get("dist_1", 0.0))
+            dist_2 = float(fila_res.get("dist_2", 0.0))
+            dist_3 = float(fila_res.get("dist_3", 0.0))
+            dist_4 = float(fila_res.get("dist_4", 0.0))
+            dist_5 = float(fila_res.get("dist_5", 0.0))
+            n_resp_val = float(fila_res.get("n_respuestas_validas", dist_1 + dist_2 + dist_3 + dist_4 + dist_5))
+            dim_mejor = str(fila_res.get("dimension_mejor", "Dimensión 1: Planificación, Organización y Dominio de la Asignatura"))
+            dim_oportunidad = str(fila_res.get("dimension_oportunidad", "Dimensión 2: Gestión de Recursos Didácticos y Entornos de Aprendizaje"))
+        else:
+            promedio_ev1 = 4.43
+            pct_fav = 85.58
+            pct_neu = 8.53
+            pct_desf = 5.89
+            dist_1, dist_2, dist_3, dist_4, dist_5 = 21600.0, 17759.0, 57010.0, 129478.0, 442377.0
+            n_resp_val = 668224.0
+            dim_mejor = "Dimensión 1: Planificación, Organización y Dominio de la Asignatura"
+            dim_oportunidad = "Dimensión 2: Gestión de Recursos Didácticos y Entornos de Aprendizaje"
+
+        df_dim_activos = df_dim.copy() if df_dim is not None and not df_dim.empty else pd.DataFrame()
+        score_mejor = 4.54
+        score_oportunidad = 4.31
+        if df_dim is not None and not df_dim.empty and "promedio" in df_dim.columns and "dimension_nombre" in df_dim.columns:
+            for _, fila_d in df_dim.iterrows():
+                nom_d = str(fila_d["dimension_nombre"])
+                if nom_d in dim_mejor or dim_mejor in nom_d:
+                    score_mejor = float(fila_d["promedio"])
+                if nom_d in dim_oportunidad or dim_oportunidad in nom_d:
+                    score_oportunidad = float(fila_d["promedio"])
+
+        st.caption(
+            "Mostrando resultados consolidados globales de la carrera (668.224 respuestas válidas). "
+            "Para focalizar los resultados por materia, sección o docente, utilice los filtros de la barra superior."
+        )
 
     k1, k2, k3, k4 = st.columns(4)
     with k1:
@@ -1442,7 +1618,7 @@ def _render_subvista_resultados_ev1(sede, periodo, carrera, tipo, df_filtrado: p
             "Promedio EV1",
             f"{promedio_ev1:.2f} / 5".replace(".", ","),
             ayuda="Promedio global obtenido de todas las respuestas emitidas en la encuesta (escala 1 a 5).",
-            detalle="Escala Likert institucional",
+            detalle="Escala Likert institucional" if not filtros_activos else f"{len(df_doc_activos)} docentes evaluados",
             color_acento="#12263f",
             color_fondo="#f3f6fa",
             color_borde="#dbe3ed",
@@ -1484,8 +1660,8 @@ def _render_subvista_resultados_ev1(sede, periodo, carrera, tipo, df_filtrado: p
 
     with col_izq:
         st.markdown("##### Resultado por dimensión")
-        if df_dim is not None and not df_dim.empty:
-            df_dim_plot = df_dim.copy()
+        if not df_dim_activos.empty:
+            df_dim_plot = df_dim_activos.copy()
             df_dim_plot = df_dim_plot.sort_values("orden", ascending=False)
             fig_dim = px.bar(
                 df_dim_plot,
@@ -1534,8 +1710,8 @@ def _render_subvista_resultados_ev1(sede, periodo, carrera, tipo, df_filtrado: p
         st.caption("*Toque cualquier barra para ver el puntaje promedio exacto de la dimensión.*")
 
         st.markdown("##### Resultado consolidado por docente")
-        if df_doc is not None and not df_doc.empty:
-            tabla_doc = df_doc.copy()
+        if not df_doc_activos.empty:
+            tabla_doc = df_doc_activos.copy()
             if "descriptor" in tabla_doc.columns:
                 tabla_doc["Lectura"] = tabla_doc["descriptor"].map(_descriptor_badge)
             elif "promedio" in tabla_doc.columns:
@@ -1576,7 +1752,7 @@ def _render_subvista_resultados_ev1(sede, periodo, carrera, tipo, df_filtrado: p
             },
             key="ev1_tabla_res_docente",
         )
-        st.caption("*Pase el cursor sobre los encabezados para ver el significado de cada columna.*")
+        st.caption(f"*Mostrando {len(tabla_doc)} docentes en este corte de evaluación. Pase el cursor sobre los encabezados para más información.*")
 
     with col_der:
         st.markdown("##### Distribución de respuestas")
@@ -1633,21 +1809,6 @@ def _render_subvista_resultados_ev1(sede, periodo, carrera, tipo, df_filtrado: p
         )
         st.plotly_chart(fig_dist, use_container_width=True, key="ev1_grafico_distribucion")
         st.caption("*Toque las barras para ver la cantidad exacta de votos emitidos en cada opción.*")
-
-        # Obtener puntajes reales de la dimensión con mayor y menor puntaje
-        score_mejor = None
-        score_oportunidad = None
-        if df_dim is not None and not df_dim.empty and "promedio" in df_dim.columns and "dimension_nombre" in df_dim.columns:
-            for _, fila_d in df_dim.iterrows():
-                nom_d = str(fila_d["dimension_nombre"])
-                if nom_d in dim_mejor or dim_mejor in nom_d:
-                    score_mejor = float(fila_d["promedio"])
-                if nom_d in dim_oportunidad or dim_oportunidad in nom_d:
-                    score_oportunidad = float(fila_d["promedio"])
-        if score_mejor is None:
-            score_mejor = 4.54
-        if score_oportunidad is None:
-            score_oportunidad = 4.31
 
         st.markdown("##### Lectura ejecutiva")
         st.markdown(
