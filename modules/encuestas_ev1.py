@@ -2876,7 +2876,7 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
         st.markdown(
             """
             En la carrera de Medicina se presentan dinámicas docentes específicas:
-            - **Cátedra Compartida (Teoría vs. Práctica)**: Un docente dicta la teoría y otros profesores conducen la práctica clínica o de laboratorio (ej. subgrupos MO y MS). Cada docente es evaluado independientemente por los alumnos de su comisión.
+            - **Cátedra Compartida (Teoría vs. Práctica)**: Un docente dicta la teoría y otros profesores conducen la práctica en laboratorios y aulas prácticas (ej. comisiones de Morgue Orgánica MO y Morgue Seca MS). Cada docente es evaluado independientemente por los alumnos de su comisión.
             - **Reemplazos Curriculares que Culminan Cátedra (Escenario A)**: Cuando un docente asume la cátedra por relevo o renuncia del titular y dicta las clases hasta finalizar el ciclo lectivo (como la Dra. Romero y la Dra. Bordaberry), se integra formalmente en las **1.174 ofertas rectoras**.
             - **Cómputo en ERP**: Si el sistema no generó una ficha individual con el nombre del docente reemplazante, las respuestas de los estudiantes se consolidaron técnicamente en la titularidad de la cátedra, garantizando que el esfuerzo y evaluación estudiantil computen al 100%.
             """,
@@ -2919,7 +2919,7 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
                         </tr>
                         <tr style="background: #f8fafc;">
                             <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Comisión Académica</td>
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Unidad operativa de dictado de una materia (ej. comisión teórica o comisiones prácticas de laboratorio MO y habilidades clínicas MS) asignada a un docente con su respectivo subgrupo de alumnos matriculados.</td>
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Unidad operativa de dictado de una materia (ej. comisión teórica o comisiones prácticas en aulas y laboratorios de Morgue Orgánica MO y Morgue Seca MS) asignada a un docente con su respectivo subgrupo de alumnos matriculados.</td>
                         </tr>
                         <tr style="background: #ffffff;">
                             <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Oferta Académica</td>
@@ -2943,11 +2943,11 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
                         </tr>
                         <tr style="background: #f8fafc;">
                             <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Grupo MO</td>
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Grupo práctico de simulación o laboratorio de habilidades motoras (<em>Miembro Operativo</em>).</td>
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Grupo práctico en aula / laboratorio de <strong>Morgue Orgánica (MO)</strong>, enfocado en prácticas de anatomía y habilidades médicas con piezas y preparados biológicos orgánicos.</td>
                         </tr>
                         <tr style="background: #ffffff;">
                             <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Grupo MS</td>
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Grupo práctico de habilidades clínicas y anatomía (<em>Miembro Superior</em>).</td>
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Grupo práctico en aula / laboratorio de <strong>Morgue Seca (MS)</strong>, enfocado en prácticas de anatomía y simulación con modelos anatómicos secos, piezas sintéticas y estaciones de destreza.</td>
                         </tr>
                         <tr style="background: #f8fafc;">
                             <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Cobertura de Oferta</td>
