@@ -1936,6 +1936,11 @@ def _render_subvista_por_docente(
     if docente_id_elegido is None or pd.isna(docente_id_elegido):
         docente_id_elegido = mapa_sql_a_id.get(docente_elegido, mapa_bio_a_id.get(docente_elegido))
 
+    if fila_doc is None and docente_id_elegido is not None and df_doc_db is not None and not df_doc_db.empty and "docente_id" in df_doc_db.columns:
+        matches_id = df_doc_db[df_doc_db["docente_id"] == docente_id_elegido]
+        if not matches_id.empty:
+            fila_doc = matches_id.iloc[0]
+
     nombre_bio = mapa_id_a_bio.get(docente_id_elegido, docente_elegido)
 
     if fila_doc is not None:
@@ -2145,6 +2150,26 @@ def _render_subvista_por_docente(
         st.caption(f"*Mostrando {len(df_of)} ofertas académicas asignadas a este docente. Toque los encabezados para ordenar.*")
     else:
         st.info("Sin ofertas registradas para este docente con los filtros seleccionados.")
+
+    # --------------------------------------------------------------------------
+    # ANÁLISIS PEDAGÓGICO DEL DOCENTE SELECCIONADO
+    # --------------------------------------------------------------------------
+    st.divider()
+    st.markdown("#### Análisis Pedagógico del Docente Seleccionado")
+    st.caption(
+        f"Desglose completo de las **5 Dimensiones**, **10 Indicadores** y **16 Criterios** evaluados por los estudiantes para "
+        f"**{escape(nombre_bio or docente_elegido)}**, con sus calificaciones específicas, promedios de indicadores y descriptores cualitativos oficiales."
+    )
+    _render_arbol_pedagogico(
+        sede,
+        periodo,
+        carrera,
+        tipo,
+        docente_nombre=(nombre_bio or docente_elegido),
+        dims_doc=dims_doc,
+        score_doc=score_doc,
+        key_prefix=f"doc_{docente_elegido}",
+    )
 
 
 # ==============================================================================
