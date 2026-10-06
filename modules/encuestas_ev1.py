@@ -571,7 +571,15 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
     # SUB-PESTAÑA 6: ANÁLISIS PEDAGÓGICO
     # --------------------------------------------------------------------------
     with tab_pedagogico:
-        _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo)
+        _render_subvista_analisis_pedagogico(
+            sede,
+            periodo,
+            carrera,
+            tipo,
+            docente_seleccionado=sel_docente,
+            df_base=df_base,
+            df_detalle=df_detalle,
+        )
 
     # --------------------------------------------------------------------------
     # SUB-PESTAÑA 7: EXPLICACIÓN Y GUÍA METODOLÓGICA
@@ -1972,24 +1980,6 @@ def _render_subvista_por_docente(
         else:
             st.info("Sin ofertas registradas para este docente con los filtros seleccionados.")
 
-    # --- Desglose Pedagógico del Docente Seleccionado ---
-    st.divider()
-    st.markdown("#### Análisis Pedagógico del Docente Seleccionado")
-    st.caption(
-        f"Desglose completo de las **5 Dimensiones**, **10 Indicadores** y **16 Criterios** evaluados por los estudiantes para "
-        f"**{escape(nombre_bio or docente_elegido)}**, con sus calificaciones específicas, promedios de indicadores y descriptores cualitativos oficiales."
-    )
-    _render_arbol_pedagogico(
-        sede,
-        periodo,
-        carrera,
-        tipo,
-        docente_nombre=(nombre_bio or docente_elegido),
-        dims_doc=dims_doc,
-        score_doc=score_doc,
-        key_prefix=f"doc_{docente_elegido}",
-    )
-
 
 # ==============================================================================
 # FUNCIÓN COMPARTIDA: ÁRBOL PEDAGÓGICO (DIMENSIONES, INDICADORES Y CRITERIOS)
@@ -2155,7 +2145,15 @@ def _render_arbol_pedagogico(
 # SUB-VISTA 6: ANÁLISIS PEDAGÓGICO
 # ==============================================================================
 
-def _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo):
+def _render_subvista_analisis_pedagogico(
+    sede,
+    periodo,
+    carrera,
+    tipo,
+    docente_seleccionado="Todos",
+    df_base=None,
+    df_detalle=None,
+):
     st.markdown(
         """
         <div class="ev1-note">
@@ -2168,72 +2166,83 @@ def _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo):
     )
 
     df_doc_db = load_resultado_docentes(sede, periodo, carrera, tipo)
-    docentes_disponibles = (
-        sorted(df_doc_db["docente"].dropna().unique().tolist())
-        if df_doc_db is not None and not df_doc_db.empty
-        else []
-    )
 
-    col_modo, col_sel = st.columns([1.2, 1.8])
-    with col_modo:
-        modo_ped = st.radio(
-            "Alcance del análisis pedagógico:",
-            options=["Consolidado Institucional (Carrera)", "Por Docente Específico"],
-            horizontal=True,
-            key="ev1_modo_pedagogico",
+    if docente_seleccionado == "Todos":
+        fila_gen = load_resultado_general(sede, periodo, carrera, tipo)
+        prom_gen = (
+            float(fila_gen.get("promedio_general", 4.38))
+            if fila_gen is not None and fila_gen.get("promedio_general") is not None
+            else 4.38
         )
-
-    if modo_ped == "Por Docente Específico" and docentes_disponibles:
-        with col_sel:
-            doc_sel = st.selectbox(
-                "Seleccione un docente:",
-                options=docentes_disponibles,
-                key="ev1_pedagogico_doc_sel",
-            )
-        fila_sel = df_doc_db[df_doc_db["docente"] == doc_sel].iloc[0]
-        score_sel = float(fila_sel.get("promedio", 0.0))
-        dims_sel = [
-            float(fila_sel.get("promedio_dim_1", score_sel)),
-            float(fila_sel.get("promedio_dim_2", score_sel)),
-            float(fila_sel.get("promedio_dim_3", score_sel)),
-            float(fila_sel.get("promedio_dim_4", score_sel)),
-            float(fila_sel.get("promedio_dim_5", score_sel)),
-        ]
         st.markdown(
-            f"##### Desempeño Pedagógico: **{escape(doc_sel)}** (Promedio General: **{_formatear_puntaje(score_sel)} / 5,00** — {_descriptor_badge(_calcular_descriptor_cualitativo(score_sel))})"
+            f"##### Consolidado Institucional (Carrera) — Promedio General: **{_formatear_puntaje(prom_gen)} / 5,00** — {_descriptor_badge(_calcular_descriptor_cualitativo(prom_gen))}"
         )
+        st.caption("Mostrando el análisis pedagógico global ponderado de todas las materias y docentes evaluados en la carrera. Para ver el árbol de un docente específico, elíjalo en el filtro superior.")
         _render_arbol_pedagogico(
             sede,
             periodo,
             carrera,
             tipo,
-            docente_nombre=doc_sel,
-            dims_doc=dims_sel,
-            score_doc=score_sel,
-            key_prefix="ped_sub6_doc",
+            docente_nombre=None,
+            dims_doc=None,
+            score_doc=None,
+            key_prefix="ped_sub6_inst",
         )
     else:
-        if modo_ped == "Por Docente Específico":
-            st.info("No hay docentes individuales disponibles en este periodo.")
-        else:
-            fila_gen = load_resultado_general(sede, periodo, carrera, tipo)
-            prom_gen = (
-                float(fila_gen.get("promedio_general", 4.38))
-                if fila_gen is not None and fila_gen.get("promedio_general") is not None
-                else 4.38
-            )
+        # Búsqueda y mapeo del docente seleccionado en el filtro superior
+        fila_doc_sel = None
+        nom_doc_en_erp = None
+
+        if df_doc_db is not None and not df_doc_db.empty:
+            # 1. Búsqueda directa por coincidencia de nombre
+            directo = df_doc_db[df_doc_db["docente"] == docente_seleccionado]
+            if not directo.empty:
+                fila_doc_sel = directo.iloc[0]
+                nom_doc_en_erp = docente_seleccionado
+            else:
+                # 2. Búsqueda por docente_id a través de df_detalle o df_base
+                doc_id_buscado = None
+                if df_detalle is not None and not df_detalle.empty and "docente_id" in df_detalle.columns:
+                    match_det = df_detalle[df_detalle["docente"] == docente_seleccionado]
+                    if not match_det.empty:
+                        doc_id_buscado = match_det.iloc[0]["docente_id"]
+                if doc_id_buscado is None and df_base is not None and not df_base.empty and "docente_id" in df_base.columns:
+                    match_base = df_base[df_base["docente"] == docente_seleccionado]
+                    if not match_base.empty:
+                        doc_id_buscado = match_base.iloc[0]["docente_id"]
+
+                if doc_id_buscado is not None and not pd.isna(doc_id_buscado):
+                    match_id = df_doc_db[df_doc_db["docente_id"] == doc_id_buscado]
+                    if not match_id.empty:
+                        fila_doc_sel = match_id.iloc[0]
+                        nom_doc_en_erp = str(fila_doc_sel["docente"])
+
+        if fila_doc_sel is not None:
+            score_sel = float(fila_doc_sel.get("promedio", fila_doc_sel.get("promedio_general", 0.0)))
+            dims_sel = [
+                float(fila_doc_sel.get("promedio_dim_1", score_sel)),
+                float(fila_doc_sel.get("promedio_dim_2", score_sel)),
+                float(fila_doc_sel.get("promedio_dim_3", score_sel)),
+                float(fila_doc_sel.get("promedio_dim_4", score_sel)),
+                float(fila_doc_sel.get("promedio_dim_5", score_sel)),
+            ]
             st.markdown(
-                f"##### Promedios Institucionales de la Carrera (Promedio General: **{_formatear_puntaje(prom_gen)} / 5,00** — {_descriptor_badge(_calcular_descriptor_cualitativo(prom_gen))})"
+                f"##### Desempeño Pedagógico: **{escape(docente_seleccionado)}** (Promedio General: **{_formatear_puntaje(score_sel)} / 5,00** — {_descriptor_badge(_calcular_descriptor_cualitativo(score_sel))})"
             )
+            st.caption(f"Filtro activo en la barra superior. Registro en base de datos ERP: <em>{escape(nom_doc_en_erp)}</em>.")
             _render_arbol_pedagogico(
                 sede,
                 periodo,
                 carrera,
                 tipo,
-                docente_nombre=None,
-                dims_doc=None,
-                score_doc=None,
-                key_prefix="ped_sub6_inst",
+                docente_nombre=docente_seleccionado,
+                dims_doc=dims_sel,
+                score_doc=score_sel,
+                key_prefix=f"ped_sub6_flt_{docente_seleccionado}",
+            )
+        else:
+            st.warning(
+                f"El docente **{escape(docente_seleccionado)}** no cuenta con calificaciones psicométricas directas registradas en el ERP (sus respuestas de encuestas fueron consolidadas técnicamente bajo la titularidad de cátedra; consulte la pestaña **Explicación**)."
             )
 
     # --------------------------------------------------------------------------
@@ -2502,8 +2511,18 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
                     </tbody>
                 </table>
             </div>
-            <strong>Auditoría de Casos Específicos:</strong><br>
-            • <strong>Dra. Andrea Araceli Romero Giménez (Clínica Quirúrgica I, Sec. A)</strong>: Asumió la docencia práctica el 01/03/2026 y <strong>finalizó la planificación académica completa hasta el 13/06/2026</strong>. 22 de sus 25 alumnos respondieron encuestas (88,0% de avance). En el ERP, las respuestas del formulario se consolidaron bajo la titular de cátedra (Dra. Vieth), por lo que no tuvo ficha individual en <code>resultado_por_docente</code>, pero el avance de sus alumnos es pleno.<br>
+            <strong>Auditoría de Casos Específicos y Resolución de Duplicados en ERP:</strong><br>
+            • <strong>Dra. Andrea Araceli Romero Giménez (Clínica Quirúrgica I, Sec. A, G1/G2-Sub 01)</strong>:
+              Asumió la comisión práctica el 01/03/2026 en relevo de la Dra. Mónica Mabel Vieth García y <strong>dictó las clases hasta culminar el ciclo lectivo el 13/06/2026</strong>. 22 de sus 25 alumnos respondieron la encuesta (88,0% de avance).
+              <em>¿Por qué no tuvo ficha propia en <code>resultado_por_docente</code>?</em> Porque en el ERP (<code>Academico.RespuestaUsuario</code>) el formulario de evaluación de esa cátedra quedó precargado bajo el identificador de la titular (Dra. Vieth); las respuestas de los 22 alumnos se almacenaron técnicamente bajo la titular, computándole 0 respuestas a nombre de Romero. Sin embargo, en <code>avance_por_alumno</code> la Dra. Romero sí figuró al frente de esas 25 asignaciones, y al haber culminado el ciclo lectivo con pleno avance, es parte ineludible de los <strong>213 titulares del Modelo Rector</strong>.<br>
+            • <strong>Los 2 Registros Duplicados en ERP (216 filas = 214 personas físicas con notas)</strong>:
+              Al auditar <code>resultado_por_docente</code> por código único de docente, se evidenció que existen 214 profesores físicos y 2 duplicados por inconsistencia tipográfica en origen:
+              <br>&nbsp;&nbsp;1) <em>Docente ID 23354.0</em>: <code>GARAY SALDAÑA, BRUNO JOSE</code> y <code>GARAY SALDAÑA, DOCENTE_BRUNO JOSE</code> (generado por una cuenta con prefijo administrativo <code>DOCENTE_</code>).
+              <br>&nbsp;&nbsp;2) <em>Docente ID 23295.0</em>: <code>MARTINEZ GONZALEZ, DEISY MARIELA</code> y <code>MARTÍNEZ GONZÁLEZ, DEISY MARIELA</code> (generado por disparidad ortográfica de tildes en el ERP).
+              <br>De estas 214 personas físicas: 211 son titulares + 3 reemplazantes evaluados directamente a su propio nombre (Bordaberry, Centurión y Da Silva).<br>
+            • <strong>Mecánica del Descuadre por "Deduplicación Ciega" en el ETL</strong>:
+              En <code>services/etl/encuestas_etl.py</code> (línea 691), la instrucción <code>drop_duplicates(subset=["system_id", "planificacion_id", "grupo"])</code> retiene automáticamente la <em>primera fila</em> que lee en el archivo CSV y descarta las siguientes, sin considerar fechas de inicio/fin ni horas dictadas.
+              Cuando el titular figuraba primero (Ordano, Romero Franco, Fox Jiménez y Mareco Romero), el ETL descartó a las 4 reemplazantes. Cuando la reemplazante figuraba primero (Romero y Bordaberry), el ETL las retuvo a ellas y descartó al titular. Por ello, el <strong>Escenario A Rector</strong> corrige esta distorsión reconociendo a los 213 que efectivamente culminaron cátedra.<br>
             • <strong>Dra. María Fernanda Bordaberry Villalba (Clínica Quirúrgica I, Sec. B)</strong>: Asumió la teoría tras la renuncia del titular Dr. Roque Duarte y <strong>finalizó el semestre con los 100 alumnos</strong> (1.392 respuestas válidas a su nombre en el ERP).<br>
             • <strong>Prof. Gessica Adriana Ordano López (Medicina Comunitaria, Sec. I)</strong>: Asumió el relevo el 02/05/2026. Los alumnos evaluaron a la titular que inició el semestre, Dra. Ana Michelli Luis Giménez (496 respuestas). Ordano <strong>está plenamente registrada en el ERP</strong> (<code>IdDocenteExterno: 560</code>, <code>IdUsuario: 1279</code>) y <strong>completó su Autoevaluación Docente institucional (<code>IdEncuesta = 5</code>)</strong> el 31/07/2026.<br>
             • <strong>Los 42 Docentes Mixtos</strong>: Desempeñaron titularidad en sus materias principales y asumieron 100 ofertas de reemplazo (todas culminadas el 13/06/2026). En 64 comisiones fueron evaluados a su propio nombre en el ERP y en 36 las evaluaciones quedaron registradas bajo el titular original.
@@ -2721,10 +2740,17 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
             """
             | Término / Sigla | Definición Institucional |
             | :--- | :--- |
-            | **EV1** | Encuesta de Valoración Estudiantil a la Docencia (Opinión del Estudiante sobre el desempeño profesoral). |
-            | **Oferta Académica** | Unidad mínima de análisis docente compuesta por: *Materia + Sección + Grupo + Docente*. Existen **1.174 ofertas rectoras** en el Escenario A (1.289 en la malla física total con reemplazos temporales). |
-            | **Grupo MO** | Grupo práctico de simulación o laboratorio (*Miembro Operativo*). |
+            | **EV1** | Encuesta de Valoración Estudiantil a la Docencia (Opinión del Estudiante sobre el desempeño profesoral en escala Likert 1 a 5). |
+            | **Comisión Académica** | Unidad operativa de dictado de una materia (ej. comisión teórica o comisiones prácticas de laboratorio MO y habilidades clínicas MS) asignada a un docente con su respectivo subgrupo de alumnos matriculados. |
+            | **Oferta Académica** | Unidad mínima de análisis pedagógico compuesta por la tupla única: *Materia + Sección + Grupo + Docente*. Existen **1.174 ofertas rectoras** en el Escenario A (1.289 en la malla física total con reemplazos temporales). |
+            | **Modelo Rector (Escenario A)** | Universo oficial adoptado por la UCP de **213 docentes** que culminaron cátedra (211 titulares del Día 1 + 2 docentes que asumieron y culminaron la planificación académica completa hasta el 13/06/2026: Dra. Andrea Romero y Dra. María Fernanda Bordaberry). |
+            | **Deduplicación Ciega (ETL)** | Proceso algorítmico en <code>services/etl/encuestas_etl.py</code> (línea 691) que, al encontrar más de un docente en un mismo grupo para un alumno, retiene por defecto la primera fila física del archivo y descarta las siguientes, sin evaluar horas dictadas ni quién finalizó el ciclo lectivo. |
+            | **Inconsistencias Tipográficas en ERP** | Variaciones de texto en origen que duplicaron registros en <code>resultado_por_docente</code>: Bruno José Garay Saldaña (con prefijo <code>DOCENTE_</code>, ID 23354) y Deisy Mariela Martínez González (con y sin tildes, ID 23295), generando 216 filas para 214 personas físicas con notas. |
+            | **Cátedra Compartida vs. Reemplazo** | • *Cátedra Compartida*: Docentes que dictan en paralelo distintas partes del programa (un docente la teoría y otros las comisiones prácticas).<br>• *Reemplazo Curricular*: Docente que releva formalmente a otro profesor durante el semestre por renuncia o licencia. |
+            | **Grupo MO** | Grupo práctico de simulación o laboratorio de habilidades motoras (*Miembro Operativo*). |
             | **Grupo MS** | Grupo práctico de habilidades clínicas y anatomía (*Miembro Superior*). |
+            | **Cobertura de Oferta** | Grado de representatividad estadística alcanzado por una comisión: 🟢 **Adecuado** (≥ 80,0%) · 🟡 **Seguimiento** (50,0% a 79,9%) · 🔴 **Crítico** (&lt; 50,0%). |
+            | **Matrícula Convocada vs. Activa** | Total de 6.978 estudiantes habilitados frente a 4.701 que respondieron al menos una evaluación (67,4% de participación) y 4.531 que completaron el 100% (64,9%). |
             | **Criterios (16)** | Preguntas específicas del cuestionario evaluadas en escala Likert del 1 al 5. |
             | **Indicadores (10)** | Agrupaciones intermedias de criterios que miden aspectos clave de la práctica docente. |
             | **Dimensiones (5)** | Macro-ejes formativos: *Planificación y Organización, Metodología y Recursos, Interacción y Comunicación, Evaluación del Aprendizaje, y Cumplimiento y Responsabilidad*. |
