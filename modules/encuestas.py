@@ -72,6 +72,16 @@ def render_common_setup():
     st.markdown(
         """
         <style>
+        .block-container,
+        [data-testid="stMainBlockContainer"],
+        [data-testid="block-container"] {
+            padding-top: 1.5rem !important;
+            padding-bottom: 2.5rem !important;
+        }
+        header[data-testid="stHeader"] {
+            height: 2rem !important;
+            background: transparent !important;
+        }
         [data-testid="stElementToolbar"] { display: none; }
         div[data-testid="stDownloadButton"] button {
             min-height: 50px !important;

@@ -333,6 +333,16 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
     st.markdown(
         """
         <style>
+        .block-container,
+        [data-testid="stMainBlockContainer"],
+        [data-testid="block-container"] {
+            padding-top: 1.5rem !important;
+            padding-bottom: 2.5rem !important;
+        }
+        header[data-testid="stHeader"] {
+            height: 2rem !important;
+            background: transparent !important;
+        }
         .ev1-kpi-card:hover {
             transform: translateY(-2px);
             box-shadow: 0 6px 14px rgba(0,0,0,0.08) !important;
