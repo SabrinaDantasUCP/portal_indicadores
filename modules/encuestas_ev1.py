@@ -1734,36 +1734,26 @@ def _render_subvista_por_docente(
     if not docentes_disponibles:
         docentes_disponibles = list(PERFILES_DOCENTES_REFERENCIA.keys())
 
-    # Sincronización si el usuario seleccionó un docente en la barra superior de filtros
-    if "ev1_prev_filtro_docente_top" not in st.session_state:
-        st.session_state["ev1_prev_filtro_docente_top"] = filtro_docente_top
-
-    if st.session_state["ev1_prev_filtro_docente_top"] != filtro_docente_top:
-        st.session_state["ev1_prev_filtro_docente_top"] = filtro_docente_top
-        if filtro_docente_top != "Todos":
-            d_id_top = mapa_bio_a_id.get(filtro_docente_top)
-            nom_sql_top = mapa_id_a_sql.get(d_id_top)
-            if nom_sql_top and nom_sql_top in docentes_disponibles:
-                st.session_state["ev1_docente_selector"] = nom_sql_top
-
-    indice_default = 0
+    # Determinación del docente a visualizar conectada directamente al filtro superior
     if filtro_docente_top != "Todos":
         d_id_top = mapa_bio_a_id.get(filtro_docente_top)
         nom_sql_top = mapa_id_a_sql.get(d_id_top)
         if nom_sql_top and nom_sql_top in docentes_disponibles:
-            indice_default = docentes_disponibles.index(nom_sql_top)
-
-    docente_elegido = st.selectbox(
-        "Seleccione un docente para ver su análisis específico:",
-        options=docentes_disponibles,
-        index=indice_default,
-        key="ev1_docente_selector",
-    )
-    st.caption(
-        f"Mostrando los **{len(docentes_disponibles)} docentes** evaluados con respuestas válidas registradas en el ERP "
-        f"(en el **Escenario A Recomendado** el universo rector es de **213 docentes que culminaron cátedra**; los 216 registros en ERP representan a 214 personas físicas por 2 nombres duplicados en origen). "
-        f"Consulte la pestaña **Explicación** para la matriz comparativa de auditoría."
-    )
+            docente_elegido = nom_sql_top
+        elif filtro_docente_top in docentes_disponibles:
+            docente_elegido = filtro_docente_top
+        else:
+            docente_elegido = docentes_disponibles[0]
+        st.caption(
+            f"Mostrando análisis individual del docente seleccionado en la barra superior: **{escape(docente_elegido)}** "
+            f"(universo rector oficial de **213 docentes que culminaron cátedra**)."
+        )
+    else:
+        docente_elegido = docentes_disponibles[0]
+        st.caption(
+            f"Mostrando perfil individual del primer docente en lista (**{escape(docente_elegido)}**) "
+            f"debido a que el filtro superior está en *Todos*. Para consultar a otro profesor, selecciónelo en el filtro *Docente* de la barra superior."
+        )
 
     fila_doc = None
     if df_doc_db is not None and not df_doc_db.empty:
@@ -2229,7 +2219,7 @@ def _render_subvista_analisis_pedagogico(
             st.markdown(
                 f"##### Desempeño Pedagógico: **{escape(docente_seleccionado)}** (Promedio General: **{_formatear_puntaje(score_sel)} / 5,00** — {_descriptor_badge(_calcular_descriptor_cualitativo(score_sel))})"
             )
-            st.caption(f"Filtro activo en la barra superior. Registro en base de datos ERP: <em>{escape(nom_doc_en_erp)}</em>.")
+            st.caption(f"Filtro activo en la barra superior. Registro en base de datos ERP: *{nom_doc_en_erp}*.")
             _render_arbol_pedagogico(
                 sede,
                 periodo,
@@ -2738,25 +2728,84 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
     with st.expander("Ver Glosario Completo de Términos (EV1, MO, MS, Criterios, Dimensiones)", expanded=False):
         st.markdown(
             """
-            | Término / Sigla | Definición Institucional |
-            | :--- | :--- |
-            | **EV1** | Encuesta de Valoración Estudiantil a la Docencia (Opinión del Estudiante sobre el desempeño profesoral en escala Likert 1 a 5). |
-            | **Comisión Académica** | Unidad operativa de dictado de una materia (ej. comisión teórica o comisiones prácticas de laboratorio MO y habilidades clínicas MS) asignada a un docente con su respectivo subgrupo de alumnos matriculados. |
-            | **Oferta Académica** | Unidad mínima de análisis pedagógico compuesta por la tupla única: *Materia + Sección + Grupo + Docente*. Existen **1.174 ofertas rectoras** en el Escenario A (1.289 en la malla física total con reemplazos temporales). |
-            | **Modelo Rector (Escenario A)** | Universo oficial adoptado por la UCP de **213 docentes** que culminaron cátedra (211 titulares del Día 1 + 2 docentes que asumieron y culminaron la planificación académica completa hasta el 13/06/2026: Dra. Andrea Romero y Dra. María Fernanda Bordaberry). |
-            | **Deduplicación Ciega (ETL)** | Proceso algorítmico en <code>services/etl/encuestas_etl.py</code> (línea 691) que, al encontrar más de un docente en un mismo grupo para un alumno, retiene por defecto la primera fila física del archivo y descarta las siguientes, sin evaluar horas dictadas ni quién finalizó el ciclo lectivo. |
-            | **Inconsistencias Tipográficas en ERP** | Variaciones de texto en origen que duplicaron registros en <code>resultado_por_docente</code>: Bruno José Garay Saldaña (con prefijo <code>DOCENTE_</code>, ID 23354) y Deisy Mariela Martínez González (con y sin tildes, ID 23295), generando 216 filas para 214 personas físicas con notas. |
-            | **Cátedra Compartida vs. Reemplazo** | • *Cátedra Compartida*: Docentes que dictan en paralelo distintas partes del programa (un docente la teoría y otros las comisiones prácticas).<br>• *Reemplazo Curricular*: Docente que releva formalmente a otro profesor durante el semestre por renuncia o licencia. |
-            | **Grupo MO** | Grupo práctico de simulación o laboratorio de habilidades motoras (*Miembro Operativo*). |
-            | **Grupo MS** | Grupo práctico de habilidades clínicas y anatomía (*Miembro Superior*). |
-            | **Cobertura de Oferta** | Grado de representatividad estadística alcanzado por una comisión: 🟢 **Adecuado** (≥ 80,0%) · 🟡 **Seguimiento** (50,0% a 79,9%) · 🔴 **Crítico** (&lt; 50,0%). |
-            | **Matrícula Convocada vs. Activa** | Total de 6.978 estudiantes habilitados frente a 4.701 que respondieron al menos una evaluación (67,4% de participación) y 4.531 que completaron el 100% (64,9%). |
-            | **Criterios (16)** | Preguntas específicas del cuestionario evaluadas en escala Likert del 1 al 5. |
-            | **Indicadores (10)** | Agrupaciones intermedias de criterios que miden aspectos clave de la práctica docente. |
-            | **Dimensiones (5)** | Macro-ejes formativos: *Planificación y Organización, Metodología y Recursos, Interacción y Comunicación, Evaluación del Aprendizaje, y Cumplimiento y Responsabilidad*. |
-            | **Respuestas Favorables** | Porcentaje de estudiantes que calificaron con 4 o 5 (satisfecho / muy satisfecho). |
-            | **Escala de Desempeño** | 🟢 **Fortaleza** (≥ 4,30) · 🔵 **Adecuado** (4,00 a 4,29) · 🟡 **Seguimiento** (3,50 a 3,99) · 🔴 **Oportunidad** (&lt; 3,50). |
-            """
+            <div style="overflow-x: auto;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.84rem; text-align: left;">
+                    <thead>
+                        <tr style="background: #1e3a63; color: #ffffff;">
+                            <th style="padding: 9px 12px; border: 1px solid #cbd5e1; width: 220px;">Término / Sigla</th>
+                            <th style="padding: 9px 12px; border: 1px solid #cbd5e1;">Definición Institucional</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="background: #ffffff;">
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">EV1</td>
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Encuesta de Valoración Estudiantil a la Docencia (Opinión del Estudiante sobre el desempeño profesoral en escala Likert 1 a 5).</td>
+                        </tr>
+                        <tr style="background: #f8fafc;">
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Comisión Académica</td>
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Unidad operativa de dictado de una materia (ej. comisión teórica o comisiones prácticas de laboratorio MO y habilidades clínicas MS) asignada a un docente con su respectivo subgrupo de alumnos matriculados.</td>
+                        </tr>
+                        <tr style="background: #ffffff;">
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Oferta Académica</td>
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Unidad mínima de análisis pedagógico compuesta por la tupla única: <em>Materia + Sección + Grupo + Docente</em>. Existen <strong>1.174 ofertas rectoras</strong> en el Escenario A (1.289 en la malla física total con reemplazos temporales).</td>
+                        </tr>
+                        <tr style="background: #f8fafc;">
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Modelo Rector (Escenario A)</td>
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Universo oficial adoptado por la UCP de <strong>213 docentes</strong> que culminaron cátedra (211 titulares del Día 1 + 2 docentes que asumieron y culminaron la planificación académica completa hasta el 13/06/2026: Dra. Andrea Romero y Dra. María Fernanda Bordaberry).</td>
+                        </tr>
+                        <tr style="background: #ffffff;">
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Deduplicación Ciega (ETL)</td>
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Proceso algorítmico en <code style="background: #f1f5f9; padding: 2px 5px; border-radius: 4px; font-size: 0.8rem; color: #0f172a;">services/etl/encuestas_etl.py</code> (línea 691) que, al encontrar más de un docente en un mismo grupo para un alumno, retiene por defecto la primera fila física del archivo y descarta las siguientes, sin evaluar horas dictadas ni quién finalizó el ciclo lectivo.</td>
+                        </tr>
+                        <tr style="background: #f8fafc;">
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Inconsistencias Tipográficas en ERP</td>
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Variaciones de texto en origen que duplicaron registros en <code style="background: #f1f5f9; padding: 2px 5px; border-radius: 4px; font-size: 0.8rem; color: #0f172a;">resultado_por_docente</code>: Bruno José Garay Saldaña (con prefijo <code style="background: #f1f5f9; padding: 2px 5px; border-radius: 4px; font-size: 0.8rem; color: #0f172a;">DOCENTE_</code>, ID 23354) y Deisy Mariela Martínez González (con y sin tildes, ID 23295), generando 216 filas para 214 personas físicas con notas.</td>
+                        </tr>
+                        <tr style="background: #ffffff;">
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Cátedra Compartida vs. Reemplazo</td>
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">• <strong>Cátedra Compartida:</strong> Docentes que dictan en paralelo distintas partes del programa (un docente la teoría y otros las comisiones prácticas).<br>• <strong>Reemplazo Curricular:</strong> Docente que releva formalmente a otro profesor durante el semestre por renuncia o licencia.</td>
+                        </tr>
+                        <tr style="background: #f8fafc;">
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Grupo MO</td>
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Grupo práctico de simulación o laboratorio de habilidades motoras (<em>Miembro Operativo</em>).</td>
+                        </tr>
+                        <tr style="background: #ffffff;">
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Grupo MS</td>
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Grupo práctico de habilidades clínicas y anatomía (<em>Miembro Superior</em>).</td>
+                        </tr>
+                        <tr style="background: #f8fafc;">
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Cobertura de Oferta</td>
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Grado de representatividad estadística alcanzado por una comisión: 🟢 <strong>Adecuado</strong> (≥ 80,0%) · 🟡 <strong>Seguimiento</strong> (50,0% a 79,9%) · 🔴 <strong>Crítico</strong> (&lt; 50,0%).</td>
+                        </tr>
+                        <tr style="background: #ffffff;">
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Matrícula Convocada vs. Activa</td>
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Total de 6.978 estudiantes habilitados frente a 4.701 que respondieron al menos una evaluación (67,4% de participación) y 4.531 que completaron el 100% (64,9%).</td>
+                        </tr>
+                        <tr style="background: #f8fafc;">
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Criterios (16)</td>
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Preguntas específicas del cuestionario evaluadas en escala Likert del 1 al 5.</td>
+                        </tr>
+                        <tr style="background: #ffffff;">
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Indicadores (10)</td>
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Agrupaciones intermedias de criterios que miden aspectos clave de la práctica docente.</td>
+                        </tr>
+                        <tr style="background: #f8fafc;">
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Dimensiones (5)</td>
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Macro-ejes formativos: <em>Planificación y Organización, Metodología y Recursos, Interacción y Comunicación, Evaluación del Aprendizaje, y Cumplimiento y Responsabilidad</em>.</td>
+                        </tr>
+                        <tr style="background: #ffffff;">
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Respuestas Favorables</td>
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Porcentaje de estudiantes que calificaron con 4 o 5 (satisfecho / muy satisfecho).</td>
+                        </tr>
+                        <tr style="background: #f8fafc;">
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Escala de Desempeño</td>
+                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">🟢 <strong>Fortaleza</strong> (≥ 4,30) · 🔵 <strong>Adecuado</strong> (4,00 a 4,29) · 🟡 <strong>Seguimiento</strong> (3,50 a 3,99) · 🔴 <strong>Oportunidad</strong> (&lt; 3,50).</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
 
     st.divider()
@@ -2765,7 +2814,7 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
     # 7. REGISTRO DE CUMPLIMIENTO: 100% DE SUGERENCIAS INSTITUCIONALES UCP
     # --------------------------------------------------------------------------
     st.markdown("#### 7. Registro de Cumplimiento: 100% de Sugerencias Institucionales UCP")
-    st.caption("Detalle minucioso de todas las observaciones, ajustes y requerimientos resueltos a partir del documento oficial <em>Sugerencias - Instrumentos de Evaluación Docente.docx</em>:")
+    st.caption("Detalle minucioso de todas las observaciones, ajustes y requerimientos resueltos a partir del documento oficial *Sugerencias - Instrumentos de Evaluación Docente.docx*:")
 
     with st.expander("Ver Auditoría Completa del 100% de Sugerencias Aplicadas (P01 a P39)", expanded=True):
         st.markdown(
