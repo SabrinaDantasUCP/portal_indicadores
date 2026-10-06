@@ -1980,156 +1980,161 @@ def _render_subvista_por_docente(
 
     st.divider()
 
-    col_dim, col_ofertas = st.columns([1.2, 1.2])
+    # --------------------------------------------------------------------------
+    # DESEMPEÑO POR DIMENSIÓN (DOCENTE) - ANCHO COMPLETO
+    # --------------------------------------------------------------------------
+    st.markdown("##### Desempeño por dimensión (Docente)")
+    nombres_dims = [
+        "Dimensión 5: Ética Profesional, Compromiso y Responsabilidad",
+        "Dimensión 4: Evaluación, Retroalimentación y Correspondencia Pedagógica",
+        "Dimensión 3: Comunicación Didáctica y Relaciones Interpersonales",
+        "Dimensión 2: Gestión de Recursos Didácticos y Entornos de Aprendizaje",
+        "Dimensión 1: Planificación, Organización y Dominio de la Asignatura",
+    ]
+    df_dim_doc = pd.DataFrame({
+        "Dimensión": nombres_dims,
+        "Puntaje": list(reversed(dims_doc)),
+    })
+    fig_doc_dim = px.bar(
+        df_dim_doc,
+        x="Puntaje",
+        y="Dimensión",
+        orientation="h",
+        text="Puntaje",
+        range_x=[0, 5],
+        custom_data=["Puntaje", "Dimensión"],
+    )
+    fig_doc_dim.update_traces(
+        marker_color="#3c7bc4",
+        textposition="outside",
+        texttemplate="%{text:.2f}",
+        hovertemplate=(
+            "<b>%{customdata[1]}</b><br>"
+            "Calificación del docente: <b>%{x:.2f} / 5,00</b><br>"
+            "<i>Promedio otorgado por sus alumnos en este eje pedagógico</i>"
+            "<extra></extra>"
+        ),
+    )
+    fig_doc_dim.update_layout(
+        height=280,
+        margin=dict(l=10, r=40, t=10, b=10),
+        xaxis_title="Puntaje promedio (1 a 5)",
+        yaxis_title=None,
+        hoverlabel=dict(bgcolor="white", bordercolor="#dbe3ed", font_size=12),
+    )
+    st.plotly_chart(fig_doc_dim, use_container_width=True, key="ev1_grafico_doc_dim")
+    st.caption("*Toque cualquier barra para ver la calificación obtenida por el profesor en cada dimensión.*")
 
-    with col_dim:
-        st.markdown("##### Desempeño por dimensión (Docente)")
-        nombres_dims = [
-            "Dim. 5: Ética y Compromiso",
-            "Dim. 4: Relaciones Interpersonales",
-            "Dim. 3: Metodología y Estrategias",
-            "Dim. 2: Recursos y Evaluación",
-            "Dim. 1: Planificación y Dominio",
-        ]
-        df_dim_doc = pd.DataFrame({
-            "Dimensión": nombres_dims,
-            "Puntaje": list(reversed(dims_doc)),
-        })
-        fig_doc_dim = px.bar(
-            df_dim_doc,
-            x="Puntaje",
-            y="Dimensión",
-            orientation="h",
-            text="Puntaje",
-            range_x=[0, 5],
-            custom_data=["Puntaje", "Dimensión"],
-        )
-        fig_doc_dim.update_traces(
-            marker_color="#3c7bc4",
-            textposition="outside",
-            texttemplate="%{text:.2f}",
-            hovertemplate=(
-                "<b>%{customdata[1]}</b><br>"
-                "Calificación del docente: <b>%{x:.2f} / 5,00</b><br>"
-                "<i>Promedio otorgado por sus alumnos en este eje</i>"
-                "<extra></extra>"
-            ),
-        )
-        fig_doc_dim.update_layout(
-            height=260,
-            margin=dict(l=10, r=40, t=10, b=10),
-            xaxis_title="Puntaje (1 a 5)",
-            yaxis_title=None,
-            hoverlabel=dict(bgcolor="white", bordercolor="#dbe3ed", font_size=12),
-        )
-        st.plotly_chart(fig_doc_dim, use_container_width=True, key="ev1_grafico_doc_dim")
-        st.caption("*Toque cualquier barra para ver la calificación obtenida por el profesor en cada dimensión.*")
+    st.divider()
 
-    with col_ofertas:
-        st.markdown("##### Detalle de ofertas del docente")
-        df_of = None
+    # --------------------------------------------------------------------------
+    # DETALLE DE OFERTAS DEL DOCENTE - ABAJO Y EXPANDIDA AL 100%
+    # --------------------------------------------------------------------------
+    st.markdown("##### Detalle de ofertas del docente")
+    df_of = None
 
-        # 1. Cargar desde df_detalle (indicador oficial avance_por_materia_seccion_grupo)
-        if df_detalle is not None and not df_detalle.empty:
-            matches_det = pd.DataFrame()
-            if docente_id_elegido is not None and "docente_id" in df_detalle.columns:
-                matches_det = df_detalle[df_detalle["docente_id"] == docente_id_elegido].copy()
-            if matches_det.empty and "docente" in df_detalle.columns:
-                matches_det = df_detalle[
-                    (df_detalle["docente"] == docente_elegido) | (df_detalle["docente"] == nombre_bio)
-                ].copy()
+    # 1. Cargar desde df_detalle (indicador oficial avance_por_materia_seccion_grupo)
+    if df_detalle is not None and not df_detalle.empty:
+        matches_det = pd.DataFrame()
+        if docente_id_elegido is not None and "docente_id" in df_detalle.columns:
+            matches_det = df_detalle[df_detalle["docente_id"] == docente_id_elegido].copy()
+        if matches_det.empty and "docente" in df_detalle.columns:
+            matches_det = df_detalle[
+                (df_detalle["docente"] == docente_elegido) | (df_detalle["docente"] == nombre_bio)
+            ].copy()
 
-            # Respetar filtros activos seleccionados en la barra superior
+        # Respetar filtros activos seleccionados en la barra superior
+        if not matches_det.empty:
+            if filtro_materia_top != "Todas" and "materia" in matches_det.columns:
+                matches_det = matches_det[matches_det["materia"] == filtro_materia_top]
+            if filtro_seccion_top != "Todas" and "seccion" in matches_det.columns:
+                matches_det = matches_det[matches_det["seccion"] == filtro_seccion_top]
+            if filtro_grupo_top != "Todos" and "grupo" in matches_det.columns:
+                matches_det = matches_det[matches_det["grupo"] == filtro_grupo_top]
+
             if not matches_det.empty:
-                if filtro_materia_top != "Todas" and "materia" in matches_det.columns:
-                    matches_det = matches_det[matches_det["materia"] == filtro_materia_top]
-                if filtro_seccion_top != "Todas" and "seccion" in matches_det.columns:
-                    matches_det = matches_det[matches_det["seccion"] == filtro_seccion_top]
-                if filtro_grupo_top != "Todos" and "grupo" in matches_det.columns:
-                    matches_det = matches_det[matches_det["grupo"] == filtro_grupo_top]
-
-                if not matches_det.empty:
-                    cols_det = [
-                        c for c in [
-                            "materia", "seccion", "grupo",
-                            "alumnos_esperados", "alumnos_que_respondieron", "porcentaje_avance",
-                        ]
-                        if c in matches_det.columns
+                cols_det = [
+                    c for c in [
+                        "materia", "seccion", "grupo",
+                        "alumnos_esperados", "alumnos_que_respondieron", "porcentaje_avance",
                     ]
-                    df_of = matches_det[cols_det].copy().rename(
-                        columns={
-                            "materia": "Materia",
-                            "seccion": "Sección",
-                            "grupo": "Grupo",
-                            "alumnos_esperados": "Alumnos",
-                            "alumnos_que_respondieron": "Respondieron",
-                            "porcentaje_avance": "Avance %",
-                        }
-                    )
-
-        # 2. Respaldo a partir de df_filtrado si df_detalle no está disponible o viene vacío
-        if (df_of is None or df_of.empty) and df_filtrado is not None and not df_filtrado.empty:
-            df_ofertas_doc = pd.DataFrame()
-            if docente_id_elegido is not None and "docente_id" in df_filtrado.columns:
-                df_ofertas_doc = df_filtrado[df_filtrado["docente_id"] == docente_id_elegido]
-            if df_ofertas_doc.empty and "docente" in df_filtrado.columns:
-                df_ofertas_doc = df_filtrado[
-                    (df_filtrado["docente"] == docente_elegido) | (df_filtrado["docente"] == nombre_bio)
+                    if c in matches_det.columns
                 ]
-
-            if not df_ofertas_doc.empty:
-                resumen_ofertas_doc = (
-                    df_ofertas_doc.groupby(["materia", "seccion", "grupo"])
-                    .agg(
-                        respuestas=("estado", lambda s: (s == "Completada").sum()),
-                        total=("estado", "count"),
-                    )
-                    .reset_index()
-                )
-                resumen_ofertas_doc["Avance %"] = (
-                    resumen_ofertas_doc["respuestas"] / resumen_ofertas_doc["total"] * 100.0
-                ).round(1)
-                df_of = resumen_ofertas_doc.rename(
+                df_of = matches_det[cols_det].copy().rename(
                     columns={
                         "materia": "Materia",
                         "seccion": "Sección",
                         "grupo": "Grupo",
-                        "respuestas": "Respondieron",
-                        "total": "Alumnos",
+                        "alumnos_esperados": "Alumnos",
+                        "alumnos_que_respondieron": "Respondieron",
+                        "porcentaje_avance": "Avance %",
                     }
                 )
 
-        if df_of is not None and not df_of.empty:
-            if "Alumnos" in df_of.columns:
-                df_of["Alumnos"] = pd.to_numeric(df_of["Alumnos"], errors="coerce").fillna(0).astype(int)
-            if "Respondieron" in df_of.columns:
-                df_of["Respondieron"] = pd.to_numeric(df_of["Respondieron"], errors="coerce").fillna(0).astype(int)
-            if "Avance %" in df_of.columns:
-                df_of["Avance %"] = pd.to_numeric(df_of["Avance %"], errors="coerce").fillna(0.0).round(1)
+    # 2. Respaldo a partir de df_filtrado si df_detalle no está disponible o viene vacío
+    if (df_of is None or df_of.empty) and df_filtrado is not None and not df_filtrado.empty:
+        df_ofertas_doc = pd.DataFrame()
+        if docente_id_elegido is not None and "docente_id" in df_filtrado.columns:
+            df_ofertas_doc = df_filtrado[df_filtrado["docente_id"] == docente_id_elegido]
+        if df_ofertas_doc.empty and "docente" in df_filtrado.columns:
+            df_ofertas_doc = df_filtrado[
+                (df_filtrado["docente"] == docente_elegido) | (df_filtrado["docente"] == nombre_bio)
+            ]
 
-            st.dataframe(
-                df_of,
-                hide_index=True,
-                width="stretch",
-                column_config={
-                    "Materia": st.column_config.TextColumn("Materia", help="Nombre de la asignatura asignada al docente."),
-                    "Sección": st.column_config.TextColumn("Sección", help="Sección académica o turno lectivo."),
-                    "Grupo": st.column_config.TextColumn("Grupo", help="Grupo académico específico (Teoría, Laboratorio, etc.)."),
-                    "Alumnos": st.column_config.NumberColumn("Alumnos", format="%d", help="Cantidad total de estudiantes matriculados convocados a evaluar al docente."),
-                    "Respondieron": st.column_config.NumberColumn("Respondieron", format="%d", help="Cantidad de estudiantes que ya completaron la evaluación del docente."),
-                    "Avance %": st.column_config.ProgressColumn(
-                        "Avance %",
-                        min_value=0,
-                        max_value=100,
-                        format="%.1f%%",
-                        help="Tasa de respuesta alcanzada: (Respondieron / Alumnos) × 100.",
-                    ),
-                },
-                key="ev1_tabla_doc_ofertas",
+        if not df_ofertas_doc.empty:
+            resumen_ofertas_doc = (
+                df_ofertas_doc.groupby(["materia", "seccion", "grupo"])
+                .agg(
+                    respuestas=("estado", lambda s: (s == "Completada").sum()),
+                    total=("estado", "count"),
+                )
+                .reset_index()
             )
-            st.caption("*Toque los encabezados para ver el detalle de alumnos matriculados y respuestas recibidas.*")
-        else:
-            st.info("Sin ofertas registradas para este docente con los filtros seleccionados.")
+            resumen_ofertas_doc["Avance %"] = (
+                resumen_ofertas_doc["respuestas"] / resumen_ofertas_doc["total"] * 100.0
+            ).round(1)
+            df_of = resumen_ofertas_doc.rename(
+                columns={
+                    "materia": "Materia",
+                    "seccion": "Sección",
+                    "grupo": "Grupo",
+                    "respuestas": "Respondieron",
+                    "total": "Alumnos",
+                }
+            )
+
+    if df_of is not None and not df_of.empty:
+        if "Alumnos" in df_of.columns:
+            df_of["Alumnos"] = pd.to_numeric(df_of["Alumnos"], errors="coerce").fillna(0).astype(int)
+        if "Respondieron" in df_of.columns:
+            df_of["Respondieron"] = pd.to_numeric(df_of["Respondieron"], errors="coerce").fillna(0).astype(int)
+        if "Avance %" in df_of.columns:
+            df_of["Avance %"] = pd.to_numeric(df_of["Avance %"], errors="coerce").fillna(0.0).round(1)
+
+        st.dataframe(
+            df_of,
+            hide_index=True,
+            width="stretch",
+            column_config={
+                "Materia": st.column_config.TextColumn("Materia", width="large", help="Nombre de la asignatura asignada al docente."),
+                "Sección": st.column_config.TextColumn("Sección", width="small", help="Sección académica o turno lectivo."),
+                "Grupo": st.column_config.TextColumn("Grupo", width="small", help="Grupo académico específico (Teoría, Laboratorio, etc.)."),
+                "Alumnos": st.column_config.NumberColumn("Alumnos", width="small", format="%d", help="Cantidad total de estudiantes matriculados convocados a evaluar al docente."),
+                "Respondieron": st.column_config.NumberColumn("Respondieron", width="small", format="%d", help="Cantidad de estudiantes que ya completaron la evaluación del docente."),
+                "Avance %": st.column_config.ProgressColumn(
+                    "Avance %",
+                    width="medium",
+                    min_value=0,
+                    max_value=100,
+                    format="%.1f%%",
+                    help="Tasa de respuesta alcanzada: (Respondieron / Alumnos) × 100.",
+                ),
+            },
+            key="ev1_tabla_doc_ofertas",
+        )
+        st.caption(f"*Mostrando {len(df_of)} ofertas académicas asignadas a este docente. Toque los encabezados para ordenar.*")
+    else:
+        st.info("Sin ofertas registradas para este docente con los filtros seleccionados.")
 
 
 # ==============================================================================
