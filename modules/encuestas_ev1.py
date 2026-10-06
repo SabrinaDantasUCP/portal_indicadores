@@ -721,7 +721,7 @@ def _render_subvista_avance_general(
                             {completadas:,} <span style="font-size: 0.8rem; font-weight: 500; color: #64748b;">/ {total_esperadas:,} asignaciones</span>
                         </div>
                         <div style="font-size: 0.80rem; color: #475569; line-height: 1.45;">
-                            <strong>{porcentaje_avance:.1f}%</strong> respondidas. Comprende a los <strong>{n_doc_total} docentes</strong> de la sede <strong>{escape(str(sede))}</strong> (216 con resultados evaluados en el ERP). <em>Consulte detalles en la pestaña <strong>Explicación</strong></em>.
+                            <strong>{porcentaje_avance:.1f}%</strong> respondidas. Comprende a los docentes de la sede <strong>{escape(str(sede))}</strong> (<strong>213 titulares que culminaron cátedra</strong> en el Escenario A Rector). <em>Consulte detalles en la pestaña <strong>Explicación</strong></em>.
                         </div>
                     </div>
                 </div>
@@ -1738,8 +1738,8 @@ def _render_subvista_por_docente(
     )
     st.caption(
         f"Mostrando los **{len(docentes_disponibles)} docentes** evaluados con respuestas válidas registradas en el ERP "
-        f"(de los **217 docentes** de la oferta oficial en la sede {escape(str(sede))}; 213 con carga horaria individual activa y 1 sin evaluaciones directas por co-docencia: Gessica Ordano López). "
-        f"Consulte la pestaña **Explicación** para más detalles."
+        f"(en el **Escenario A Recomendado** el universo rector es de **213 docentes que culminaron cátedra**; los 216 registros en ERP representan a 214 personas físicas por 2 nombres duplicados en origen). "
+        f"Consulte la pestaña **Explicación** para la matriz comparativa de auditoría."
     )
 
     fila_doc = None
@@ -2243,7 +2243,7 @@ def _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo):
                     <li><strong>Instrumento:</strong> Encuesta oficial EV1 (Opinión del Estudiante sobre el Desempeño Docente).</li>
                     <li><strong>Población evaluada:</strong> Estudiantes matriculados que cursaron materias en el periodo (Sede {escape(sede)}, Carrera {escape(carrera)}).</li>
                     <li><strong>Respuestas válidas procesadas:</strong> <strong style="color: #17845f;">{n_resp_auditadas:,}</strong> respuestas a ítems computadas.</li>
-                    <li><strong>Docentes evaluados:</strong> <strong>{n_doc_auditados}</strong> profesores con respuestas válidas registradas en el ERP (de los 217 docentes de la oferta académica oficial de la sede; 213 con carga horaria individual activa y 1 sin evaluaciones directas por co-docencia: Gessica Ordano López; consulte detalles en la pestaña <strong>Explicación</strong>).</li>
+                    <li><strong>Docentes evaluados:</strong> <strong>{n_doc_auditados}</strong> profesores con respuestas válidas registradas en el ERP (en el <strong>Escenario A Recomendado</strong> corresponden a <strong>213 titulares que culminaron cátedra</strong>; consulte la matriz comparativa y auditoría en la pestaña <strong>Explicación</strong>).</li>
                 </ul>
             </div>
             """.replace(",", "."),
@@ -2339,11 +2339,12 @@ def _render_subvista_analisis_pedagogico(sede, periodo, carrera, tipo):
 def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=None):
     """
     Sub-vista explicativa y de auditoría metodológica de la encuesta EV1:
-    - Desglose del universo docente (217 ofertas, 216 evaluados, 213 en captura individual).
-    - Documentación del caso Gessica Ordano y la co-docencia de cátedra.
+    - Escenario A (Recomendado): Modelo Rector de 213 titulares que culminaron cátedra (1.174 ofertas rectoras).
+    - Matriz comparativa de escenarios metodológicos (213 vs 211 vs 212 vs malla física actual).
+    - Documentación de casos auditados en ERP (Andrea Romero, María Bordaberry, Gessica Ordano, 42 mixtos).
     - Jerarquía de 3 niveles de cifras (Estudiantes -> Materias -> Asignaciones a Docentes).
     - Semáforo institucional de cobertura de ofertas (>=80%, 50-79.9%, <50%).
-    - Resolución metodológica de co-docencia y comisiones de práctica.
+    - Resolución metodológica de cátedras compartidas y reemplazos curriculares.
     - Confidencialidad y anonimato institucional.
     - Glosario de términos y métricas de desempeño.
     """
@@ -2369,27 +2370,27 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
     )
 
     # --------------------------------------------------------------------------
-    # 1. EL UNIVERSO DE DOCENTES (217 vs 216 vs 213)
+    # 1. UNIVERSO DOCENTE: MODELO RECTOR DE 213 TITULARES (ESCENARIO A - RECOMENDADO)
     # --------------------------------------------------------------------------
-    st.markdown("#### 1. Universo de Docentes: ¿Por qué existen 217, 216 y 213?")
-    st.caption("Cada cifra representa una etapa distinta del ciclo de vida del dato entre la planificación académica, la captura de encuestas y el procesamiento de resultados:")
+    st.markdown("#### 1. Universo Docente: Modelo Rector de 213 Titulares que Culminaron Cátedra (Escenario A - Recomendado)")
+    st.caption("Estructura metodológica definitiva que resuelve el cuadre analítico entre la planificación académica, la captura de encuestas y el procesamiento de resultados en el ERP:")
 
     c_doc1, c_doc2, c_doc3 = st.columns(3)
     with c_doc1:
         st.markdown(
             """
-            <div style="background: #ffffff; border: 1px solid #dbe3ed; border-top: 4px solid #12263f; border-radius: 10px; padding: 16px 18px; height: 100%; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
-                <div style="font-size: 0.76rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em;">
-                    Planificación Académica
+            <div style="background: #ffffff; border: 1px solid #dbe3ed; border-top: 4px solid #17845f; border-radius: 10px; padding: 16px 18px; height: 100%; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
+                <div style="font-size: 0.76rem; font-weight: 700; color: #17845f; text-transform: uppercase; letter-spacing: 0.04em;">
+                    Modelo Rector Recomendado
                 </div>
-                <div style="font-size: 1.85rem; font-weight: 800; color: #12263f; margin: 4px 0;">
-                    217 <span style="font-size: 0.88rem; font-weight: 600; color: #475569;">docentes</span>
+                <div style="font-size: 1.85rem; font-weight: 800; color: #17845f; margin: 4px 0;">
+                    213 <span style="font-size: 0.88rem; font-weight: 600; color: #475569;">docentes</span>
                 </div>
                 <div style="font-size: 0.84rem; color: #1e293b; font-weight: 700; margin-bottom: 6px;">
-                    Universo Oficial de Ofertas
+                    Titulares que Culminaron Cátedra
                 </div>
                 <div style="font-size: 0.80rem; color: #475569; line-height: 1.5;">
-                    Corresponde al total de profesores que tienen asignación horaria oficial (materia · sección · grupo) en Medicina Ciudad del Este para el periodo 2026.1 (<strong>1.289 ofertas académicas</strong>). Es la cifra rectora visible en la pestaña <em>Materia · sección · grupo</em>.
+                    Comprende a los <strong>211 docentes titulares originales</strong> (169 puros + 42 mixtos) más las <strong>2 docentes que asumieron y culminaron la planificación académica</strong> hasta el 13/06/2026 (Romero y Bordaberry). Representa <strong>1.174 ofertas académicas rectoras</strong> con <strong>41.617 evaluaciones respondidas</strong> (67,08% de avance).
                 </div>
             </div>
             """,
@@ -2398,18 +2399,18 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
     with c_doc2:
         st.markdown(
             """
-            <div style="background: #ffffff; border: 1px solid #dbe3ed; border-top: 4px solid #17845f; border-radius: 10px; padding: 16px 18px; height: 100%; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
-                <div style="font-size: 0.76rem; font-weight: 700; color: #17845f; text-transform: uppercase; letter-spacing: 0.04em;">
-                    Resultados Evaluados
+            <div style="background: #ffffff; border: 1px solid #dbe3ed; border-top: 4px solid #1e3a63; border-radius: 10px; padding: 16px 18px; height: 100%; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
+                <div style="font-size: 0.76rem; font-weight: 700; color: #1e3a63; text-transform: uppercase; letter-spacing: 0.04em;">
+                    Malla Inicial
                 </div>
-                <div style="font-size: 1.85rem; font-weight: 800; color: #17845f; margin: 4px 0;">
-                    216 <span style="font-size: 0.88rem; font-weight: 600; color: #475569;">docentes</span>
+                <div style="font-size: 1.85rem; font-weight: 800; color: #1e3a63; margin: 4px 0;">
+                    211 <span style="font-size: 0.88rem; font-weight: 600; color: #475569;">docentes</span>
                 </div>
                 <div style="font-size: 0.84rem; color: #1e293b; font-weight: 700; margin-bottom: 6px;">
-                    Docentes con Puntaje en ERP
+                    Titulares Originales del Día 1
                 </div>
                 <div style="font-size: 0.80rem; color: #475569; line-height: 1.5;">
-                    Profesores que recibieron respuestas efectivas de los estudiantes y cuyos promedios, dimensiones e indicadores fueron procesados por el ETL. De los 217 docentes, <strong>216 cuentan con evaluación consolidada</strong>. Solo 1 docente no tuvo formulario propio.
+                    Profesores con fecha de apertura 09/02/2026 (169 titulares puros + 42 mixtos en sus cátedras titulares, <strong>1.171 ofertas</strong>). El <strong>100% de estos 211 profesores (211 de 211)</strong> cuenta con cuestionarios psicométricos de alumnos registrados a su propio nombre en el ERP.
                 </div>
             </div>
             """,
@@ -2418,33 +2419,79 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
     with c_doc3:
         st.markdown(
             """
-            <div style="background: #ffffff; border: 1px solid #dbe3ed; border-top: 4px solid #245ea8; border-radius: 10px; padding: 16px 18px; height: 100%; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
-                <div style="font-size: 0.76rem; font-weight: 700; color: #245ea8; text-transform: uppercase; letter-spacing: 0.04em;">
-                    Captura Individual
+            <div style="background: #ffffff; border: 1px solid #dbe3ed; border-top: 4px solid #64748b; border-radius: 10px; padding: 16px 18px; height: 100%; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
+                <div style="font-size: 0.76rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em;">
+                    Auditoría Técnica de Malla
                 </div>
-                <div style="font-size: 1.85rem; font-weight: 800; color: #245ea8; margin: 4px 0;">
-                    213 <span style="font-size: 0.88rem; font-weight: 600; color: #475569;">docentes</span>
+                <div style="font-size: 1.85rem; font-weight: 800; color: #334155; margin: 4px 0;">
+                    217 / 216 <span style="font-size: 0.84rem; font-weight: 600; color: #64748b;">registros</span>
                 </div>
                 <div style="font-size: 0.84rem; color: #1e293b; font-weight: 700; margin-bottom: 6px;">
-                    Registros en Tabla de Alumnos
+                    Malla Física y Notas en ERP
                 </div>
                 <div style="font-size: 0.80rem; color: #475569; line-height: 1.5;">
-                    Docentes con filas individuales directas en el archivo de respuestas estudiante por estudiante (<code>df_alumnos</code>). 4 docentes de co-docencia tuvieron sus respuestas canalizadas o consolidadas a nivel de cátedra en dicha base operativa.
+                    Los <strong>217</strong> en Biometría incluían a 4 docentes de reemplazo interino. Los <strong>216</strong> registros en ERP corresponden a <strong>214 personas físicas únicas con notas</strong> (211 titulares + 3 reemplazantes con notas directas), donde 2 docentes figuran duplicados por inconsistencias tipográficas en ERP.
                 </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-    # Detalle de la docente restante y co-docencia
+    # Matriz comparativa de escenarios y casos auditados
     st.markdown(
         """
-        <div style="background-color: #f0f6fd; border-left: 4px solid #245ea8; border-radius: 8px; padding: 14px 18px; margin-top: 14px; font-size: 0.84rem; color: #1e3a63; line-height: 1.55;">
-            <strong>Caso Explicativo: Prof. Gessica Adriana Ordano López y la Co-Docencia</strong><br>
-            • La profesora <strong>Gessica Ordano</strong> cuenta con una única asignación académica en el semestre: <em>Medicina Comunitaria</em>, Sección <em>I</em>, Grupo <em>Teórica</em> (68 estudiantes matriculados).<br>
-            • Dicha cátedra fue planificada en modalidad de <strong>co-docencia compartida</strong> con la <strong>Dra. Ana Michelli Luis Giménez</strong>.<br>
-            • Al momento de emitir las encuestas a los alumnos, el formulario de evaluación se habilitó exclusivamente bajo la titularidad de <strong>Ana Michelli Luis Giménez</strong>, quien recibió las 31 encuestas respondidas (promedio institucional de <strong>4,88</strong> y 496 respuestas válidas en el ERP).<br>
-            • Al no existir un formulario independiente emitido a nombre de la Prof. Ordano, recibió 0 respuestas directas, por lo que el algoritmo de resultados del ETL no generó fila de puntaje individual para ella (216 evaluados de 217 planificados). De forma semejante, docentes como <em>Mirna Romero Franco</em>, <em>Patricia Fox Jiménez</em> y <em>Sara Mareco Romero</em> operaron bajo dinámicas de cátedra compartida.
+        <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-left: 4px solid #17845f; border-radius: 8px; padding: 16px 20px; margin-top: 16px; font-size: 0.84rem; color: #1e293b; line-height: 1.6;">
+            <div style="font-size: 0.92rem; font-weight: 800; color: #0f172a; margin-bottom: 8px;">
+                Matriz Comparativa de Escenarios y Auditoría de Cátedras
+            </div>
+            <div style="overflow-x: auto; margin-bottom: 12px;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.80rem; text-align: left;">
+                    <thead>
+                        <tr style="background: #1e3a63; color: #ffffff;">
+                            <th style="padding: 6px 10px; border: 1px solid #cbd5e1;">Escenario Metodológico</th>
+                            <th style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center;">Docentes</th>
+                            <th style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center;">Ofertas</th>
+                            <th style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center;">Avance de Alumnos</th>
+                            <th style="padding: 6px 10px; border: 1px solid #cbd5e1;">Situación en Base de Datos ERP</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="background: #eff6ff; font-weight: 700;">
+                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; color: #1e3a63;">Escenario A (Recomendado): 213 Titulares que Culminaron Cátedra</td>
+                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center; color: #17845f;">213</td>
+                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center; color: #1e3a63;">1.174</td>
+                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center;">41.617 / 62.043 (67,08%)</td>
+                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1;">Cuadre exacto con las cátedras que finalizaron semestre con los alumnos.</td>
+                        </tr>
+                        <tr style="background: #ffffff;">
+                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1;">Escenario B: Solo Titulares Originales (Día 1)</td>
+                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center;">211</td>
+                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center;">1.171</td>
+                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center;">41.595 / 62.018 (67,07%)</td>
+                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1;">100% directo: Los 211 cuentan con evaluaciones directas en ERP.</td>
+                        </tr>
+                        <tr style="background: #f8fafc;">
+                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1;">Escenario C: Filtro Estricto de Ficha Propia en ERP</td>
+                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center;">212</td>
+                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center;">1.172</td>
+                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center;">41.595 / 62.018 (67,07%)</td>
+                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1;">Excluye a Romero (cuyas respuestas se cargaron bajo la titular de cirugía).</td>
+                        </tr>
+                        <tr style="background: #ffffff; color: #64748b;">
+                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1;">Estado Actual Malla Física (Sin ajustes, con bug drop_duplicates)</td>
+                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center;">217 / 213</td>
+                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center;">1.289</td>
+                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center;">44.488 / 66.279 (67,12%)</td>
+                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1;">Descuadrado por deduplicación ciega y 2 registros duplicados en ERP.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <strong>Auditoría de Casos Específicos:</strong><br>
+            • <strong>Dra. Andrea Araceli Romero Giménez (Clínica Quirúrgica I, Sec. A)</strong>: Asumió la docencia práctica el 01/03/2026 y <strong>finalizó la planificación académica completa hasta el 13/06/2026</strong>. 22 de sus 25 alumnos respondieron encuestas (88,0% de avance). En el ERP, las respuestas del formulario se consolidaron bajo la titular de cátedra (Dra. Vieth), por lo que no tuvo ficha individual en <code>resultado_por_docente</code>, pero el avance de sus alumnos es pleno.<br>
+            • <strong>Dra. María Fernanda Bordaberry Villalba (Clínica Quirúrgica I, Sec. B)</strong>: Asumió la teoría tras la renuncia del titular Dr. Roque Duarte y <strong>finalizó el semestre con los 100 alumnos</strong> (1.392 respuestas válidas a su nombre en el ERP).<br>
+            • <strong>Prof. Gessica Adriana Ordano López (Medicina Comunitaria, Sec. I)</strong>: Asumió el relevo el 02/05/2026. Los alumnos evaluaron a la titular que inició el semestre, Dra. Ana Michelli Luis Giménez (496 respuestas). Ordano <strong>está plenamente registrada en el ERP</strong> (<code>IdDocenteExterno: 560</code>, <code>IdUsuario: 1279</code>) y <strong>completó su Autoevaluación Docente institucional (<code>IdEncuesta = 5</code>)</strong> el 31/07/2026.<br>
+            • <strong>Los 42 Docentes Mixtos</strong>: Desempeñaron titularidad en sus materias principales y asumieron 100 ofertas de reemplazo (todas culminadas el 13/06/2026). En 64 comisiones fueron evaluados a su propio nombre en el ERP y en 36 las evaluaciones quedaron registradas bajo el titular original.
         </div>
         """,
         unsafe_allow_html=True,
@@ -2571,18 +2618,18 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
     st.divider()
 
     # --------------------------------------------------------------------------
-    # 4. RESOLUCIÓN DE CO-DOCENCIA Y CONFIDENCIALIDAD
+    # 4. RESOLUCIÓN DE CÁTEDRA COMPARTIDA, REEMPLAZOS CURRICULARES Y CONFIDENCIALIDAD
     # --------------------------------------------------------------------------
     col_izq_met, col_der_met = st.columns(2)
 
     with col_izq_met:
-        st.markdown("#### 4. Metodología de Co-Docencia")
+        st.markdown("#### 4. Cátedra Compartida y Reemplazos Curriculares")
         st.markdown(
             """
-            En la carrera de Medicina es habitual la cátedra compartida:
-            - **Módulos Teóricos y Prácticos**: Un docente dicta teoría y otro profesor conduce la práctica clínica o de laboratorio.
-            - **Subgrupos MO y MS**: Divisiones por turnos y habilidades (Miembro Operativo y Miembro Superior).
-            - **Resolución técnica implementada**: Cuando dos docentes comparten un grupo (ej. *Anatomía I, Sección A, G2-MS* con la Dra. Rossana Cañete), la tabla de ofertas toma la matrícula real completa del grupo (32 alumnos) para cada docente asignado, calculando su avance de respuestas de manera justa e independiente.
+            En la carrera de Medicina se presentan dinámicas docentes específicas:
+            - **Cátedra Compartida (Teoría vs. Práctica)**: Un docente dicta la teoría y otros profesores conducen la práctica clínica o de laboratorio (ej. subgrupos MO y MS). Cada docente es evaluado independientemente por los alumnos de su comisión.
+            - **Reemplazos Curriculares que Culminan Cátedra (Escenario A)**: Cuando un docente asume la cátedra por relevo o renuncia del titular y dicta las clases hasta finalizar el ciclo lectivo (como la Dra. Romero y la Dra. Bordaberry), se integra formalmente en las **1.174 ofertas rectoras**.
+            - **Cómputo en ERP**: Si el sistema no generó una ficha individual con el nombre del docente reemplazante, las respuestas de los estudiantes se consolidaron técnicamente en la titularidad de la cátedra, garantizando que el esfuerzo y evaluación estudiantil computen al 100%.
             """,
             unsafe_allow_html=True,
         )
@@ -2611,7 +2658,7 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
             | Término / Sigla | Definición Institucional |
             | :--- | :--- |
             | **EV1** | Encuesta de Valoración Estudiantil a la Docencia (Opinión del Estudiante sobre el desempeño profesoral). |
-            | **Oferta Académica** | Unidad mínima de análisis docente compuesta por: *Materia + Sección + Grupo + Docente*. Existen 1.289 ofertas en 2026.1. |
+            | **Oferta Académica** | Unidad mínima de análisis docente compuesta por: *Materia + Sección + Grupo + Docente*. Existen **1.174 ofertas rectoras** en el Escenario A (1.289 en la malla física total con reemplazos temporales). |
             | **Grupo MO** | Grupo práctico de simulación o laboratorio (*Miembro Operativo*). |
             | **Grupo MS** | Grupo práctico de habilidades clínicas y anatomía (*Miembro Superior*). |
             | **Criterios (16)** | Preguntas específicas del cuestionario evaluadas en escala Likert del 1 al 5. |
