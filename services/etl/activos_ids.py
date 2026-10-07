@@ -13,22 +13,34 @@ separada por espacio/tab (ej. archivos exportados con un índice de fila
 adelante, como "1\tab3"), se usa la ÚLTIMA columna.
 """
 
+import io
 import os
+import re
+import unicodedata
+
+import pandas as pd
 
 from scripts.csv_to_parquet import BASE_DIR
 
 ACTIVOS_TXT_PATH = os.path.join(BASE_DIR, "assets", "data", "global", "usuarios_activos_ids.txt")
 
 # Pares (usuarios_id, periodo) "activo" -- solo lo escribe
-# services/etl/activos_criterios_runner.py (el cálculo automático por
-# criterios sabe en QUÉ periodo específico cada alumno califica; el upload
-# manual de ACTIVOS_TXT_PATH no tiene esa granularidad). Lo usa
-# services/etl/alumnos_etl.generar_alumnos_v2 para filtrar alumnos_v2 por
-# (alumno, periodo) en vez de solo por alumno -- así el periodo x semestre
-# de alumnos_v2 refleja exactamente los periodos en que cada alumno calificó
-# (incluido el ajuste por muestreo de 2018.2-2020.2), en vez de traer TODO
-# el historial de cualquier alumno que califique en algún periodo.
+# services/etl/activos_criterios_runner.py a partir de la población oficial
+# (POBLACION_CSV_PATH), que sabe en QUÉ periodo específico cada alumno es
+# activo; el upload manual de ACTIVOS_TXT_PATH no tiene esa granularidad.
+# Lo usa services/etl/alumnos_etl.generar_alumnos_v2 para filtrar
+# alumnos_v2 por (alumno, periodo) en vez de solo por alumno -- así el
+# periodo x semestre de alumnos_v2 refleja exactamente la población oficial,
+# en vez de traer TODO el historial de cualquier alumno activo en algún
+# periodo.
 ACTIVOS_PERIODOS_CSV_PATH = os.path.join(BASE_DIR, "assets", "data", "global", "usuarios_activos_periodos.csv")
+
+# Población oficial de alumnos activos, cerrada FUERA del portal (ETL
+# etl_unico_activos_2018_2_2026_1.py + consolidado "Alumnos Reales Max 2
+# Recursantes") y subida vía la pantalla de admin "Alumnos Activos". El
+# portal no recalcula criterios, notas, recortes ni cohortes: solo consume
+# esta lista (ver leer_poblacion / services/etl/activos_criterios_runner.py).
+POBLACION_CSV_PATH = os.path.join(BASE_DIR, "assets", "data", "global", "alumnos_activos_poblacion.csv")
 
 
 def parsear_ids_activos(texto: str) -> list:
@@ -121,3 +133,199 @@ def cargar_pares_activos():
             except ValueError:
                 continue
     return pares if pares else None
+
+
+# ─────────────────────────────────────────────
+# POBLACIÓN OFICIAL DE ALUMNOS ACTIVOS (CSV/XLSX)
+# ─────────────────────────────────────────────
+
+# Cabecera normalizada (sin acentos, minúsculas, solo letras/dígitos) ->
+# nombre interno. Tolera "Año"/"Ano", "Sección"/"seccion", "ID Usuario"/
+# "id_usuario", "Doc. Oficial"/"doc oficial", etc.
+_POBLACION_COLUMNAS = {
+    "ano": "ano",
+    "periodo": "periodo_anual",
+    "catraca": "catraca",
+    "idusuario": "usuarios_id",
+    "nombre": "nome",
+    "docoficial": "doc_oficial",
+    "semestre": "semestre",
+    "seccion": "seccion",
+    "motivo": "motivo",
+}
+_POBLACION_OBLIGATORIAS = {
+    "ano": "Año",
+    "periodo_anual": "Periodo",
+    "usuarios_id": "ID Usuario",
+    "semestre": "Semestre",
+}
+POBLACION_COLUMNAS_SALIDA = [
+    "usuarios_id", "periodo", "semestre", "seccion", "motivo", "catraca", "nome", "doc_oficial",
+]
+_ENTERO_RE = r"^\d+(?:\.0+)?$"  # "2018" o "2018.0" (celdas numéricas de Excel)
+
+
+def _normalizar_cabecera(nombre) -> str:
+    texto = unicodedata.normalize("NFKD", str(nombre))
+    texto = "".join(c for c in texto if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9]", "", texto.lower())
+
+
+def _decodificar(contenido: bytes) -> str:
+    try:
+        return contenido.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return contenido.decode("latin-1")
+
+
+def _detectar_separador(texto: str) -> str:
+    primera = texto.splitlines()[0] if texto.strip() else ""
+    conteos = {sep: primera.count(sep) for sep in ("\t", ";", ",")}
+    sep = max(conteos, key=conteos.get)
+    return sep if conteos[sep] > 0 else ";"
+
+
+def _ejemplos(valores, n=5) -> str:
+    valores = list(valores)
+    texto = ", ".join(str(v) for v in valores[:n])
+    return texto + (", ..." if len(valores) > n else "")
+
+
+def leer_poblacion(contenido: bytes, nombre_archivo: str) -> pd.DataFrame:
+    """Lee y valida el archivo de población oficial (.csv/.txt con separador
+    ";", "," o tab -- detectado por la primera línea -- o .xlsx, usando la
+    hoja "Alumnos" si existe). Todo se lee como texto para no perder ceros a
+    la izquierda (ej. "Doc. Oficial" = "001675761").
+
+    Columnas del archivo: Año, Periodo, Catraca, ID Usuario, Nombre,
+    Doc. Oficial, Semestre, Sección, Motivo (obligatorias: Año, Periodo,
+    ID Usuario, Semestre). Sección vacía es válida (alumno solo con materias
+    recursadas) y la fila se conserva. No modifica semestre ni sección.
+
+    Devuelve un DataFrame con POBLACION_COLUMNAS_SALIDA (usuarios_id y
+    semestre int, periodo "AAAA.S", el resto texto). Lanza ValueError con
+    un mensaje legible si el archivo no es válido."""
+    extension = os.path.splitext(nombre_archivo or "")[1].lower()
+    try:
+        if extension in (".xlsx", ".xlsm"):
+            hojas = pd.ExcelFile(io.BytesIO(contenido)).sheet_names
+            hoja = next((h for h in hojas if _normalizar_cabecera(h) == "alumnos"), hojas[0])
+            df = pd.read_excel(io.BytesIO(contenido), sheet_name=hoja, dtype=str)
+        elif extension in (".csv", ".txt", ""):
+            texto = _decodificar(contenido)
+            if not texto.strip():
+                raise ValueError("El archivo está vacío.")
+            df = pd.read_csv(
+                io.StringIO(texto), sep=_detectar_separador(texto), dtype=str,
+                keep_default_na=False, engine="python",
+            )
+        else:
+            raise ValueError(f"Formato no soportado ({extension}). Use .csv, .txt o .xlsx.")
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError(f"No se pudo leer el archivo '{nombre_archivo}': {exc}") from exc
+
+    renombrar = {}
+    for col in df.columns:
+        interno = _POBLACION_COLUMNAS.get(_normalizar_cabecera(col))
+        if interno and interno not in renombrar.values():
+            renombrar[col] = interno
+    df = df[list(renombrar)].rename(columns=renombrar)
+
+    faltantes = [visible for interno, visible in _POBLACION_OBLIGATORIAS.items() if interno not in df.columns]
+    if faltantes:
+        raise ValueError(
+            f"Faltan columnas obligatorias: {', '.join(faltantes)}. Se esperan: Año, Periodo, "
+            "Catraca, ID Usuario, Nombre, Doc. Oficial, Semestre, Sección, Motivo."
+        )
+    for interno in _POBLACION_COLUMNAS.values():
+        if interno not in df.columns:
+            df[interno] = ""
+
+    df = df.fillna("").astype(str)
+    for col in df.columns:
+        df[col] = df[col].str.strip()
+    # Filas totalmente vacías (ej. líneas en blanco al final del Excel/CSV).
+    df = df[(df != "").any(axis=1)].reset_index(drop=True)
+    if df.empty:
+        raise ValueError("El archivo no tiene filas de datos.")
+
+    fila_archivo = df.index + 2  # +1 cabecera, +1 base 1
+
+    def _filas_con_error(mascara, columna, descripcion):
+        ejemplos = [f"fila {f}: '{v}'" for f, v in zip(fila_archivo[mascara], df.loc[mascara, columna])]
+        return f"{int(mascara.sum())} fila(s) con {descripcion} ({_ejemplos(ejemplos)})."
+
+    errores = []
+    for interno, visible in _POBLACION_OBLIGATORIAS.items():
+        invalidas = ~df[interno].str.match(_ENTERO_RE)
+        if invalidas.any():
+            errores.append(_filas_con_error(invalidas, interno, f"'{visible}' vacío o no entero"))
+    if errores:
+        raise ValueError("Población inválida:\n- " + "\n- ".join(errores))
+
+    for interno in _POBLACION_OBLIGATORIAS:
+        df[interno] = df[interno].astype(float).astype(int)
+
+    invalidas = ~df["periodo_anual"].isin([1, 2])
+    if invalidas.any():
+        errores.append(_filas_con_error(invalidas, "periodo_anual", "'Periodo' distinto de 1 o 2"))
+    invalidas = ~df["semestre"].between(1, 12)
+    if invalidas.any():
+        errores.append(_filas_con_error(invalidas, "semestre", "'Semestre' fuera de 1-12"))
+
+    df["periodo"] = df["ano"].astype(str) + "." + df["periodo_anual"].astype(str)
+
+    duplicadas = df.duplicated(["usuarios_id", "periodo"], keep=False)
+    if duplicadas.any():
+        pares = df.loc[duplicadas, ["usuarios_id", "periodo"]].drop_duplicates()
+        descripcion = [f"{uid} en {per}" for uid, per in zip(pares["usuarios_id"], pares["periodo"])]
+        errores.append(
+            f"{len(pares)} 'ID Usuario' repetido(s) en el mismo periodo "
+            f"({int(duplicadas.sum())} filas; {_ejemplos(descripcion)})."
+        )
+
+    if errores:
+        raise ValueError("Población inválida:\n- " + "\n- ".join(errores))
+
+    return df[POBLACION_COLUMNAS_SALIDA].reset_index(drop=True)
+
+
+def guardar_poblacion(df: pd.DataFrame) -> int:
+    """Escribe la población (salida de leer_poblacion) en POBLACION_CSV_PATH
+    de forma atómica (.tmp + os.replace): si algo falla a mitad de camino,
+    el archivo anterior queda intacto. Devuelve la cantidad de filas."""
+    os.makedirs(os.path.dirname(POBLACION_CSV_PATH), exist_ok=True)
+    tmp_path = POBLACION_CSV_PATH + ".tmp"
+    try:
+        df[POBLACION_COLUMNAS_SALIDA].to_csv(tmp_path, index=False, encoding="utf-8")
+        os.replace(tmp_path, POBLACION_CSV_PATH)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+    return len(df)
+
+
+def cargar_poblacion():
+    """None si todavía no se subió ninguna población. Si existe, devuelve
+    el DataFrame con POBLACION_COLUMNAS_SALIDA (usuarios_id y semestre int,
+    el resto texto -- se conservan ceros a la izquierda)."""
+    if not os.path.exists(POBLACION_CSV_PATH):
+        return None
+    df = pd.read_csv(POBLACION_CSV_PATH, dtype=str, keep_default_na=False, encoding="utf-8")
+    df["usuarios_id"] = df["usuarios_id"].astype(int)
+    df["semestre"] = df["semestre"].astype(int)
+    return df
+
+
+def _clave_periodo(periodo: str):
+    ano, _, sem = str(periodo).partition(".")
+    return (int(ano), int(sem or 0))
+
+
+def totales_por_periodo(df: pd.DataFrame) -> pd.Series:
+    """Cantidad de usuarios_id únicos por periodo, en orden cronológico."""
+    totales = df.groupby("periodo")["usuarios_id"].nunique()
+    orden = sorted(totales.index, key=_clave_periodo)
+    return totales.reindex(orden).rename("alumnos")

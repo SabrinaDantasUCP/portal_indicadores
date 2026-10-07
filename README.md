@@ -94,6 +94,72 @@ sudo chmod 440 /etc/sudoers.d/encuestas_vpn
 sudo visudo -c
 ```
 
+## Actualizar población de alumnos activos
+
+La Versión 2 de Alumnos, Asistencias y Encuestas (Alumno→Docente) se filtra
+por una **población oficial de alumnos activos** que se cierra **fuera del
+portal**. El portal no recalcula criterios, notas, recortes ni cohortes:
+solo consume la lista (`services/etl/activos_ids.py`,
+`services/etl/activos_criterios_runner.py`, pantalla admin "Alumnos
+Activos").
+
+1. **Generar la población (fuera del portal).** Correr
+   `etl_unico_activos_2018_2_2026_1.py` y después
+   `consolidar_max2_recursantes.py`, que producen el consolidado "Alumnos
+   Reales Max 2 Recursantes" (hojas `Alumnos`, `Matriz`, `Excluidos`).
+   Responsable / dónde se corre: _completar (equipo de BI, carpeta
+   `analisis_general/...` del OneDrive)_.
+2. **Exportar.** Guardar la hoja `Alumnos` como CSV (separador `;`, `,` o
+   tab; UTF-8 o Latin-1) o usar el `.xlsx` directo (se lee la hoja
+   `Alumnos`). Columnas: `Año, Periodo, Catraca, ID Usuario, Nombre,
+   Doc. Oficial, Semestre, Sección, Motivo`.
+3. **Subir al portal.** Pantalla admin **Alumnos Activos** → sección
+   "Población de alumnos activos (CSV)": subir el archivo, conferir en la
+   vista previa los totales por periodo (filas, alumnos únicos, filas sin
+   sección) y hacer clic en **Guardar población**. Se graba en
+   `assets/data/global/alumnos_activos_poblacion.csv`.
+4. **ETL de activos.** **Ejecutar ahora** en la misma pantalla (o esperar el
+   cron `scripts/run_activos_criterios_etl_cron.sh`, que corre antes que los
+   demás). Filtra la población por los "Periodos a incluir" y regenera
+   `usuarios_activos_ids.txt` y `usuarios_activos_periodos.csv`. Los avisos
+   (periodos del CSV ignorados / periodos configurados sin alumnos) quedan
+   en "Última ejecución".
+5. **Regenerar la v2.** Correr los ETL de **Alumnos**, **Asistencias** y
+   **Encuestas** (pantallas de admin de cada uno o sus crons).
+6. **Validar.**
+
+   ```bash
+   python scripts/validar_poblacion_activos.py "ruta/al/consolidado.xlsx"
+   ```
+
+   Compara contra el consolidado: totales por periodo, IDs repetidos, cupo
+   de 95 por sección (sem. 1-10 desde 2021.1), hoja `Matriz`, hoja
+   `Excluidos`, pares alumno-periodo y `alumnos_v2` (lista los alumnos de la
+   población sin `periodo_letivo` en la base del portal). Solo lectura. Con
+   `--poblacion-archivo <archivo>` valida un archivo antes de subirlo; con
+   `--periodos 2018.2-2026.1` evita consultar la configuración en la base
+   "pia". Prueba unitaria rápida (no toca `assets/data`):
+   `python scripts/test_poblacion_activos.py`.
+
+**Deploy de cambios en este flujo** (mismo protocolo de `GEMINI.md`):
+
+1. Desarrollar en la branch personal (`sabrina-dev`), con `origin/teste` ya
+   integrado, y validar localmente (`python -m py_compile`,
+   `python scripts/test_poblacion_activos.py`).
+2. `git push origin sabrina-dev` e integrar los commits aprobados en `teste`
+   (`git push origin teste`).
+3. En el servidor de test (`/home/biocde/streamlit/sistema_relatorios_test`):
+   `git pull origin teste`, `sudo systemctl restart streamlit_app_test.service`
+   y verificar `http://10.20.8.82:8502/_stcore/health` (200 OK).
+4. En test, hacer los pasos 1-6 de arriba con la población real y confirmar
+   `validar_poblacion_activos.py` sin FALLA.
+5. Solo con la validación OK, promover a producción siguiendo
+   [Actualizar el servidor](#actualizar-el-servidor).
+
+**No hacer deploy en producción antes de validar en test.** La población
+(`assets/data/` no está versionado) se sube por separado en cada entorno
+desde la pantalla de admin.
+
 ## Actualizar el servidor
 
 Pasos para llevar un cambio de `sistema_relatorios_test` a producción:

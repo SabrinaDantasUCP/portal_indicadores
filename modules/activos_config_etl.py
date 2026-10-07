@@ -2,36 +2,32 @@
 modules/activos_config_etl.py
 
 Pantalla de admin de "Alumnos Activos" -- fuente del filtro v2 en los ETL de
-Alumnos, Asistencias y Encuestas (Alumno→Docente). Reemplaza el flujo
-anterior (que dependía de que alguien corriera por fuera un script Python y
-subiera a mano un .txt con los ids resultantes) por un pipeline real dentro
-del sistema: services/etl/activos_criterios_etl.py calcula automáticamente
-quién cuenta como "activo" (7 criterios de negocio + listas de inclusión
-incondicional de egresados/Defensa de TFG/RUES + ajuste de periodo para
-convalidados + ajuste por muestreo contra una tabla de referencia para
-2018.2-2020.2).
-
-El resultado se sigue escribiendo en el mismo archivo de siempre
-(assets/data/global/usuarios_activos_ids.txt, vía
-services/etl/activos_ids.guardar_ids_activos), así que Alumnos, Asistencias
-y Encuestas no necesitan ningún cambio: siguen leyendo
-services/etl/activos_ids.cargar_ids_activos() exactamente igual que antes.
+Alumnos, Asistencias y Encuestas (Alumno→Docente). La población oficial de
+alumnos activos se cierra FUERA del portal (ETL
+etl_unico_activos_2018_2_2026_1.py + consolidado "Alumnos Reales Max 2
+Recursantes") y se sube aquí como CSV/XLSX
+(services/etl/activos_ids.guardar_poblacion). El portal no recalcula
+criterios, notas, recortes ni cohortes: el ETL de activos
+(services/etl/activos_criterios_runner.py, cron o "Ejecutar ahora") solo
+filtra esa población por los periodos configurados y escribe
+assets/data/global/usuarios_activos_ids.txt y usuarios_activos_periodos.csv,
+que Alumnos, Asistencias y Encuestas siguen leyendo exactamente igual que
+antes (cargar_ids_activos / cargar_pares_activos).
 
 Se mantiene, en un expander aparte, el upload manual de .txt como válvula de
-escape -- sobrescribe el resultado del cálculo automático hasta la próxima
-ejecución.
+escape -- sobrescribe el resultado generado a partir del CSV hasta la
+próxima ejecución del ETL.
 """
 
+import os
 import threading
 from datetime import datetime
 
-import pandas as pd
 import streamlit as st
 
 from utils import db_pia
 from utils.system_logging import log_exception
 from utils.ui_uploads import render_upload_meta_section
-from services.etl import activos_criterios_etl as etl
 from services.etl.activos_criterios_runner import (
     ejecutar_activos_criterios_etl,
     EGRESADOS_XLSX_PATH,
@@ -40,10 +36,15 @@ from services.etl.activos_criterios_runner import (
 )
 from services.etl.alumnos_etl import EGRESADOS_COLUMNAS_REQUERIDAS, normalizar_egresados_columnas
 from services.etl.activos_ids import (
+    POBLACION_CSV_PATH,
     cargar_ids_activos,
+    cargar_poblacion,
     guardar_ids_activos,
+    guardar_poblacion,
+    leer_poblacion,
     parsear_ids_activos,
     borrar_pares_activos,
+    totales_por_periodo,
 )
 
 
@@ -94,7 +95,7 @@ def _formatear_fecha(dt):
 # modules/alumnos_config_etl.py)
 # ─────────────────────────────────────────────
 
-def _pipeline_worker(periodos, referencia, progress, cancel_event, disparado_por, actor_usuario_id):
+def _pipeline_worker(periodos, progress, cancel_event, disparado_por, actor_usuario_id):
     """Corre en un thread aparte -- NUNCA debe llamar a `st.*`."""
 
     def on_progress(mensaje):
@@ -103,7 +104,7 @@ def _pipeline_worker(periodos, referencia, progress, cancel_event, disparado_por
     iniciado_en = datetime.now()
     try:
         resultado = ejecutar_activos_criterios_etl(
-            periodos, referencia=referencia, on_progress=on_progress, cancel_check=cancel_event.is_set
+            periodos, on_progress=on_progress, cancel_check=cancel_event.is_set
         )
     except Exception as exc:
         resultado = {
@@ -135,13 +136,13 @@ def _pipeline_worker(periodos, referencia, progress, cancel_event, disparado_por
     progress["done"] = True
 
 
-@st.dialog("Confirmar cálculo de Alumnos Activos")
-def modal_confirmar_ejecucion(periodos, referencia):
+@st.dialog("Confirmar ETL de Alumnos Activos")
+def modal_confirmar_ejecucion(periodos):
     st.warning(
-        f"Esto va a recalcular quién cuenta como \"activo\" consultando el MySQL/Postgres de origen "
-        f"para **{len(periodos)} periodo(s)**, lo que puede demorar bastante (varios minutos, incluso "
-        "más de una hora si son muchos periodos). El resultado reemplaza el archivo de ids activos que "
-        "usan Alumnos, Asistencias y Encuestas.\n\n¿Desea ejecutar el cálculo ahora de todas formas?"
+        f"Esto va a filtrar la población de alumnos activos subida (CSV) por **{len(periodos)} "
+        "periodo(s)** y reemplazar el archivo de ids activos (y los pares alumno-periodo) que usan "
+        "Alumnos, Asistencias y Encuestas. Tarda unos segundos.\n\nDespués hay que ejecutar los ETL "
+        "de Alumnos, Asistencias y Encuestas para regenerar la Versión 2.\n\n¿Desea ejecutar el ETL ahora?"
     )
     c1, c2 = st.columns(2)
     with c1:
@@ -162,7 +163,7 @@ def modal_confirmar_ejecucion(periodos, referencia):
             cancel_event = threading.Event()
             thread = threading.Thread(
                 target=_pipeline_worker,
-                args=(periodos, referencia, progress, cancel_event, "MANUAL", actor_usuario_id),
+                args=(periodos, progress, cancel_event, "MANUAL", actor_usuario_id),
                 daemon=True,
             )
             st.session_state.activos_criterios_etl_job = {
@@ -184,7 +185,7 @@ def _render_progreso_ejecucion():
 
     if thread.is_alive():
         mensaje = progress.get("mensaje") or "Iniciando..."
-        st.info(f"Calculando alumnos activos... {mensaje}")
+        st.info(f"Ejecutando ETL de alumnos activos... {mensaje}")
 
         if cancel_event.is_set():
             st.caption("Deteniendo — esperando a que termine el paso en curso.")
@@ -199,7 +200,7 @@ def _render_progreso_ejecucion():
     }
     if resultado["status"] == "OK":
         st.session_state.temp_msg_activos_criterios_etl = (
-            f"Cálculo completado: {resultado['cantidad_ids']} ids activos."
+            f"ETL completado: {resultado['cantidad_ids']} ids activos."
             + (f" Aviso: {resultado['mensaje_error']}" if resultado["mensaje_error"] else "")
         )
     elif resultado["status"] == "CANCELADO":
@@ -212,55 +213,96 @@ def _render_progreso_ejecucion():
 
 
 # ─────────────────────────────────────────────
-# TABLA DE REFERENCIA (ajuste 2018.2-2020.2 + validación 2021.1+)
+# POBLACIÓN DE ALUMNOS ACTIVOS (CSV cerrado fuera del portal)
 # ─────────────────────────────────────────────
 
-def _render_referencia_section():
-    st.markdown("### Tabla de referencia (periodo x semestre)")
-    st.caption(
-        f"Cantidad esperada de alumnos activos por periodo x semestre. Los periodos "
-        f"**{', '.join(etl.PERIODOS_MUESTREO_FORZADO)}** se usan para AJUSTAR el resultado "
-        "(si el cálculo por criterios da más alumnos que lo esperado, se descartan al azar -- "
-        "los egresados nunca se descartan, TFG/RUES se descartan solo si sobra cupo). El resto de "
-        "periodos solo se usa como referencia de validación (se compara y se loguea la diferencia, "
-        "sin descartar a nadie)."
+def _resumen_poblacion(df):
+    return {
+        "filas": len(df),
+        "alumnos": df["usuarios_id"].nunique(),
+        "periodos": df["periodo"].nunique(),
+    }
+
+
+def _render_poblacion_section():
+    st.markdown("### Población de alumnos activos (CSV)")
+    st.markdown(
+        "Lista oficial de alumnos activos, cerrada **fuera del portal** (consolidado \"Alumnos Reales "
+        "Max 2 Recursantes\"). Suba la hoja **Alumnos** como .csv/.txt (separador `;`, `,` o tab) o el "
+        ".xlsx directo, con las columnas **Año, Periodo, Catraca, ID Usuario, Nombre, Doc. Oficial, "
+        "Semestre, Sección, Motivo** (obligatorias: Año, Periodo, ID Usuario, Semestre). El portal no "
+        "modifica semestre ni sección; una sección vacía es válida.\n\n"
+        "Después de guardar: **\"Ejecutar ahora\"** más abajo (o esperar el cron) y luego los ETL de "
+        "**Alumnos**, **Asistencias** y **Encuestas** para regenerar la Versión 2."
     )
 
-    referencia_actual = db_pia.get_activos_criterios_referencia()
-    filas = [
-        {"periodo": periodo, "semestre": semestre, "cantidad_esperada": cantidad}
-        for (periodo, semestre), cantidad in sorted(referencia_actual.items())
-    ]
-    df_ref = pd.DataFrame(filas, columns=["periodo", "semestre", "cantidad_esperada"])
+    if "temp_msg_activos_poblacion" in st.session_state:
+        st.success(st.session_state.temp_msg_activos_poblacion)
+        del st.session_state.temp_msg_activos_poblacion
 
-    df_editado = st.data_editor(
-        df_ref,
-        num_rows="dynamic",
-        use_container_width=True,
-        key="activos_criterios_referencia_editor",
-        column_config={
-            "periodo": st.column_config.TextColumn("Periodo (AAAA.S)", required=True),
-            "semestre": st.column_config.NumberColumn("Semestre", min_value=1, max_value=12, step=1, required=True),
-            "cantidad_esperada": st.column_config.NumberColumn("Cantidad esperada", min_value=0, step=1, required=True),
-        },
+    try:
+        poblacion_actual = cargar_poblacion()
+    except Exception as e:
+        log_exception("Error al leer la población de alumnos activos guardada", e)
+        st.error(f"No se pudo leer la población guardada: {e}")
+        poblacion_actual = None
+
+    if poblacion_actual is not None:
+        resumen = _resumen_poblacion(poblacion_actual)
+        modificado = datetime.fromtimestamp(os.path.getmtime(POBLACION_CSV_PATH))
+        st.caption(
+            f"Población actual: {resumen['filas']} filas · {resumen['alumnos']} alumnos únicos · "
+            f"{resumen['periodos']} periodo(s) · Modificada el {_formatear_fecha(modificado)}"
+        )
+    else:
+        st.info("Todavía no se subió ninguna población.")
+
+    archivo = st.file_uploader(
+        "Archivo de población (.csv, .txt o .xlsx)", type=["csv", "txt", "xlsx"], key="activos_poblacion_uploader",
     )
-
-    if st.button("Guardar tabla de referencia", icon=":material/save:", key="btn_guardar_referencia"):
+    if archivo is not None:
         try:
-            df_limpio = df_editado.dropna(subset=["periodo", "semestre", "cantidad_esperada"])
-            valores = [
-                (str(row["periodo"]).strip(), int(row["semestre"]), int(row["cantidad_esperada"]))
-                for _, row in df_limpio.iterrows()
-                if str(row["periodo"]).strip()
-            ]
-            db_pia.update_activos_criterios_referencia(valores)
-        except Exception as e:
-            log_exception("Error al guardar la tabla de referencia de activos por criterios", e)
-            st.error(f"Error al guardar la tabla de referencia: {e}")
+            df_nuevo = leer_poblacion(archivo.getvalue(), archivo.name)
+        except ValueError as e:
+            st.error(str(e))
             return
-        db_pia.log_audit_event("activos_criterios_referencia_actualizada", detalle={"filas": len(valores)})
-        st.success(f"Tabla de referencia guardada: {len(valores)} celda(s).")
-        st.rerun()
+
+        resumen = _resumen_poblacion(df_nuevo)
+        sin_seccion = int((df_nuevo["seccion"] == "").sum())
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Filas", resumen["filas"])
+        c2.metric("Alumnos únicos", resumen["alumnos"])
+        c3.metric("Periodos", resumen["periodos"])
+        c4.metric("Filas sin sección", sin_seccion)
+        st.caption("Total de alumnos (ID Usuario únicos) por periodo:")
+        st.dataframe(totales_por_periodo(df_nuevo).to_frame().T, use_container_width=True)
+
+        if st.button("Guardar población", type="primary", icon=":material/save:", key="btn_guardar_poblacion"):
+            try:
+                filas = guardar_poblacion(df_nuevo)
+                db_pia.log_audit_event(
+                    "activos_poblacion_actualizada",
+                    detalle={"nombre_archivo": archivo.name, "filas": filas},
+                )
+            except Exception as e:
+                log_exception("Error al guardar la población de alumnos activos", e)
+                st.error(f"Error al guardar la población: {e}")
+                return
+            st.session_state.temp_msg_activos_poblacion = (
+                f"Población guardada: {filas} filas. Ahora ejecute el ETL de activos (\"Ejecutar ahora\")."
+            )
+            st.rerun()
+
+    if poblacion_actual is not None:
+        with open(POBLACION_CSV_PATH, "rb") as f:
+            st.download_button(
+                "Descargar población actual (CSV)",
+                data=f.read(),
+                file_name="alumnos_activos_poblacion.csv",
+                mime="text/csv",
+                icon=":material/download:",
+                key="btn_descargar_poblacion",
+            )
 
 
 # ─────────────────────────────────────────────
@@ -271,8 +313,10 @@ def _render_upload_manual_section():
     st.markdown(
         "Suba un .txt con **un id de usuario por línea**. Si el archivo tiene más de una "
         "columna por línea (por ejemplo un número de fila adelante), se usa la última "
-        "columna. Al subir, **sobrescribe** el resultado del cálculo automático -- el "
-        "próximo cálculo (cron o \"Ejecutar ahora\" más arriba) lo vuelve a reemplazar."
+        "columna. Al subir, **sobrescribe** el resultado generado a partir de la población (CSV) "
+        "y borra los pares alumno-periodo, así que la Versión 2 pasa a incluir TODO el historial "
+        "de esos ids -- la próxima ejecución del ETL (cron o \"Ejecutar ahora\" más arriba) lo "
+        "vuelve a reemplazar con la población."
     )
 
     meta = db_pia.get_activos_ids_meta()
@@ -299,10 +343,10 @@ def _render_upload_manual_section():
             return
         st.caption(f"Vista previa: {len(ids_preview)} ids detectados. Primeros 10: {ids_preview[:10]}")
 
-        if st.button("Subir archivo (sobrescribe el cálculo automático)", icon=":material/upload:", key="btn_subir_manual"):
+        if st.button("Subir archivo (sobrescribe el resultado del CSV)", icon=":material/upload:", key="btn_subir_manual"):
             try:
                 cantidad = guardar_ids_activos(texto)
-                borrar_pares_activos()  # invalida los pares alumno-periodo del cálculo automático
+                borrar_pares_activos()  # invalida los pares alumno-periodo generados desde la población
                 db_pia.update_activos_ids_meta(
                     nombre_archivo=archivo.name,
                     cantidad_ids=cantidad,
@@ -341,12 +385,11 @@ def render():
 
     st.subheader("Alumnos Activos - Configuración ETL")
     st.markdown(
-        "Calcula automáticamente quiénes son los \"alumnos activos\" usados para generar la "
-        "**Versión 2** de los indicadores en tres ETL: **Alumnos**, **Asistencias** y "
-        "**Encuestas** (tipo Alumno→Docente) — 7 criterios de negocio (asistencia, status de "
-        "matrícula, atraso/límite de recursado, factura en mora, examen final) más las listas de "
-        "egresados, Defensa de TFG y RUES (siempre cuentan como activos). No afecta la "
-        "Autoevaluación Docente, que no tiene versión v1/v2."
+        "Define quiénes son los \"alumnos activos\" usados para generar la **Versión 2** de los "
+        "indicadores en tres ETL: **Alumnos**, **Asistencias** y **Encuestas** (tipo "
+        "Alumno→Docente). La fuente es la **población oficial (CSV)** cerrada fuera del portal: el "
+        "portal no recalcula criterios, notas, recortes ni cohortes, solo filtra esa lista por los "
+        "periodos configurados. No afecta la Autoevaluación Docente, que no tiene versión v1/v2."
     )
 
     if "temp_msg_activos_criterios_etl" in st.session_state:
@@ -359,6 +402,11 @@ def render():
         st.warning(f"Ejecución cancelada: {st.session_state.temp_msg_activos_criterios_etl_cancelado}")
         del st.session_state.temp_msg_activos_criterios_etl_cancelado
 
+    with st.container(border=True):
+        _render_poblacion_section()
+
+    st.markdown("---")
+
     config = db_pia.get_activos_criterios_config()
     if not config:
         st.error("No se encontró la configuración de ETL de activos por criterios (pia_activos_criterios_config).")
@@ -367,21 +415,21 @@ def render():
     ultimo = db_pia.get_ultimo_activos_criterios_run()
     if config["activo"] and ultimo and ultimo["status"] == "ERROR":
         st.warning(
-            "⚠️ La última ejecución del cálculo de activos falló. Revise el mensaje de error más "
-            "abajo (probablemente el MySQL/Postgres de origen esté caído o inaccesible)."
+            "⚠️ La última ejecución del ETL de activos falló. Revise el mensaje de error más "
+            "abajo (por ejemplo, población no subida o sin alumnos en los periodos configurados)."
         )
 
     with st.container(border=True):
         st.markdown("### Configuración")
 
         periodos_seleccionados_raw = st.multiselect(
-            "Periodos a incluir en el cálculo *",
+            "Periodos a incluir *",
             options=_opciones_periodos(extra=config["periodos"]),
             default=config["periodos"],
             accept_new_options=True,
-            help="Cada periodo seleccionado entra en las queries de universo base, materias, notas y "
-                 "asistencia. Puede escribir un periodo que no esté en la lista (formato 'AAAA.S') y "
-                 "presionar Enter para agregarlo.",
+            help="Solo los alumnos de la población (CSV) en estos periodos pasan a los archivos de ids "
+                 "activos; los demás periodos del CSV se ignoran (y se avisa). Puede escribir un periodo "
+                 "que no esté en la lista (formato 'AAAA.S') y presionar Enter para agregarlo.",
         )
         try:
             periodos_seleccionados = _parsear_periodos(periodos_seleccionados_raw)
@@ -393,7 +441,7 @@ def render():
         nuevo_estado = st.toggle(
             "Actualización automática (cron diario, antes que Alumnos/Asistencias/Encuestas)",
             value=activo_actual,
-            help="Si está pausada, el cron nocturno no ejecuta el cálculo, pero el archivo de ids "
+            help="Si está pausada, el cron nocturno no ejecuta el ETL, pero el archivo de ids "
                  "activos ya generado sigue siendo usado por los otros ETL.",
         )
 
@@ -419,7 +467,7 @@ def render():
         bloqueado_por_otro = bool(lock_estado and lock_estado["en_ejecucion"])
         if bloqueado_por_otro:
             st.warning(
-                f"⚠️ Ya hay un cálculo de activos en curso, disparado por "
+                f"⚠️ Ya hay un ETL de activos en curso, disparado por "
                 f"**{lock_estado['disparado_por']}** desde {_formatear_fecha(lock_estado['iniciado_en'])} "
                 "(otra pestaña/sesión, o el cron). Espere a que termine antes de iniciar otro."
             )
@@ -432,7 +480,7 @@ def render():
                 st.markdown(f"{icono} Finalizada: {_formatear_fecha(ultimo['finalizado_en'])}")
                 st.caption(f"Disparado por: {ultimo['disparado_por']} · Periodos procesados: {ultimo['periodos_procesados'] or '-'}")
                 if ultimo["status"] == "OK":
-                    st.caption(f"Ids activos calculados: {ultimo['cantidad_ids']}")
+                    st.caption(f"Ids activos generados: {ultimo['cantidad_ids']}")
                     if ultimo["mensaje_error"]:
                         st.caption(f"Aviso: {ultimo['mensaje_error']}")
                 else:
@@ -447,12 +495,7 @@ def render():
                 if not periodos_seleccionados:
                     st.warning("Seleccione al menos un periodo antes de ejecutar.")
                 else:
-                    modal_confirmar_ejecucion(periodos_seleccionados, db_pia.get_activos_criterios_referencia())
-
-    st.markdown("---")
-
-    with st.container(border=True):
-        _render_referencia_section()
+                    modal_confirmar_ejecucion(periodos_seleccionados)
 
     st.markdown("---")
 
@@ -500,5 +543,5 @@ def render():
 
     st.markdown("---")
 
-    with st.expander("Avanzado: subir lista manualmente (sobrescribe el cálculo automático)"):
+    with st.expander("Avanzado: subir lista manualmente (sobrescribe el resultado del CSV)"):
         _render_upload_manual_section()
