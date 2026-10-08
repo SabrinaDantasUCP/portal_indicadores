@@ -1,3 +1,5 @@
+import os
+
 import pandas as pd
 import pyarrow.parquet as pq
 import streamlit as st
@@ -38,13 +40,18 @@ ALUMNOS_COLUMNS = [
 ]
 
 
-@st.cache_resource
-def _load_alumnos_raw(data_path):
+@st.cache_resource(max_entries=2)
+def _load_alumnos_raw(data_path, mtime):
     """Lee el parquet una vez y mantiene el DataFrame compartido en memoria.
 
     IMPORTANTE: el objeto devuelto es compartido entre todas las sesiones y NO
     debe modificarse. Los consumidores usan load_alumnos(), que siempre devuelve
     una copia (filtrada o completa).
+
+    `mtime` (fecha de modificación del archivo) forma parte de la clave del
+    caché: cuando un ETL reescribe el parquet, la próxima lectura lo vuelve a
+    cargar en vez de seguir mostrando la versión que quedó en memoria desde
+    que arrancó el servicio. max_entries=2 evita acumular versiones viejas.
     """
     schema_names = {name.strip() for name in pq.ParquetFile(data_path).schema.names}
     cols = [c for c in ALUMNOS_COLUMNS if c in schema_names]
@@ -55,7 +62,7 @@ def _load_alumnos_raw(data_path):
 
 def load_alumnos(data_path, only_cde=True, only_regular=False):
     try:
-        df = _load_alumnos_raw(data_path)
+        df = _load_alumnos_raw(data_path, os.path.getmtime(data_path))
     except Exception as exc:
         log_exception(f"No se pudieron cargar datos de alumnos desde {data_path}", exc)
         return pd.DataFrame()
