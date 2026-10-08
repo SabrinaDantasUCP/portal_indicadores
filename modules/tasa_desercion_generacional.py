@@ -4,6 +4,19 @@ import io
 import os
 from datetime import datetime
 from utils import db_pia
+from utils.ui import (
+    COLOR_ATENCION,
+    COLOR_BUENO,
+    COLOR_MALO,
+    COLOR_PRIMARIO,
+    PALETA_CATEGORICA,
+    estilizar_figura,
+    formatear_entero,
+    formatear_porcentaje,
+    render_cabecera_indicador,
+    render_tarjetas_kpi,
+    render_titulo_seccion,
+)
 from utils.system_logging import log_exception
 from services.data.alumnos import load_current_alumnos
 from services.calculations.tasa_desercion import (
@@ -17,19 +30,11 @@ from reportlab.lib.units import cm
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 
 def render():
-    st.subheader("Tasa de Deserción Generacional (TDG)")
+    render_cabecera_indicador(
+        "Tasa de Deserción Generacional (TDG)",
+        "Porcentaje de los alumnos que ingresaron en una cohorte que no egresaron en el tiempo previsto (12 semestres). Solo para cohortes que ya completaron ese plazo.",
+    )
 
-    # CSS para ocultar toolbar e estilizar botões
-    st.markdown("""
-        <style>
-        [data-testid="stElementToolbar"] { display: none; }
-        div[data-testid="stDownloadButton"] button {
-            min-height: 50px !important;
-            font-size: 16px !important;
-            border-radius: 8px !important;
-        }
-        </style>
-    """, unsafe_allow_html=True)
     
     df = load_current_alumnos()
     if df.empty:
@@ -113,10 +118,28 @@ def render():
     tab1, tab2 = st.tabs(["Comparativo", "Detalle por Cohorte"])
 
     with tab1:
-        st.markdown("### Comparativo de Deserción Generacional")
-        fig = px.bar(resumen_tdg, x=COL_COHORTE, y="TDG (%)", text_auto='.2f', labels={"TDG (%)": "TDG (%)", COL_COHORTE: "Cohorte"}, color="TDG (%)", color_continuous_scale="Reds")
-        fig.update_traces(textposition='outside')
-        st.plotly_chart(fig, use_container_width=True)
+        total_eiic = int(resumen_tdg["EIIC"].sum())
+        total_eca = int(resumen_tdg["ECA"].sum())
+        render_tarjetas_kpi([
+            {"etiqueta": "Cohortes evaluadas", "valor": len(resumen_tdg), "detalle": "Con los 12 semestres cumplidos"},
+            {"etiqueta": "Ingresantes (EIIC)", "valor": formatear_entero(total_eiic)},
+            {"etiqueta": "No egresaron en tiempo (ECA)", "valor": formatear_entero(total_eca), "color": COLOR_MALO},
+            {"etiqueta": "TDG global", "valor": formatear_porcentaje(total_eca / total_eiic * 100 if total_eiic else 0),
+             "detalle": "ECA ÷ EIIC", "color": COLOR_MALO},
+        ])
+        render_titulo_seccion(
+            "Deserción generacional por cohorte",
+            "Una barra más alta indica que una mayor parte de la cohorte no egresó dentro de los 12 semestres "
+            "(abandonó o se atrasó).",
+        )
+        datos_grafico = resumen_tdg.assign(Etiqueta=resumen_tdg["TDG (%)"].map(formatear_porcentaje))
+        fig = px.bar(datos_grafico, x=COL_COHORTE, y="TDG (%)", text="Etiqueta", custom_data=["EIIC", "ECA"],
+                     labels={"TDG (%)": "TDG (%)", COL_COHORTE: "Cohorte"})
+        fig.update_traces(marker_color=COLOR_MALO, textposition="outside", cliponaxis=False,
+                          hovertemplate="<b>%{x}</b><br>TDG: %{text}<br>Ingresantes: %{customdata[0]}"
+                                        "<br>No egresaron en tiempo: %{customdata[1]}<extra></extra>")
+        estilizar_figura(fig, titulo_y="Deserción generacional", porcentaje=True, altura=380, leyenda=False)
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
         st.dataframe(
             resumen_tdg.style.format({
@@ -135,17 +158,13 @@ def render():
         cohorte_sel = st.selectbox("Seleccione una Cohorte", sorted(resumen_tdg_full[COL_COHORTE].unique()), index=None)
         if cohorte_sel:
             row = resumen_tdg_full[resumen_tdg_full[COL_COHORTE] == cohorte_sel].iloc[0]
-            st.markdown(f"""
-            <div style="text-align: center; padding: 20px; background-color: #f0f2f6; border-radius: 10px; margin-bottom: 20px;">
-                <h3 style="margin: 0; color: #555;">Tasa de Deserción Generacional</h3>
-                <h1 style="margin: 10px 0 0 0; font-size: 48px; color: #b02a37;">{row['TDG (%)']:.2f}%</h1>
-                <p style="margin-top: 5px; color: #666;">Cohorte: {cohorte_sel}</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            st.write(f"**EIIC (Inscritos):** {int(row['EIIC'])}")
-            st.write(f"**ECE (Egresados):** {int(row['ECE'])}")
-            st.write(f"**ECA (Desertores):** {int(row['ECA'])}")
+            render_tarjetas_kpi([
+                {"etiqueta": "Deserción generacional", "valor": formatear_porcentaje(row["TDG (%)"], 2),
+                 "detalle": f"Cohorte {cohorte_sel}", "color": COLOR_MALO},
+                {"etiqueta": "Ingresantes (EIIC)", "valor": formatear_entero(row["EIIC"])},
+                {"etiqueta": "Egresados en tiempo (ECE)", "valor": formatear_entero(row["ECE"]), "color": COLOR_BUENO},
+                {"etiqueta": "No egresaron en tiempo (ECA)", "valor": formatear_entero(row["ECA"]), "color": COLOR_MALO},
+            ])
 
     st.divider()
     c_pdf, c_xls = st.columns(2)
@@ -163,6 +182,11 @@ def render():
     # METODOLOGÍA (FINAL)
     # -------------------------------------------------------------------------
     st.divider()
+    with st.expander("¿Cómo se calcula la Deserción Generacional?", icon=":material/functions:"):
+        _render_metodologia()
+
+
+def _render_metodologia():
     st.markdown("""
     La **Deserción** se define como el abandono que hace el alumno de los cursos o carreras a las que se ha inscripto.
     La **Tasa de Deserción Generacional (TDG)** aprecia el comportamiento del flujo escolar de una cohorte durante el tiempo estipulado (12 semestres).

@@ -6,7 +6,20 @@ import os
 from datetime import datetime
 from utils import db_pia
 from utils.system_logging import log_exception
-from utils.ui import render_egresados_fuente_caption
+from utils.ui import (
+    COLOR_ATENCION,
+    COLOR_BUENO,
+    COLOR_MALO,
+    COLOR_PRIMARIO,
+    PALETA_CATEGORICA,
+    estilizar_figura,
+    formatear_entero,
+    formatear_porcentaje,
+    render_cabecera_indicador,
+    render_tarjetas_kpi,
+    render_titulo_seccion,
+    render_egresados_fuente_caption,
+)
 from services.data.alumnos import load_current_alumnos
 from services.calculations.eficiencia_academica import (
     COL_CATRACA,
@@ -28,18 +41,11 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 import modules.rend_acad_alumno as raa
 
 def render():
-    st.subheader("Eficiencia de Titulación (ETE)")
+    render_cabecera_indicador(
+        "Eficiencia de Titulación (ETE)",
+        "De los alumnos que egresaron en la ventana de cada cohorte, qué porcentaje ya completó el trámite de titulación profesional.",
+    )
 
-    st.markdown("""
-        <style>
-        [data-testid="stElementToolbar"] { display: none; }
-        div[data-testid="stDownloadButton"] button {
-            min-height: 50px !important;
-            font-size: 16px !important;
-            border-radius: 8px !important;
-        }
-        </style>
-    """, unsafe_allow_html=True)
     
     df_full = load_current_alumnos(only_cde=False)
     df = load_current_alumnos()
@@ -155,11 +161,30 @@ def render():
     tab1, tab2 = st.tabs(["Comparativo Global", "Detalle por Cohorte"])
 
     with tab1:
-        st.markdown("### Eficiencia de Titulación (ETE) por Cohorte")
-        st.info("Representa la proporción de egresados que han completado el trámite de titulación profesional.")
-        
-        fig = px.bar(df_ete, x="cohorte", y="ETE (%)", text_auto='.2f', color="ETE (%)", color_continuous_scale="Blues")
-        st.plotly_chart(fig, use_container_width=True)
+        total_egr = int(df_ete["EE (Egresados)"].sum())
+        total_tit = int(df_ete["ET (Titulados)"].sum())
+        render_tarjetas_kpi([
+            {"etiqueta": "Cohortes", "valor": len(df_ete)},
+            {"etiqueta": "Egresados", "valor": formatear_entero(total_egr), "detalle": "Suma de las cohortes"},
+            {"etiqueta": "Titulados", "valor": formatear_entero(total_tit), "color": COLOR_BUENO},
+            {"etiqueta": "ETE global", "valor": formatear_porcentaje(total_tit / total_egr * 100 if total_egr else 0),
+             "detalle": "Titulados ÷ egresados"},
+        ])
+        render_titulo_seccion(
+            "Eficiencia de Titulación por cohorte",
+            "Porcentaje de egresados que ya recibieron su título. Las cohortes más recientes suelen tener "
+            "valores menores porque el trámite de titulación todavía está en curso.",
+        )
+        datos_grafico = df_ete.assign(Etiqueta=df_ete["ETE (%)"].map(formatear_porcentaje))
+        fig = px.bar(datos_grafico, x="cohorte", y="ETE (%)", text="Etiqueta",
+                     custom_data=["EE (Egresados)", "ET (Titulados)"], labels={"cohorte": "Cohorte"})
+        fig.update_traces(
+            marker_color=COLOR_PRIMARIO, textposition="outside", cliponaxis=False,
+            hovertemplate="<b>%{x}</b><br>ETE: %{text}<br>Egresados: %{customdata[0]}<br>"
+                          "Titulados: %{customdata[1]}<extra></extra>",
+        )
+        estilizar_figura(fig, titulo_y="Eficiencia de Titulación", porcentaje=True, altura=380, leyenda=False)
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
         
         st.dataframe(df_ete.rename(columns={"cohorte": "COHORTE"})[["COHORTE", "EE (Egresados)", "ET (Titulados)", "ETE (%)"]].style.format({
             "ETE (%)": "{:.2f}%"
@@ -180,10 +205,13 @@ def render():
             row = df_ete[df_ete["cohorte"] == cohorte_sel].iloc[0]
             t_final = row['periodo_final']
             
-            c_a, c_b, c_c = st.columns(3)
-            c_a.metric("Eficiencia de Titulación", f"{row['ETE (%)']:.2f}%")
-            c_b.metric("Egresados Totales", int(row['EE (Egresados)']))
-            c_c.metric("Estudiantes Titulados", int(row['ET (Titulados)']))
+            render_tarjetas_kpi([
+                {"etiqueta": "Eficiencia de Titulación", "valor": formatear_porcentaje(row["ETE (%)"], 2)},
+                {"etiqueta": "Egresados", "valor": formatear_entero(row["EE (Egresados)"])},
+                {"etiqueta": "Titulados", "valor": formatear_entero(row["ET (Titulados)"]), "color": COLOR_BUENO},
+                {"etiqueta": "Sin título aún", "valor": formatear_entero(row["EE (Egresados)"] - row["ET (Titulados)"]),
+                 "color": COLOR_ATENCION},
+            ])
             
             st.divider()
             
@@ -212,7 +240,7 @@ def render():
             })
             
             # Filtro opcional por Status
-            st.markdown("#### Filtros de Listado")
+            render_titulo_seccion("Egresados de la cohorte", "Filtre por estado de titulación o tipo de egreso.")
             f_col1, f_col2 = st.columns(2)
             options_tit = sorted(lista_full["¿Titulado?"].dropna().unique().tolist())
             sel_tit = f_col1.multiselect("Filtrar por Status de Titulación", options_tit)
@@ -227,20 +255,20 @@ def render():
             lista_view = lista_full[mask].sort_values("Nombre")
             
             st.divider()
-            st.markdown(f"### Listado de Egresados de la Ventana ({t_final})")
+            st.caption(f"{len(lista_view)} egresado(s) en la ventana de la cohorte (periodo final {t_final}).")
             # Mostrar Información invece di Fecha Titulación
             cols_to_show = ["Nombre", "Número de Matrícula", "Tipo Egreso", "¿Titulado?", "Información"]
             st.dataframe(lista_view[cols_to_show], width="stretch", hide_index=True)
             
             # Modal Perfil
-            @st.dialog("Perfil Académico do Aluno", width="large")
+            @st.dialog("Perfil Académico del Estudiante", width="large")
             def modal_perfil(uid, dff):
                 ds = dff[dff[raa.COL_ID_ALUMNO] == uid].copy()
                 if not ds.empty: raa.render_alumno_details(ds, dff)
             
             if not lista_view.empty:
                 st.divider()
-                st.write("#### Consultar Historial Detallado")
+                render_titulo_seccion("Consultar historial de un alumno")
                 col_sel, col_btn = st.columns([2, 1])
                 # Lista de opciones basada solo en los alumnos filtrados
                 with col_sel:
@@ -265,16 +293,16 @@ def render():
             c4.download_button("Descargar Datos (Excel)", data=buf_ex_sel.getvalue(), file_name=f"Datos_ETE_{cohorte_sel}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="excel_ete_sel", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia de Titulación", "Excel"))
 
     st.divider()
-    st.markdown("""
-    ### Metodología de Eficiencia de Titulación (ETE)
-    El índice de titulación se determina por la proporción de titulados de una cohorte determinada y el número de egresados de la misma ventana temporal.
-    """)
-    st.latex(r"ETE = \frac{ET}{EE} \times 100")
-    st.markdown("""
-    **Donde:**
-    - **ET (Estudiantes Titulados):** Estudiantes que ya recibieron sus títulos profesionales.
-    - **EE (Eficiencia de Egreso):** Número total de estudiantes que han egresado, incluyendo los regulares y los reincorporados de periodos anteriores.
-    """)
+    with st.expander("¿Cómo se calcula la Eficiencia de Titulación?", icon=":material/functions:"):
+        st.markdown("""
+        El índice de titulación se determina por la proporción de titulados de una cohorte determinada y el número de egresados de la misma ventana temporal.
+        """)
+        st.latex(r"ETE = \frac{ET}{EE} \times 100")
+        st.markdown("""
+        **Donde:**
+        - **ET (Estudiantes Titulados):** Estudiantes que ya recibieron sus títulos profesionales.
+        - **EE (Eficiencia de Egreso):** Número total de estudiantes que han egresado, incluyendo los regulares y los reincorporados de periodos anteriores.
+        """)
 
     st.divider()
     

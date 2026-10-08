@@ -1,7 +1,19 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 import io
 from utils import db_pia
+from utils.ui import (
+    COLOR_ATENCION,
+    COLOR_BUENO,
+    COLOR_MALO,
+    estilizar_figura,
+    formatear_entero,
+    formatear_porcentaje,
+    render_cabecera_indicador,
+    render_tarjetas_kpi,
+    render_titulo_seccion,
+)
 from services.data.alumnos import load_current_alumnos
 from services.calculations.panel_academico import (
     COL_RES_CALIFICACION,
@@ -22,7 +34,11 @@ def render():
     # Increase st.dataframe styler limit
     pd.set_option("styler.render.max_elements", 2000000) 
 
-    st.subheader("Panel de Desempeño Académico")
+    render_cabecera_indicador(
+        "Panel de Desempeño Académico",
+        "Calificaciones finales por asignatura, sección y docente en el periodo elegido: cuántos alumnos "
+        "aprobaron, cuántos reprobaron y el promedio (escala 1 a 5; se aprueba con 2 o más).",
+    )
     
     df = load_current_alumnos()
     if df.empty:
@@ -38,27 +54,26 @@ def render():
     # Filtros Globales (Top)
     # ---------------------------------------------------------------------
     
-    # 1. Mandatory Filters: Periodo & Subperiodo
-    c1, c2 = st.columns(2)
-    
-    periodos = sorted(df[COL_RES_PERIODO].dropna().unique().astype(str).tolist())
-    periodo_sel = c1.multiselect("Periodo (Año) *", periodos) 
-    
-    subperiodos = sorted(df[COL_RES_SUBPERIODO].dropna().unique().astype(str).tolist())
-    subperiodo_sel = c2.multiselect("Subperiodo (Semestre) *", subperiodos)
-    
-    # Validation
-    if not periodo_sel or not subperiodo_sel:
-        st.info("Seleccione **Periodo (Año)** y **Subperiodo (Semestre)** para continuar.")
+    # 1. Filtro obligatorio: periodo lectivo "AAAA.S". Antes eran dos filtros
+    # separados (año y subperiodo) y se podían combinar periodos inexistentes.
+    ano_num = pd.to_numeric(df[COL_RES_PERIODO], errors="coerce")
+    sub_num = pd.to_numeric(df[COL_RES_SUBPERIODO], errors="coerce")
+    validos = ano_num.notna() & sub_num.notna()
+    df = df[validos].copy()
+    df["_periodo_lectivo"] = ano_num[validos].astype(int).astype(str) + "." + sub_num[validos].astype(int).astype(str)
+    periodos = sorted(df["_periodo_lectivo"].unique(), key=lambda p: tuple(int(x) for x in p.split(".")))
+
+    periodo_sel = st.multiselect(
+        "Periodo lectivo *", periodos, default=periodos[-1:], placeholder="Elija uno o más periodos",
+        help="Formato AAAA.S (año y semestre lectivo). Solo se listan periodos con datos.",
+    )
+    if not periodo_sel:
+        st.info("Seleccione al menos un **periodo lectivo** para continuar.", icon=":material/touch_app:")
         return
 
-    # Apply Filters 1 (Mandatory)
-    df_filtered = df.copy()
-    df_filtered = df_filtered[df_filtered[COL_RES_PERIODO].astype(str).isin(periodo_sel)]
-    df_filtered = df_filtered[df_filtered[COL_RES_SUBPERIODO].astype(str).isin(subperiodo_sel)]
-    
+    df_filtered = df[df["_periodo_lectivo"].isin(periodo_sel)]
     if df_filtered.empty:
-        st.warning("No hay datos para el Periodo/Subperiodo seleccionados.")
+        st.warning("No hay datos para el periodo seleccionado.")
         return
 
     # 2. Structural Filters (Global)
@@ -94,7 +109,18 @@ def render():
         st.warning("No hay datos para los filtros seleccionados.")
         return
 
-    st.divider()
+    calificaciones_validas = pd.to_numeric(df_filtered[COL_RES_CALIFICACION], errors="coerce").dropna()
+    aprobacion = (calificaciones_validas >= 2).mean() * 100 if len(calificaciones_validas) else 0
+    render_tarjetas_kpi([
+        {"etiqueta": "Alumnos", "valor": formatear_entero(df_filtered["usuarios_id"].nunique()),
+         "detalle": "Distintos, en los filtros elegidos"},
+        {"etiqueta": "Asignaturas", "valor": formatear_entero(df_filtered[COL_RES_DISCIPLINA].nunique())},
+        {"etiqueta": "Promedio", "valor": f"{calificaciones_validas.mean():.2f}".replace(".", ",") if len(calificaciones_validas) else "–",
+         "detalle": "Calificación final (1 a 5)"},
+        {"etiqueta": "Aprobación", "valor": formatear_porcentaje(aprobacion),
+         "detalle": "Calificaciones de 2 a 5",
+         "color": COLOR_BUENO if aprobacion >= 80 else (COLOR_ATENCION if aprobacion >= 60 else COLOR_MALO)},
+    ])
 
     # ---------------------------------------------------------------------
     # TABS
@@ -105,7 +131,25 @@ def render():
     # TAB 1: Resumen por Materia e Sección (Renamed Columns)
     # ---------------------------------------------------------------------
     with tab1:
-        st.markdown("### Resumen por Materia e Sección")
+        render_titulo_seccion(
+            "Distribución de calificaciones",
+            "Cantidad de calificaciones finales de cada valor. El 1 es reprobado; de 2 a 5, aprobado.",
+        )
+        distribucion = (
+            calificaciones_validas.astype(int).value_counts().reindex(range(1, 6), fill_value=0)
+            .rename_axis("Calificación").reset_index(name="Cantidad")
+        )
+        distribucion["Etiqueta"] = distribucion["Cantidad"].map(formatear_entero)
+        fig_dist = px.bar(distribucion, x="Calificación", y="Cantidad", text="Etiqueta")
+        fig_dist.update_traces(
+            marker_color=[COLOR_MALO] + [COLOR_BUENO] * 4, textposition="outside", cliponaxis=False,
+            hovertemplate="Calificación %{x}: %{text}<extra></extra>",
+        )
+        estilizar_figura(fig_dist, titulo_x="Calificación final", titulo_y="Cantidad", altura=300, leyenda=False)
+        fig_dist.update_xaxes(dtick=1)
+        st.plotly_chart(fig_dist, use_container_width=True, config={"displayModeBar": False})
+
+        render_titulo_seccion("Resumen por asignatura y sección")
         
         df_final, missing_cols = calculate_panel_resumen(df_filtered)
         if missing_cols:
@@ -115,17 +159,18 @@ def render():
         df_view = build_panel_resumen_view(df_final)
         
         # Formatting
-        format_dict = {
-            "Promédio": "{:.2f}",
-            "% de Aprobácion": "{:.2f}%",
-            "% de Reprobación": "{:.2f}%",
-            "Semestre de la Asignatura": "{:.0f}"
-        }
-
         st.dataframe(
-            df_view.style.format(format_dict),
+            df_view,
             width="stretch",
-            hide_index=True
+            hide_index=True,
+            column_config={
+                "Semestre de la Asignatura": st.column_config.NumberColumn("Semestre", format="%dº"),
+                "Cantidad de Matriculados": st.column_config.NumberColumn("Matriculados"),
+                "Promedio": st.column_config.NumberColumn("Promedio", format="%.2f"),
+                "% de Aprobación": st.column_config.ProgressColumn(
+                    "% de Aprobación", min_value=0, max_value=100, format="%.1f%%"),
+                "% de Reprobación": st.column_config.NumberColumn("% de Reprobación", format="%.1f%%"),
+            },
         )
 
         # Excel Export
@@ -142,7 +187,7 @@ def render():
     # TAB 2: Listado de Alumnos (With Grade Filter)
     # ---------------------------------------------------------------------
     with tab2:
-        st.markdown("### Listado de Alumnos")
+        render_titulo_seccion("Listado de alumnos", "Una fila por alumno y asignatura, con su calificación final.")
         
         # 5. Calificación Filter (Local to this tab)
         calificaciones = sorted(df_filtered[COL_RES_CALIFICACION].dropna().unique().astype(int).tolist())

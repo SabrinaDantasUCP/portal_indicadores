@@ -5,7 +5,22 @@ import os
 import re
 from datetime import datetime
 from utils import db_pia
-from utils.ui import render_download_button_styles, render_kpi_grid, render_section_box
+from utils.ui import (
+    COLOR_ATENCION,
+    COLOR_BUENO,
+    COLOR_MALO,
+    COLOR_PRIMARIO,
+    PALETA_CATEGORICA,
+    estilizar_figura,
+    formatear_entero,
+    formatear_porcentaje,
+    render_cabecera_indicador,
+    render_tarjetas_kpi,
+    render_titulo_seccion,
+    render_download_button_styles,
+    render_kpi_grid,
+    render_section_box,
+)
 from services.data.alumnos import load_current_alumnos
 from services.calculations.rendimiento_academico import (
     COL_CALIFICACION,
@@ -26,7 +41,10 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 # 📘 Página: Tasa de Rendimiento Académico Semestral por Asignatura
 # ------------------------------------------------------------
 def render():
-    st.subheader("Rendimiento Académico por Asignatura")
+    render_cabecera_indicador(
+        "Rendimiento Académico por Asignatura",
+        "Promedio de las calificaciones finales obtenidas en cada asignatura (escala 1 a 5), por cohorte y semestre.",
+    )
 
     render_download_button_styles()
     
@@ -224,30 +242,33 @@ def render():
     # 🔹 Explicação Final na Tela
     # ------------------------------------------------------------
     st.divider()
+    with st.expander("¿Cómo se calcula el Rendimiento por Asignatura (TRASA)?", icon=":material/functions:"):
     
-    st.markdown("""        
-    La Tasa de Rendimiento Académico (TRA) está definida por el promedio de la calificación obtenido por el estudiante en las materias en las cuales ha presentado exámenes, independientemente del tipo de examen (Chaín, 1995).
-    En este caso **se calcula el rendimiento académico por estudiantes en forma individual, por asignatura, por semestre y general, por generación o cohorte.** 
-    De acuerdo con el razonamiento anterior, los cálculos quedan como sigue:     
-    """)
-    st.markdown("""          
-    #### Tasa de Rendimiento Académico Semestral de la Asignatura, promedio (TRASA)               
-    """)
+        st.markdown("""        
+        La Tasa de Rendimiento Académico (TRA) está definida por el promedio de la calificación obtenido por el estudiante en las materias en las cuales ha presentado exámenes, independientemente del tipo de examen (Chaín, 1995).
+        En este caso **se calcula el rendimiento académico por estudiantes en forma individual, por asignatura, por semestre y general, por generación o cohorte.** 
+        De acuerdo con el razonamiento anterior, los cálculos quedan como sigue:     
+        """)
+        st.markdown("""          
+        **Tasa de Rendimiento Académico Semestral de la Asignatura, promedio (TRASA)**
+        """)
 
-    st.latex(r"""
-    \text{TRASA(1)} = \frac{\text{CE}_{(1)}A_{(1)} + \text{CE}_{(2)}A_{(1)} + \text{CE}_{(3)}A_{(1)} + \dots + \text{CE}_{(n)}A_{(1)}}{N}
-    """)
+        st.latex(r"""
+        \text{TRASA(1)} = \frac{\text{CE}_{(1)}A_{(1)} + \text{CE}_{(2)}A_{(1)} + \text{CE}_{(3)}A_{(1)} + \dots + \text{CE}_{(n)}A_{(1)}}{N}
+        """)
 
-    st.markdown("""
-    **Donde:**
+        st.markdown("""
+        **Donde:**
 
-    - **TRASA(1):** Tasa de Rendimiento Académico Semestral de la Asignatura (debe ser calculada para cada asignatura).  
-    - **CE(1)A(1):** Calificación del Estudiante 1 en la Asignatura 1 al final del semestre.
-    - **CE(2)A(1):** Calificación del Estudiante 2 en la Asignatura 1 al final del semestre.  
-    - **CE(3)A(1):** Calificación del Estudiante 3 en la Asignatura 1 al final del semestre.  
-    - **CE(n)A(1):** Calificación del Estudiante "n" en la Asignatura "n" al final del semestre.  
-    - **N:** Número de datos (cantidad de asignaturas examinadas).  
-    """)
+        - **TRASA(1):** Tasa de Rendimiento Académico Semestral de la Asignatura (debe ser calculada para cada asignatura).  
+        - **CE(1)A(1):** Calificación del Estudiante 1 en la Asignatura 1 al final del semestre.
+        - **CE(2)A(1):** Calificación del Estudiante 2 en la Asignatura 1 al final del semestre.  
+        - **CE(3)A(1):** Calificación del Estudiante 3 en la Asignatura 1 al final del semestre.  
+        - **CE(n)A(1):** Calificación del Estudiante "n" en la Asignatura "n" al final del semestre.  
+        - **N:** Número de datos (cantidad de asignaturas examinadas).  
+        """)
     
+
+
 if __name__ == "__main__":
     render()

@@ -7,7 +7,20 @@ import unicodedata
 from datetime import datetime, timedelta
 from utils import db_pia
 from utils.system_logging import log_exception
-from utils.ui import render_download_button_styles
+from utils.ui import (
+    COLOR_ATENCION,
+    COLOR_BUENO,
+    COLOR_MALO,
+    COLOR_PRIMARIO,
+    PALETA_CATEGORICA,
+    estilizar_figura,
+    formatear_entero,
+    formatear_porcentaje,
+    render_cabecera_indicador,
+    render_tarjetas_kpi,
+    render_titulo_seccion,
+    render_download_button_styles,
+)
 from services.data.alumnos import load_current_alumnos
 from services.calculations.rendimiento_academico import (
     COL_CALIFICACION,
@@ -29,7 +42,10 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 # Pagina: Tasa de Rendimiento Academico de la Carrera (TRC)
 # ------------------------------------------------------------
 def render():
-    st.subheader("Rendimiento Académico de la Carrera")
+    render_cabecera_indicador(
+        "Rendimiento Académico de la Carrera",
+        "Promedio general de una cohorte en toda la carrera y su desglose por semestre (escala 1 a 5).",
+    )
 
     render_download_button_styles()
     
@@ -143,7 +159,7 @@ def render():
     # ------------------------------------------------------------
     # Detalhamento (Breakdown por Semestre)
     # ------------------------------------------------------------
-    st.subheader("Desglose por Semestre")
+    render_titulo_seccion("Desglose por semestre")
     
     # 1. Ordenação correta dos semestres (Já ordenado antes de formatar, mas garantindo pela string formatada se necessário ou uso do índice original se preservado. 
     # Como já está ordenado no df_display, seguimos a ordem do DF.)
@@ -456,29 +472,30 @@ def render():
     # 🔹 Explicação e Geração de Documentos
     # ------------------------------------------------------------
     st.divider()
-
-    st.markdown("""        
-    La *Tasa de Rendimiento Académico (TRA)* está definida por el promedio de la calificación obtenido por el estudiante en las materias en las cuales ha presentado exámenes, independientemente del tipo de examen (*Chaín, 1995*).
-    En este caso **se calcula el rendimiento académico por estudiantes en forma individual, por asignatura, por semestre y general, por generación o cohorte.**
-    De acuerdo con el razonamiento anterior, los cálculos quedan como sigue:
+    with st.expander("¿Cómo se calcula el Rendimiento de la Carrera (TRC)?", icon=":material/functions:"):
+        st.markdown("""        
+        La *Tasa de Rendimiento Académico (TRA)* está definida por el promedio de la calificación obtenido por el estudiante en las materias en las cuales ha presentado exámenes, independientemente del tipo de examen (*Chaín, 1995*).
+        En este caso **se calcula el rendimiento académico por estudiantes en forma individual, por asignatura, por semestre y general, por generación o cohorte.**
+        De acuerdo con el razonamiento anterior, los cálculos quedan como sigue:
                 
-    """)
+        """)
 
-    st.markdown("""
-    ### Tasa de Rendimiento Académico de la Carrera, promedio (TRC)
-    """)
+        st.markdown("""
+        **Tasa de Rendimiento Académico de la Carrera, promedio (TRC)**
+        """)
     
-    st.latex(r"""
-    \text{TRC} = \frac{\text{TRAS}_{(1)} + \text{TRAS}_{(2)} + \text{TRAS}_{(3)} + \dots + \text{TRAS}_{(n)}}{N}
-    """)
+        st.latex(r"""
+        \text{TRC} = \frac{\text{TRAS}_{(1)} + \text{TRAS}_{(2)} + \text{TRAS}_{(3)} + \dots + \text{TRAS}_{(n)}}{N}
+        """)
 
-    st.markdown("""
-    **Donde:**
+        st.markdown("""
+        **Donde:**
     
-    * **TRC:** Tasa de Rendimiento Académico de la Carrera (calculada para la generación o **cohorte**).
-    * **TRAS(1):** Tasa de Rendimiento Académico del Primer Semestre.
-    * **TRAS(2):** Tasa de Rendimiento Académico del Segundo Semestre.
-    * **TRAS(3):** Tasa de Rendimiento Académico del Tercero Semestre.            
-    * **TRAS(n):** Tasa de Rendimiento Académico del Último Semestre.
-    * **N:** Número de datos (cantidad de semestres establecidos en el plan de estudios o analizados).
-    """)
+        * **TRC:** Tasa de Rendimiento Académico de la Carrera (calculada para la generación o **cohorte**).
+        * **TRAS(1):** Tasa de Rendimiento Académico del Primer Semestre.
+        * **TRAS(2):** Tasa de Rendimiento Académico del Segundo Semestre.
+        * **TRAS(3):** Tasa de Rendimiento Académico del Tercero Semestre.            
+        * **TRAS(n):** Tasa de Rendimiento Académico del Último Semestre.
+        * **N:** Número de datos (cantidad de semestres establecidos en el plan de estudios o analizados).
+        """)
+

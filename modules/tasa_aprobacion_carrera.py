@@ -5,6 +5,19 @@ import io
 import os
 from datetime import datetime
 from utils import db_pia
+from utils.ui import (
+    COLOR_ATENCION,
+    COLOR_BUENO,
+    COLOR_MALO,
+    COLOR_PRIMARIO,
+    PALETA_CATEGORICA,
+    estilizar_figura,
+    formatear_entero,
+    formatear_porcentaje,
+    render_cabecera_indicador,
+    render_tarjetas_kpi,
+    render_titulo_seccion,
+)
 from utils.system_logging import log_exception
 from services.data.alumnos import load_current_alumnos
 from services.calculations.tasa_aprobacion import (
@@ -18,20 +31,23 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 
-def render():
-    st.subheader("Tasa de Aprobación por Carrera")
 
-    # CSS to hide toolbar and style buttons (copied from other modules)
-    st.markdown("""
-        <style>
-        [data-testid="stElementToolbar"] { display: none; }
-        div[data-testid="stDownloadButton"] button {
-            min-height: 50px !important;
-            font-size: 16px !important;
-            border-radius: 8px !important;
-        }
-        </style>
-    """, unsafe_allow_html=True)
+
+def _color_semaforo(porcentaje):
+    """Verde >= 80%, amarillo >= 60%, rojo < 60% (lectura rápida de aprobación)."""
+    if porcentaje >= 80:
+        return COLOR_BUENO
+    if porcentaje >= 60:
+        return COLOR_ATENCION
+    return COLOR_MALO
+
+
+def render():
+    render_cabecera_indicador(
+        "Tasa de Aprobación por Carrera",
+        "Porcentaje de alumnos inscriptos en un semestre que aprobaron <b>todas</b> las asignaturas de ese semestre (alumnos regulares).",
+    )
+
     
     df = load_current_alumnos(only_regular=True)
     if df.empty:
@@ -205,21 +221,41 @@ def render():
     # TAB 1: Vista General
     # -------------------------------------------------------------------------
     with tab1:
-        st.markdown("### Comparativo de Tasa de Aprobación entre Cohortes")
-        
         # Chart: Average TAC per Cohorte (ignoring semesters)
         resumen_cohorte = resumen_semestre_all.groupby(COL_COHORTE)["TAC (%)"].mean().reset_index()
         resumen_cohorte = resumen_cohorte.sort_values(COL_COHORTE)
-        
+
+        mejor = resumen_cohorte.loc[resumen_cohorte["TAC (%)"].idxmax()]
+        peor = resumen_cohorte.loc[resumen_cohorte["TAC (%)"].idxmin()]
+        render_tarjetas_kpi([
+            {"etiqueta": "Cohortes", "valor": len(resumen_cohorte)},
+            {"etiqueta": "TAC promedio", "valor": formatear_porcentaje(resumen_cohorte["TAC (%)"].mean()),
+             "detalle": "Promedio de todas las cohortes"},
+            {"etiqueta": "Cohorte con mayor TAC", "valor": formatear_porcentaje(mejor["TAC (%)"]),
+             "detalle": str(mejor[COL_COHORTE]), "color": COLOR_BUENO},
+            {"etiqueta": "Cohorte con menor TAC", "valor": formatear_porcentaje(peor["TAC (%)"]),
+             "detalle": str(peor[COL_COHORTE]), "color": COLOR_MALO},
+        ])
+        render_titulo_seccion(
+            "Tasa de Aprobación promedio por cohorte",
+            "Promedio de los semestres cursados por cada cohorte. Colores: "
+            + "<span style=\"color:{b}\">■</span> 80% o más &nbsp; <span style=\"color:{a}\">■</span> 60% a 79% &nbsp; <span style=\"color:{m}\">■</span> menos de 60%".format(b=COLOR_BUENO, a=COLOR_ATENCION, m=COLOR_MALO),
+        )
+        datos_grafico = resumen_cohorte.assign(Etiqueta=resumen_cohorte["TAC (%)"].map(formatear_porcentaje))
         fig_all = px.bar(
-            resumen_cohorte, 
-            x=COL_COHORTE, 
-            y="TAC (%)", 
-            text_auto='.2f',
+            datos_grafico,
+            x=COL_COHORTE,
+            y="TAC (%)",
+            text="Etiqueta",
             labels={"TAC (%)": "Tasa de Aprobación - Promedio (%)", COL_COHORTE: "Cohorte"}
         )
-        fig_all.update_traces(textposition='outside')
-        st.plotly_chart(fig_all, use_container_width=True)
+        fig_all.update_traces(
+            marker_color=[_color_semaforo(v) for v in datos_grafico["TAC (%)"]], textposition="outside", cliponaxis=False,
+            hovertemplate="<b>%{x}</b><br>TAC promedio: %{text}<extra></extra>",
+        )
+        estilizar_figura(fig_all, titulo_y="Tasa de Aprobación", porcentaje=True, altura=380, leyenda=False)
+        fig_all.update_yaxes(range=[0, 110])
+        st.plotly_chart(fig_all, use_container_width=True, config={"displayModeBar": False})
         
         # ------------------------------------------------------------
         # GENERATION AND DOWNLOADS (Tab 1)
@@ -289,16 +325,20 @@ def render():
             
             # KPI
             tac_promedio = resumen_semestre["TAC (%)"].mean()
-            st.markdown(f"""
-            <div style="text-align: center; padding: 20px; background-color: #f0f2f6; border-radius: 10px; margin-bottom: 20px;">
-                <h3 style="margin: 0; color: #555;">Promedio de la Tasa de Aprobación</h3>
-                <h1 style="margin: 10px 0 0 0; font-size: 48px; color: #004080;">{tac_promedio:.2f}%</h1>
-                <p style="margin-top: 5px; color: #666;">Cohorte: {cohorte_sel}</p>
-            </div>
-            """, unsafe_allow_html=True)
+            render_tarjetas_kpi([
+                {"etiqueta": "TAC promedio de la cohorte", "valor": formatear_porcentaje(tac_promedio, 2),
+                 "detalle": f"Cohorte {cohorte_sel}", "color": _color_semaforo(tac_promedio)},
+                {"etiqueta": "Semestres evaluados", "valor": len(resumen_semestre)},
+                {"etiqueta": "Semestre más alto", "valor": formatear_porcentaje(resumen_semestre["TAC (%)"].max()),
+                 "color": COLOR_BUENO},
+                {"etiqueta": "Semestre más bajo", "valor": formatear_porcentaje(resumen_semestre["TAC (%)"].min()),
+                 "color": COLOR_MALO},
+            ])
 
-            st.divider()
-            st.markdown(f"### Evolución de la Tasa de Aprobación - Cohorte {cohorte_sel}")
+            render_titulo_seccion(
+                f"Evolución por semestre — cohorte {cohorte_sel}",
+                "Haga clic en un punto del gráfico para resaltarlo.",
+            )
 
             # Chart (Single Cohorte)
             resumen_semestre = resumen_semestre.sort_values(COL_SEMESTRE)
@@ -311,13 +351,15 @@ def render():
                 labels={"TAC (%)": "Tasa de Aprobación (%)"}
             )
             fig.update_traces(
-                line_color='#004080', 
-                line_width=3, 
+                line_color=COLOR_PRIMARIO,
+                line_width=3,
                 marker_size=10,
-                selected_marker_size=15, 
-                selected_marker_color='red'
+                selected_marker_size=15,
+                selected_marker_color=COLOR_MALO,
+                hovertemplate="%{x}: %{y:.1f}%<extra></extra>",
             )
-            
+            estilizar_figura(fig, titulo_y="Tasa de Aprobación", porcentaje=True, altura=380, leyenda=False)
+            fig.update_yaxes(range=[0, 105])
             fig.update_layout(clickmode='event+select', dragmode='select') 
             
             selection = st.plotly_chart(
@@ -406,27 +448,26 @@ def render():
     # ------------------------------------------------------------
     st.divider()
 
-    st.markdown("""        
-    La **Tasa de Aprobación** se define como la relación entre el número de aprobados o promovidos y los alumnos inscritos en el periodo. \n
-    La **Tasa de Aprobación por Carrera (TAC)** permite identificar a los estudiantes regulares de la carrera, es decir, aquellos que son promovidos en forma íntegra.
-    """)    
+    with st.expander("¿Cómo se calcula la Tasa de Aprobación por Carrera?", icon=":material/functions:"):
+        st.markdown("""        
+        La **Tasa de Aprobación** se define como la relación entre el número de aprobados o promovidos y los alumnos inscritos en el periodo. \n
+        La **Tasa de Aprobación por Carrera (TAC)** permite identificar a los estudiantes regulares de la carrera, es decir, aquellos que son promovidos en forma íntegra.
+        """)    
 
-    st.markdown("""
-    ### Tasa de Aprobación por Carrera (TAC)
-    """)
     
-    st.latex(r"""
-    TAC = \left( \frac{EPAS}{EIS} \right) \times 100
-    """)
+        st.latex(r"""
+        TAC = \left( \frac{EPAS}{EIS} \right) \times 100
+        """)
 
-    st.markdown("""
-    **Donde:**
+        st.markdown("""
+        **Donde:**
     
-    * **TAC:** Tasa de Aprobación por Carrera.
-    * **EPAS:** Número de Estudiantes Promovidos en todas las Asignaturas del
-      Semestre de la Carrera (estudiantes que aprueban todas las asignaturas,
-      es decir, estudiantes regulares)
-    * **EIS:** Número de Estudiantes Inscriptos en el Semestre
-    Fuente de consulta de la promoción del estudiante es el Acta de
-    Calificación
-    """)
+        * **TAC:** Tasa de Aprobación por Carrera.
+        * **EPAS:** Número de Estudiantes Promovidos en todas las Asignaturas del
+          Semestre de la Carrera (estudiantes que aprueban todas las asignaturas,
+          es decir, estudiantes regulares)
+        * **EIS:** Número de Estudiantes Inscriptos en el Semestre
+        Fuente de consulta de la promoción del estudiante es el Acta de
+        Calificación
+        """)
+

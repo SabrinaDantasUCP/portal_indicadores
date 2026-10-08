@@ -10,6 +10,19 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.units import cm
 from utils import db_pia
+from utils.ui import (
+    COLOR_ATENCION,
+    COLOR_BUENO,
+    COLOR_MALO,
+    COLOR_PRIMARIO,
+    PALETA_CATEGORICA,
+    estilizar_figura,
+    formatear_entero,
+    formatear_porcentaje,
+    render_cabecera_indicador,
+    render_tarjetas_kpi,
+    render_titulo_seccion,
+)
 from utils.system_logging import log_exception
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from services.data.asistencia import load_current_asistencia
@@ -227,11 +240,37 @@ def render_calculation_guide():
 
 
 
+
+
+def _pdf_bajo_demanda(contenedor, clave, df_dados, titulo, col_widths, filtros_aplicados, file_name, args_log):
+    """Antes los 3 PDFs se generaban en cada carga de la página (~90 s la primera
+    vez de cada filtro) aunque nadie los descargara. Ahora se generan solo al
+    pedirlos: primero "Preparar reporte (PDF)" y después "Descargar"."""
+    firma = (titulo, str(filtros_aplicados), len(df_dados))
+    estado = st.session_state.get(clave)
+    with contenedor:
+        if estado and estado[0] == firma:
+            if estado[1]:
+                st.download_button("Descargar Reporte (PDF)", data=estado[1], file_name=file_name, mime="application/pdf",
+                                   icon=":material/download:", width="stretch", key=f"{clave}_descargar",
+                                   on_click=db_pia.log_export_callback, args=args_log)
+            else:
+                st.warning("No se pudo generar el PDF.")
+        elif st.button("Preparar reporte (PDF)", icon=":material/picture_as_pdf:", width="stretch", key=f"{clave}_preparar"):
+            with st.spinner("Generando PDF..."):
+                pdf = gerar_pdf_asistencia(df_dados, titulo, col_widths=col_widths, filtros_aplicados=filtros_aplicados)
+            st.session_state[clave] = (firma, pdf)
+            st.rerun()
+
+
 def render():
     # Increase st.dataframe styler limit
     pd.set_option("styler.render.max_elements", 2000000) 
 
-    st.subheader("Panel de Asistencia")
+    render_cabecera_indicador(
+        "Panel de Asistencia",
+        "Porcentaje de presencia de los alumnos en las clases registradas, por mes, asignatura, sección y docente. Por defecto se muestra el periodo más reciente.",
+    )
 
 
     df = load_current_asistencia()
@@ -255,7 +294,7 @@ def render():
 
         # 1. Filtro: Año (Obligatorio)
         anhos_disponibles = sorted(df[COL_ASIS_PERIODO].unique(), reverse=True)
-        anho_sel = c1.multiselect("Periodo (Año) *", anhos_disponibles)
+        anho_sel = c1.multiselect("Periodo (Año) *", anhos_disponibles, default=anhos_disponibles[:1])
 
         # Filtrado progresivo para Periodo
         df_temp = df.copy()
@@ -264,7 +303,9 @@ def render():
 
         # 2. Filtro: Periodo (Obligatorio)
         periodos_disponibles = sorted(df_temp[COL_ASIS_SUBPERIODO].unique())
-        periodo_sel = c2.multiselect("Subperiodo (Semestre) *", periodos_disponibles)
+        # Por defecto, el último subperiodo con datos del año elegido (vista inmediata del periodo actual).
+        periodo_sel = c2.multiselect("Subperiodo (Semestre) *", periodos_disponibles,
+                                     default=periodos_disponibles[-1:] if len(anho_sel) == 1 else None)
 
         # CHECK DE OBLIGATORIEDAD
         if not anho_sel or not periodo_sel:
@@ -348,11 +389,13 @@ def render():
     # Generalmente metricas globales quedan bien fuera
     total_dias_clase, total_registros_clase, total_asignaturas, promedio_presencia = calculate_asistencia_metrics(df_filtered)
 
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Días con Clases Registradas", total_dias_clase)
-    m2.metric("Registros de Clase Analizados", total_registros_clase)
-    m3.metric("Asignaturas Analizadas", total_asignaturas)
-    m4.metric("Promedio General de Presencia", f"{promedio_presencia:.2f}%")
+    render_tarjetas_kpi([
+        {"etiqueta": "Presencia promedio", "valor": formatear_porcentaje(promedio_presencia, 2),
+         "color": COLOR_BUENO if promedio_presencia >= 80 else (COLOR_ATENCION if promedio_presencia >= 60 else COLOR_MALO)},
+        {"etiqueta": "Días con clases", "valor": formatear_entero(total_dias_clase)},
+        {"etiqueta": "Clases registradas", "valor": formatear_entero(total_registros_clase)},
+        {"etiqueta": "Asignaturas", "valor": formatear_entero(total_asignaturas)},
+    ])
 
     # ---------------------------------------------------------------------
     # TABS
@@ -361,15 +404,18 @@ def render():
 
     # --- TAB 1: RESUMEN ---
     with tab1:
-        st.markdown("#### Evolución de Asistencia")
+        render_titulo_seccion(
+            "Presencia y ausencia por mes",
+            "Cada barra suma 100%: la parte verde son las presencias y la roja, las ausencias.",
+        )
         
         # Agrupar por Mes (y mes_num para ordenar)
         df_agrupado, df_melt = calculate_asistencia_monthly_summary(df_filtered)
         
         # Mapeo de colores amigable
         color_map = {
-            "% Presentes": '#2ca02c',
-            "% Ausentes": '#d62728',
+            "% Presentes": COLOR_BUENO,
+            "% Ausentes": COLOR_MALO,
         }
 
         fig = px.bar(
@@ -377,7 +423,7 @@ def render():
             x=COL_ASIS_MES,
             y='Porcentaje',
             color='Tipo',
-            barmode='group',
+            barmode='stack',
             text_auto=True,
             color_discrete_map=color_map,
             labels={COL_ASIS_MES: "Mes", "Porcentaje": "%", "Tipo": "Indicador"}
@@ -392,13 +438,16 @@ def render():
             separators=",." # Decimal=, Miles=. (Estilo Latam/Euro)
         )
         
-        fig.update_yaxes(ticksuffix="%", range=[0, 100])
+        estilizar_figura(fig, titulo_x="Mes", titulo_y="Porcentaje", porcentaje=True, altura=380)
+        fig.update_yaxes(range=[0, 100])
         fig.update_traces(
-            texttemplate='%{y:.2f}%',
-            textposition='auto'
+            texttemplate='%{y:.1f}%',
+            textposition='inside',
+            hovertemplate="<b>%{x}</b><br>%{fullData.name}: %{y:.2f}%<extra></extra>",
         )
-        
-        st.plotly_chart(fig, use_container_width=True)
+        fig.update_layout(uniformtext_minsize=8, uniformtext_mode='hide')
+
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
         # Download Buttons Tab 1 (Resumen)
         st.divider()
@@ -426,18 +475,8 @@ def render():
         ]
         
         # PDF - No Chart
-        pdf_bytes = gerar_pdf_asistencia(
-            df_export_resumen,
-            titulo_resumen,
-            col_widths=None,
-            filtros_aplicados=filtros_aplicados,
-        )
-        if pdf_bytes:
-             with c_pdf:
-                 st.download_button("Descargar Reporte (PDF)", data=pdf_bytes, file_name=f"Resumen_Asistencia.pdf", mime="application/pdf", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Asistencia - Resumen", "PDF"))
-        else:
-             with c_pdf:
-                st.warning("No se pudo generar el PDF.")
+        _pdf_bajo_demanda(c_pdf, "asist_pdf_resumen", df_export_resumen, titulo_resumen, None, filtros_aplicados,
+                          "Resumen_Asistencia.pdf", ("Asistencia - Resumen", "PDF"))
 
         # Excel - Cached
         excel_bytes = generate_excel_bytes(
@@ -454,7 +493,7 @@ def render():
 
     # --- TAB 2: DETALLE ---
     with tab2:
-        st.markdown("#### Resumen por Asignatura, Sección y Docente")
+        render_titulo_seccion("Resumen por asignatura, sección y docente")
         
         # Seleccionar columnas relevantes para mostrar
         df_display = build_asistencia_detail(df_filtered)
@@ -506,19 +545,8 @@ def render():
         ]
 
         titulo_detalle = f"Detalle de Asistencia {periodos_titulo}"
-        pdf_bytes_2 = gerar_pdf_asistencia(
-            df_pdf_detalle,
-            titulo_detalle,
-            col_widths=col_widths_detalle,
-            filtros_aplicados=filtros_aplicados,
-        )
-        
-        if pdf_bytes_2:
-            with c_pdf2:
-                st.download_button("Descargar Reporte (PDF)", data=pdf_bytes_2, file_name=f"Detalle_Asistencia.pdf", mime="application/pdf", icon=":material/download:", width="stretch", key="btn_pdf_asist_2", on_click=db_pia.log_export_callback, args=("Asistencia - Detalle", "PDF"))
-        else:
-            with c_pdf2:
-                st.warning("No se pudo generar el PDF.")
+        _pdf_bajo_demanda(c_pdf2, "asist_pdf_detalle", df_pdf_detalle, titulo_detalle, col_widths_detalle, filtros_aplicados,
+                          "Detalle_Asistencia.pdf", ("Asistencia - Detalle", "PDF"))
 
         # Excel - Cached
         excel_bytes_2 = generate_excel_bytes(
@@ -534,7 +562,7 @@ def render():
 
     # --- TAB 3: POR FECHA ---
     with tab3:
-        st.markdown("#### Asistencia por Fecha")
+        render_titulo_seccion("Asistencia por fecha")
 
         df_by_date = build_asistencia_by_date(df_filtered)
 
@@ -570,18 +598,8 @@ def render():
         ]
 
         titulo_fecha = f"Asistencia por Fecha {periodos_titulo}"
-        pdf_bytes_3 = gerar_pdf_asistencia(
-            df_pdf_fecha,
-            titulo_fecha,
-            col_widths=col_widths_fecha,
-            filtros_aplicados=filtros_aplicados,
-        )
-        if pdf_bytes_3:
-            with c_pdf3:
-                st.download_button("Descargar Reporte (PDF)", data=pdf_bytes_3, file_name=f"Asistencia_Por_Fecha.pdf", mime="application/pdf", icon=":material/download:", width="stretch", key="btn_pdf_asist_3", on_click=db_pia.log_export_callback, args=("Asistencia - Por Fecha", "PDF"))
-        else:
-            with c_pdf3:
-                st.warning("No se pudo generar el PDF.")
+        _pdf_bajo_demanda(c_pdf3, "asist_pdf_fecha", df_pdf_fecha, titulo_fecha, col_widths_fecha, filtros_aplicados,
+                          "Asistencia_Por_Fecha.pdf", ("Asistencia - Por Fecha", "PDF"))
 
         excel_bytes_3 = generate_excel_bytes(
             df_by_date,

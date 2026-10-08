@@ -6,7 +6,20 @@ import os
 from datetime import datetime
 from utils import db_pia
 from utils.system_logging import log_exception
-from utils.ui import render_egresados_fuente_caption
+from utils.ui import (
+    COLOR_ATENCION,
+    COLOR_BUENO,
+    COLOR_MALO,
+    COLOR_PRIMARIO,
+    PALETA_CATEGORICA,
+    estilizar_figura,
+    formatear_entero,
+    formatear_porcentaje,
+    render_cabecera_indicador,
+    render_tarjetas_kpi,
+    render_titulo_seccion,
+    render_egresados_fuente_caption,
+)
 from services.data.alumnos import load_current_alumnos
 from services.calculations.eficiencia_academica import (
     COL_CATRACA,
@@ -23,18 +36,11 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 import modules.rend_acad_alumno as raa
 
 def render():
-    st.subheader("Tiempos Medios de Egreso (TME)")
+    render_cabecera_indicador(
+        "Tiempos Medios de Egreso (TME)",
+        "Cantidad promedio de semestres que tardan en egresar los alumnos de cada cohorte. El plan de estudios prevé 12 semestres.",
+    )
 
-    st.markdown("""
-        <style>
-        [data-testid="stElementToolbar"] { display: none; }
-        div[data-testid="stDownloadButton"] button {
-            min-height: 50px !important;
-            font-size: 16px !important;
-            border-radius: 8px !important;
-        }
-        </style>
-    """, unsafe_allow_html=True)
 
     df_full = load_current_alumnos(only_cde=False)
     df = load_current_alumnos()
@@ -135,25 +141,36 @@ def render():
     tab1, tab2 = st.tabs(["Comparativo Global", "Detalle por Cohorte"])
 
     with tab1:
-        st.info("Mide el promedio de semestres que los alumnos de una cohorte emplean para egresar.")
-        
-        st.divider()
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("TME Promedio General", f"{egresados_df['Semestres'].mean():.1f} sem")
-        with col2:
-            st.metric("Total Egresados Analizados", len(egresados_df))
-
-        st.divider()
+        tme_general = egresados_df["Semestres"].mean()
+        en_tiempo = (egresados_df["Semestres"] <= 12).mean() * 100
+        render_tarjetas_kpi([
+            {"etiqueta": "TME promedio", "valor": f"{tme_general:.1f} sem".replace(".", ","),
+             "detalle": f"≈ {tme_general / 2:.1f} años".replace(".", ","),
+             "color": COLOR_BUENO if tme_general <= 12 else COLOR_ATENCION},
+            {"etiqueta": "Egresados analizados", "valor": formatear_entero(len(egresados_df))},
+            {"etiqueta": "Egresan en 12 sem. o menos", "valor": formatear_porcentaje(en_tiempo),
+             "detalle": "Dentro del tiempo del plan", "color": COLOR_BUENO},
+            {"etiqueta": "Cohortes", "valor": len(tme_resumen)},
+        ])
+        render_titulo_seccion(
+            "Tiempo medio de egreso por cohorte",
+            "La línea punteada marca los 12 semestres del plan: los puntos por encima indican cohortes que, "
+            "en promedio, tardaron más de lo previsto.",
+        )
 
         # Gráfico de Tendencia
         fig_trend = px.line(tme_resumen, x=COL_COHORTE, y="TME_Semestres", markers=True,
-                           title="Tendencia de Tiempos Medios de Egreso por Cohorte",
+                           text=tme_resumen["TME_Semestres"].map(lambda v: f"{v:.1f}".replace(".", ",")),
+                           custom_data=["N_Egresados"],
                            labels={"TME_Semestres": "Promedio Semestres", COL_COHORTE: "Cohorte"})
-        fig_trend.add_hline(y=12, line_dash="dot", line_color="green", annotation_text="Tiempo Regular (12 sem)")
-        st.plotly_chart(fig_trend, use_container_width=True)
+        fig_trend.update_traces(line_color=COLOR_PRIMARIO, textposition="top center",
+                                hovertemplate="<b>%{x}</b><br>TME: %{y:.1f} semestres<br>Egresados: %{customdata[0]}<extra></extra>")
+        fig_trend.add_hline(y=12, line_dash="dot", line_color=COLOR_BUENO, annotation_text="Plan de estudios: 12 semestres",
+                            annotation_position="bottom right")
+        estilizar_figura(fig_trend, titulo_y="Semestres hasta egresar", altura=380, leyenda=False)
+        st.plotly_chart(fig_trend, use_container_width=True, config={"displayModeBar": False})
 
-        st.markdown("#### Matriz de Eficiencia Temporal")
+        render_titulo_seccion("Detalle por cohorte")
         st.dataframe(tme_resumen[[COL_COHORTE, "N_Egresados", "TME_Semestres", "TME_Anos", "Min_Sem", "Max_Sem"]].rename(columns={
             COL_COHORTE: "COHORTE", 
             "N_Egresados": "Total Egresados",
@@ -182,31 +199,33 @@ def render():
             data_coh = egresados_df[egresados_df[COL_COHORTE] == sel_coh]
             
             # --- Layout Premium: Métricas de Cohorte ---
-            st.markdown(f"### Análisis de Cohorte {sel_coh}")
-            m_col1, m_col2, m_col3 = st.columns(3)
-            with m_col1:
-                st.metric("Total Egresados", len(data_coh))
-            with m_col2:
-                tme_coh = data_coh["Semestres"].mean()
-                st.metric("TME de la Cohorte", f"{tme_coh:.1f} sem")
-            with m_col3:
-                min_s = int(data_coh["Semestres"].min())
-                max_s = int(data_coh["Semestres"].max())
-                st.metric("Rango de Graduación", f"{min_s} - {max_s} sem")
+            tme_coh = data_coh["Semestres"].mean()
+            min_s = int(data_coh["Semestres"].min())
+            max_s = int(data_coh["Semestres"].max())
+            render_tarjetas_kpi([
+                {"etiqueta": "Egresados", "valor": formatear_entero(len(data_coh))},
+                {"etiqueta": "TME de la cohorte", "valor": f"{tme_coh:.1f} sem".replace(".", ","),
+                 "color": COLOR_BUENO if tme_coh <= 12 else COLOR_ATENCION},
+                {"etiqueta": "Más rápido / más lento", "valor": f"{min_s} – {max_s} sem"},
+                {"etiqueta": "En 12 sem. o menos", "valor": formatear_porcentaje((data_coh["Semestres"] <= 12).mean() * 100),
+                 "color": COLOR_BUENO},
+            ])
             
             st.divider()
 
             # --- Distribución Visual ---
-            st.markdown("#### Distribución de Tiempos de Egreso")
+            render_titulo_seccion("¿Cuántos semestres tardaron?", "Cantidad de egresados según los semestres que les llevó egresar.")
             fig_hist = px.histogram(data_coh, x="Semestres", nbins=max(5, max_s - min_s + 1), text_auto=True,
                                    labels={"Semestres": "Número de Semestres", "count": "Alumnos"})
+            fig_hist.update_traces(marker_color=COLOR_PRIMARIO, hovertemplate="%{x} semestres: %{y} egresados<extra></extra>")
+            estilizar_figura(fig_hist, titulo_x="Semestres hasta egresar", titulo_y="Egresados", altura=340, leyenda=False)
             fig_hist.update_layout(bargap=0.1)
-            st.plotly_chart(fig_hist, use_container_width=True)
+            st.plotly_chart(fig_hist, use_container_width=True, config={"displayModeBar": False})
 
             st.divider()
 
             # --- Listado de Egresados ---
-            st.markdown("#### Listado Nominal de Egresados")
+            render_titulo_seccion("Egresados de la cohorte")
             lista_view = data_coh[[COL_NOMBRE, COL_CATRACA, "Semestres", COL_ID_ALUMNO]].rename(columns={
                 COL_NOMBRE: "Nombre", COL_CATRACA: "Número de Matrícula", "Semestres": "Duración (Sem.)"
             }).sort_values("Duración (Sem.)")
@@ -218,7 +237,7 @@ def render():
                 if not ds.empty: raa.render_alumno_details(ds, dff)
             
             st.divider()
-            st.markdown("#### Consultar Histórico Detallado")
+            render_titulo_seccion("Consultar historial de un alumno")
             col_sel, col_btn = st.columns([2, 1])
             with col_sel:
                 dic_al = {f"{r[COL_NOMBRE]} ({r[COL_CATRACA]})": r[COL_ID_ALUMNO] for _, r in data_coh.sort_values(COL_NOMBRE).iterrows()}
@@ -229,16 +248,16 @@ def render():
                     modal_perfil(dic_al[sel_al], df_full)
 
     st.divider()
-    st.markdown("""
-    ### Metodología de Tiempos Medios de Egreso (TME)
-    Calcula el promedio de semestres empleados por los graduados de una cohorte para completar su carrera.
-    """)
-    st.latex(r"TME = \frac{\sum_{i=1}^{N} Semestres_i}{N}")
-    st.markdown("""
-    **Donde:**
-    - **Semestres_i:** Tiempo transcurrido entre el ingreso y el egreso del alumno *i*.
-    - **N:** Cantidad total de egresados de la cohorte analizada.
-    """)
+    with st.expander("¿Cómo se calcula el Tiempo Medio de Egreso?", icon=":material/functions:"):
+        st.markdown("""
+        Calcula el promedio de semestres empleados por los graduados de una cohorte para completar su carrera.
+        """)
+        st.latex(r"TME = \frac{\sum_{i=1}^{N} Semestres_i}{N}")
+        st.markdown("""
+        **Donde:**
+        - **Semestres_i:** Tiempo transcurrido entre el ingreso y el egreso del alumno *i*.
+        - **N:** Cantidad total de egresados de la cohorte analizada.
+        """)
 
     st.divider()
     
