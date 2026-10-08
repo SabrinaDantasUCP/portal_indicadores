@@ -987,9 +987,17 @@ def generar_alumnos_v2(df_v1, ids_activos, pares_activos=None, correcciones=None
     deduplicación CDE III→CDE, que solo se aplica en
     services/etl/activos_criterios_etl.py), y necesitamos que el periodo x
     semestre de alumnos_v2 sea consistente con lo que se usó para calcular
-    "activo" (y, para 2018.2-2020.2, con la tabla de referencia)."""
+    "activo" (y, para 2018.2-2020.2, con la tabla de referencia).
+
+    Con `pares_activos` (población oficial cerrada fuera del portal, ver
+    services/etl/activos_criterios_runner.py) NO se aplica
+    CORRECOES_V2_DEFAULT por defecto: la población ya define el periodo y el
+    semestre de cada alumno, y esas correcciones (del cálculo anterior por
+    criterios) movían alumnos a 2026.1 sem. 11/12, sacándolos del periodo en
+    que la población los cuenta. Siguen aplicándose sin pares_activos (upload
+    manual de ids) o si se pasan `correcciones` explícitamente."""
     if correcciones is None:
-        correcciones = CORRECOES_V2_DEFAULT
+        correcciones = [] if pares_activos else CORRECOES_V2_DEFAULT
 
     df_v2 = df_v1[df_v1['usuarios_id'].isin(ids_activos)].copy()
 

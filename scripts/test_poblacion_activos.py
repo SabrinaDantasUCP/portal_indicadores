@@ -161,6 +161,22 @@ def main():
         check("sin población -> ERROR", resultado["status"] == "ERROR"
               and "No se subió la población" in (resultado["mensaje_error"] or ""), resultado)
 
+    # 9. generar_alumnos_v2 con población: no aplica CORRECOES_V2_DEFAULT
+    #    (8133 / id_periodo_letivo 142561 se movería a 2026.1 sem. 11)
+    from services.etl.alumnos_etl import generar_alumnos_v2
+    df_v1 = pd.DataFrame({
+        "usuarios_id": [8133, 8133], "id_periodo_letivo": [142561, 1],
+        "ano_periodo_letivo": [2025, 2026], "periodo_anual_periodo_letivo": [2, 1],
+        "semestre_alumno": [10, 11],
+    })
+    v2 = generar_alumnos_v2(df_v1, {8133}, pares_activos={(8133, "2025.2"): 10})
+    check("v2 con población respeta periodo/semestre del CSV",
+          v2[["ano_periodo_letivo", "periodo_anual_periodo_letivo", "semestre_alumno"]].values.tolist() == [[2025, 2, 10]],
+          v2.to_dict("records"))
+    v2_manual = generar_alumnos_v2(df_v1, {8133})
+    check("v2 sin población sigue aplicando CORRECOES_V2_DEFAULT",
+          int(v2_manual.loc[v2_manual["id_periodo_letivo"] == 142561, "ano_periodo_letivo"].iloc[0]) == 2026)
+
     check("assets/data/global sin cambios", hash_carpeta(carpeta_real) == antes)
 
     print(f"\n{sum(resultados)}/{len(resultados)} verificaciones OK")
