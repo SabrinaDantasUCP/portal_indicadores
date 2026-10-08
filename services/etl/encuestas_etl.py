@@ -108,6 +108,7 @@ Como usar (VPNs separadas — bio e SQL Server não estão acessíveis ao mesmo 
 """
 
 import os
+import re
 import sys
 import argparse
 import logging
@@ -310,6 +311,51 @@ WHERE e.Id = :id_encuesta AND e.DeletedAt IS NULL
 """
 
 
+# Estrutura da EV1 (opinião do estudante) no grão de PREGUNTA. Cada
+# pregunta É um "criterio"; ela já carrega no próprio registro o indicador
+# (IdIndicadoresDesempenoDocente) e a dimensão (IdDimensionEvaluacionDocente)
+# a que pertence — não precisa de nenhuma tabela de config manual. Os
+# catálogos de indicador/dimensão trazem só o Nombre pra exibição. Filtra
+# DeletedAt IS NULL nos três (há indicadores soft-deletados, ex. "Indicador
+# A1"). Peso vem preenchido mas NÃO é usado no cálculo (a pedido: escala
+# Likert 1-5 sem ponderar) — exportado só como referência.
+QUERY_ESTRUCTURA_ENCUESTA = """
+SELECT
+    ep.Id                             AS id_criterio,
+    ep.Pregunta                       AS criterio,
+    ep.Peso                           AS peso,
+    ep.IdIndicadoresDesempenoDocente  AS id_indicador,
+    ind.Nombre                        AS indicador,
+    ep.IdDimensionEvaluacionDocente   AS id_dimension,
+    dim.Nombre                        AS dimension
+FROM [Academico].[EncuestaPregunta] ep
+LEFT JOIN [Parametrizacion].[IndicadoresDesempenoDocente] ind
+    ON ind.Id = ep.IdIndicadoresDesempenoDocente AND ind.DeletedAt IS NULL
+LEFT JOIN [Parametrizacion].[DimensionEvaluacionDocente] dim
+    ON dim.Id = ep.IdDimensionEvaluacionDocente AND dim.DeletedAt IS NULL
+WHERE ep.IdEncuesta = :id_encuesta AND ep.DeletedAt IS NULL
+"""
+
+# Escala de resposta da encuesta: cada opção habilitada com seu Puntaje.
+# RespuestaUsuario.IdRespuesta casa DIRETO com TipoRespuestaEncuesta.Id
+# (confirmado: p/ IdEncuesta=3 o RespuestaUsuario.IdRespuesta vem = 8, que é
+# TipoRespuestaEncuesta.Id de "5 - Totalmente de acuerdo", enquanto os
+# EncuestaRespuesta.Id dessa encuesta são 97..101 — logo IdRespuesta NÃO
+# aponta pra EncuestaRespuesta.Id). EncuestaRespuesta entra só pra restringir
+# a escala às opções realmente habilitadas nessa encuesta. Puntaje NULL =
+# opção não numérica (Si/No/Tal vez) — descartada nos promédios.
+QUERY_ESCALA_ENCUESTA = """
+SELECT
+    tre.Id      AS id_respuesta,
+    tre.Nombre  AS respuesta,
+    tre.Puntaje AS puntaje
+FROM [Academico].[EncuestaRespuesta] er
+JOIN [Parametrizacion].[TipoRespuestaEncuesta] tre
+    ON tre.Id = er.IdTipoRespuestaEncuesta AND tre.DeletedAt IS NULL
+WHERE er.IdEncuesta = :id_encuesta
+"""
+
+
 # --------------------------------------------------------------------------
 # EXTRACAO
 # --------------------------------------------------------------------------
@@ -403,6 +449,39 @@ def fetch_encuesta_metadata(id_encuesta: int) -> pd.DataFrame:
             "em Academico.Encuesta. nombre_encuesta/vigencia/sede ficarão vazios.",
             id_encuesta,
         )
+    return df
+
+
+def fetch_estructura_encuesta(id_encuesta: int) -> pd.DataFrame:
+    """Estrutura da encuesta no grão de pregunta (=criterio), com indicador
+    e dimensão de cada uma. Só a EV1 (opinião do estudante) tem esse
+    mapeamento preenchido; pras demais encuestas volta vazio/sem indicador."""
+    log.info(
+        "Buscando estrutura da encuesta (pregunta->indicador/dimensão) para IdEncuesta=%s",
+        id_encuesta,
+    )
+    engine = get_mssql_engine()
+    with engine.connect() as conn:
+        df = pd.read_sql(
+            text(QUERY_ESTRUCTURA_ENCUESTA), conn, params={"id_encuesta": id_encuesta}
+        )
+    log.info("Estrutura da encuesta: %s preguntas", len(df))
+    return df
+
+
+def fetch_escala_encuesta(id_encuesta: int) -> pd.DataFrame:
+    """Escala de resposta da encuesta (IdRespuesta -> Puntaje 1..5).
+    Puntaje NULL = opção não numérica (Si/No/Tal vez)."""
+    log.info(
+        "Buscando escala de resposta (IdRespuesta->Puntaje) para IdEncuesta=%s",
+        id_encuesta,
+    )
+    engine = get_mssql_engine()
+    with engine.connect() as conn:
+        df = pd.read_sql(
+            text(QUERY_ESCALA_ENCUESTA), conn, params={"id_encuesta": id_encuesta}
+        )
+    log.info("Escala de resposta: %s opções", len(df))
     return df
 
 
@@ -894,6 +973,323 @@ def indicador_avance_general_docente(df_plan: pd.DataFrame, df_resp: pd.DataFram
 
 
 
+# --------------------------------------------------------------------------
+# INDICADORES - RESULTADOS (EV1: opinião do estudante, puntajes 1..5)
+# --------------------------------------------------------------------------
+# Diferente dos indicadores de AVANCE (participação), aqui interessa QUÊ foi
+# respondido, não SE foi respondido. Fonte: RespuestaUsuario (1 linha por
+# alumno x planificación x pregunta) + estrutura (pregunta->criterio->
+# indicador->dimensão) + escala (IdRespuesta->puntaje 1..5).
+#
+# Consolidação = MÉTODO A ("promedio de promedios"), a pedido:
+#   criterio  = promédio simples das respostas desse criterio
+#   indicador = promédio dos promédios dos seus criterios
+#   dimensão  = promédio dos promédios dos seus indicadores
+#   general   = promédio dos promédios das dimensões
+# Cada criterio/indicador/dimensão pesa igual no nível de cima,
+# independentemente de quantas respostas ou sub-itens tem. Os Peso de
+# EncuestaPregunta são ignorados (escala Likert 1..5 sem ponderar).
+#
+# pct_favorable (4-5) / pct_neutral (3) / pct_desfavorable (1-2) e dist_1..5
+# SÃO sobre o total plano de respostas válidas — é uma distribuição, não um
+# promédio. Por isso "pct_favorable" não tem que "fechar" com "promedio".
+#
+# Anonimato: nenhum destes indicadores leva system_id / nome de alumno. O
+# grão mínimo exposto é o docente (que é justamente o avaliado).
+
+INDICADOR_RESULTADO_GENERAL = "resultado_general"
+INDICADOR_RESULTADO_DIMENSION = "resultado_por_dimension"
+INDICADOR_RESULTADO_INDICADOR = "resultado_por_indicador"
+INDICADOR_RESULTADO_CRITERIO = "resultado_por_criterio"
+INDICADOR_RESULTADO_DOCENTE = "resultado_por_docente"
+
+_RE_ORDEN = re.compile(r"\d+")
+
+
+def _parse_orden(texto) -> int:
+    """Ordem de exibição a partir do número no início do texto:
+    "1. El docente..." -> 1 ; "10. Percepción..." -> 10 ;
+    "Dimensión 4: ..." -> 4. Sem número -> 9999 (vai pro fim)."""
+    if texto is None or (isinstance(texto, float) and pd.isna(texto)):
+        return 9999
+    m = _RE_ORDEN.search(str(texto))
+    return int(m.group()) if m else 9999
+
+
+# Descriptores por defecto sobre el promedio (escala 1..5). Son
+# ilustrativos: los umbrales reales deberían ser parametrizables en el
+# dashboard; acá se estampa un valor de referencia para el export.
+def _descriptor_puntaje(promedio) -> str:
+    if promedio is None or pd.isna(promedio):
+        return None
+    if promedio >= 4.30:
+        return "Fortaleza"
+    if promedio >= 4.00:
+        return "Adecuado"
+    if promedio >= 3.50:
+        return "Seguimiento"
+    return "Oportunidad"
+
+
+def _enriquecer_respuestas_con_puntaje(
+    df_resp: pd.DataFrame, df_estructura: pd.DataFrame, df_escala: pd.DataFrame
+) -> pd.DataFrame:
+    """1 linha por resposta VÁLIDA (com puntaje 1..5), já com
+    criterio/indicador/dimensão e o docente/materia/sección/grupo a que a
+    resposta se refere (colunas *Nombre que já vêm em RespuestaUsuario).
+    Respostas sem puntaje (opção Si/No/Tal vez) são descartadas."""
+    d = _normalizar_columnas(df_resp.copy(), ["IdPregunta", "IdRespuesta"])
+    d["IdPregunta"] = pd.to_numeric(d["IdPregunta"], errors="coerce")
+    d["IdRespuesta"] = pd.to_numeric(d["IdRespuesta"], errors="coerce")
+
+    est = df_estructura.copy()
+    est["id_criterio"] = pd.to_numeric(est["id_criterio"], errors="coerce")
+    for col in ("id_indicador", "id_dimension"):
+        est[col] = pd.to_numeric(est[col], errors="coerce").astype("Int64")
+
+    esc = df_escala.copy()
+    esc["id_respuesta"] = pd.to_numeric(esc["id_respuesta"], errors="coerce")
+    esc["puntaje"] = pd.to_numeric(esc["puntaje"], errors="coerce")
+
+    d = d.merge(est, left_on="IdPregunta", right_on="id_criterio", how="inner")
+    d = d.merge(
+        esc[["id_respuesta", "puntaje"]],
+        left_on="IdRespuesta",
+        right_on="id_respuesta",
+        how="left",
+    )
+
+    d["docente"] = d.get("DocenteNombre")
+    d["docente_id"] = pd.to_numeric(d.get("IdDocenteExterno"), errors="coerce")
+    d["materia"] = d.get("AsignaturaNombre")
+    d["seccion"] = d.get("SeccionNombre")
+    d["grupo"] = d.get("GrupoNombre")
+
+    n_sin_puntaje = int(d["puntaje"].isna().sum())
+    d = d[d["puntaje"].notna()].copy()
+    d["puntaje"] = d["puntaje"].round().astype(int)
+    d = d[d["puntaje"].between(1, 5)]
+    log.info(
+        "Resultados EV: %s respuestas con puntaje válido (%s descartadas sin puntaje).",
+        len(d), n_sin_puntaje,
+    )
+
+    d["orden_criterio"] = d["criterio"].map(_parse_orden)
+    d["orden_indicador"] = d["indicador"].map(_parse_orden)
+    d["orden_dimension"] = d["dimension"].map(_parse_orden)
+    return d
+
+
+def _agg_puntaje(df: pd.DataFrame, group_cols: list) -> pd.DataFrame:
+    """promedio + n + %fav/%neu/%desf sobre las respuestas de cada grupo
+    (promedio plano — sólo se usa en el nivel hoja, el criterio)."""
+    d = df.copy()
+    d["_fav"] = d["puntaje"].isin([4, 5])
+    d["_neu"] = d["puntaje"].eq(3)
+    d["_desf"] = d["puntaje"].isin([1, 2])
+    res = d.groupby(group_cols, as_index=False).agg(
+        promedio=("puntaje", "mean"),
+        n_respuestas=("puntaje", "size"),
+        pct_favorable=("_fav", "mean"),
+        pct_neutral=("_neu", "mean"),
+        pct_desfavorable=("_desf", "mean"),
+    )
+    res["promedio"] = res["promedio"].round(2)
+    for c in ("pct_favorable", "pct_neutral", "pct_desfavorable"):
+        res[c] = (res[c] * 100).round(2)
+    return res
+
+
+# Las columnas con el TEXTO de criterio/indicador/dimensión se exportan como
+# `*_nombre` — NO como `criterio`/`indicador`/`dimension` a secas — porque
+# `indicador` es el nombre de la columna discriminadora que el pipeline
+# estampa en cada fila del CSV/parquet combinado (ver _agregar_metadatos +
+# el insert(6, "indicador", ...) en generar_indicadores). Si estos frames
+# trajeran una columna `indicador` propia, ese insert reventaría con
+# "cannot insert indicador, already exists".
+def indicador_resultado_por_criterio(df_enr: pd.DataFrame) -> pd.DataFrame:
+    """1 fila por criterio (pregunta): promedio, distribución 1..5 y
+    favorable/neutral/desfavorable. Nivel hoja -> promedio plano."""
+    gcols = [
+        "id_dimension", "dimension", "id_indicador", "indicador",
+        "id_criterio", "criterio", "orden_criterio",
+    ]
+    base = _agg_puntaje(df_enr, gcols).rename(
+        columns={
+            "orden_criterio": "orden",
+            "criterio": "criterio_nombre",
+            "indicador": "indicador_nombre",
+            "dimension": "dimension_nombre",
+        }
+    )
+
+    dist = (
+        df_enr.groupby("id_criterio")["puntaje"]
+        .value_counts()
+        .unstack(fill_value=0)
+        .reindex(columns=[1, 2, 3, 4, 5], fill_value=0)
+    )
+    dist.columns = [f"dist_{c}" for c in dist.columns]
+    base = base.merge(dist.reset_index(), on="id_criterio", how="left")
+    return base.sort_values(["id_dimension", "id_indicador", "orden"]).reset_index(drop=True)
+
+
+def indicador_resultado_por_indicador(df_crit: pd.DataFrame) -> pd.DataFrame:
+    """1 fila por indicador: promedio = media de los promedios de sus
+    criterios (método A)."""
+    g = df_crit.groupby(
+        ["id_dimension", "dimension_nombre", "id_indicador", "indicador_nombre"],
+        as_index=False,
+    ).agg(
+        promedio=("promedio", "mean"),
+        pct_favorable=("pct_favorable", "mean"),
+        pct_desfavorable=("pct_desfavorable", "mean"),
+        n_criterios=("id_criterio", "nunique"),
+        n_respuestas=("n_respuestas", "sum"),
+    )
+    for c in ("promedio", "pct_favorable", "pct_desfavorable"):
+        g[c] = g[c].round(2)
+    g["orden"] = g["indicador_nombre"].map(_parse_orden)
+    g["descriptor"] = g["promedio"].map(_descriptor_puntaje)
+    return g.sort_values(["id_dimension", "orden"]).reset_index(drop=True)
+
+
+def indicador_resultado_por_dimension(df_ind: pd.DataFrame) -> pd.DataFrame:
+    """1 fila por dimensión: promedio = media de los promedios de sus
+    indicadores (método A). delta_vs_general = promedio de la dimensión
+    menos el promedio general (media de las dimensiones)."""
+    g = df_ind.groupby(["id_dimension", "dimension_nombre"], as_index=False).agg(
+        promedio=("promedio", "mean"),
+        pct_favorable=("pct_favorable", "mean"),
+        pct_desfavorable=("pct_desfavorable", "mean"),
+        n_indicadores=("id_indicador", "nunique"),
+        n_respuestas=("n_respuestas", "sum"),
+    )
+    for c in ("promedio", "pct_favorable", "pct_desfavorable"):
+        g[c] = g[c].round(2)
+    promedio_general = round(g["promedio"].mean(), 2) if len(g) else None
+    g["delta_vs_general"] = (
+        (g["promedio"] - promedio_general).round(2) if promedio_general is not None else pd.NA
+    )
+    g["orden"] = g["dimension_nombre"].map(_parse_orden)
+    return g.sort_values("orden").reset_index(drop=True)
+
+
+def indicador_resultado_general(df_dim: pd.DataFrame, df_enr: pd.DataFrame) -> pd.DataFrame:
+    """1 sola fila: promedio general (media de las dimensiones), split
+    favorable/neutral/desfavorable y dist_1..5 sobre el total plano de
+    respuestas válidas, dimensión mejor / con más oportunidad y conteos."""
+    promedio_general = round(df_dim["promedio"].mean(), 2) if len(df_dim) else None
+    n = len(df_enr)
+    fila = {
+        "promedio_general": promedio_general,
+        "pct_favorable": round(df_enr["puntaje"].isin([4, 5]).mean() * 100, 2) if n else None,
+        "pct_neutral": round(df_enr["puntaje"].eq(3).mean() * 100, 2) if n else None,
+        "pct_desfavorable": round(df_enr["puntaje"].isin([1, 2]).mean() * 100, 2) if n else None,
+        "n_respuestas_validas": n,
+        "n_docentes_evaluados": int(df_enr["docente"].nunique()) if n else 0,
+        "n_criterios": int(df_enr["id_criterio"].nunique()) if n else 0,
+        "dimension_mejor": df_dim.loc[df_dim["promedio"].idxmax(), "dimension_nombre"] if len(df_dim) else None,
+        "dimension_oportunidad": df_dim.loc[df_dim["promedio"].idxmin(), "dimension_nombre"] if len(df_dim) else None,
+    }
+    for k in (1, 2, 3, 4, 5):
+        fila[f"dist_{k}"] = int((df_enr["puntaje"] == k).sum()) if n else 0
+    return pd.DataFrame([fila])
+
+
+def indicador_resultado_por_docente(df_enr: pd.DataFrame) -> pd.DataFrame:
+    """1 fila por docente evaluado: promedio consolidado (método A, mismo
+    roll-up de 4 niveles pero acotado a las respuestas de ese docente) y el
+    promedio por dimensión (promedio_dim_<id>). n_evaluaciones_recibidas =
+    pares distintos (alumno x planificación) que evaluaron a ese docente."""
+    d = df_enr.copy()
+    d["docente"] = d["docente"].fillna("(sin nombre)")
+    d["docente_id"] = pd.to_numeric(d["docente_id"], errors="coerce").fillna(-1).astype(int)
+    key = ["docente", "docente_id"]
+
+    lvl_crit = d.groupby(key + ["id_dimension", "id_indicador", "id_criterio"], as_index=False)["puntaje"].mean()
+    lvl_ind = lvl_crit.groupby(key + ["id_dimension", "id_indicador"], as_index=False)["puntaje"].mean()
+    lvl_dim = lvl_ind.groupby(key + ["id_dimension"], as_index=False)["puntaje"].mean()
+    lvl_doc = lvl_dim.groupby(key, as_index=False)["puntaje"].mean().rename(columns={"puntaje": "promedio"})
+    lvl_doc["promedio"] = lvl_doc["promedio"].round(2)
+
+    dim_piv = lvl_dim.pivot_table(index=key, columns="id_dimension", values="puntaje")
+    dim_piv.columns = [f"promedio_dim_{int(c)}" for c in dim_piv.columns]
+    dim_piv = dim_piv.round(2).reset_index()
+
+    dedup_cols = key + [c for c in ("IdUsuario", "PlanificacionId") if c in d.columns]
+    recibidas = (
+        d.drop_duplicates(dedup_cols)
+        .groupby(key, as_index=False)
+        .size()
+        .rename(columns={"size": "n_evaluaciones_recibidas"})
+    )
+    n_resp = (
+        d.groupby(key, as_index=False)
+        .size()
+        .rename(columns={"size": "n_respuestas_validas"})
+    )
+
+    out = (
+        lvl_doc.merge(dim_piv, on=key, how="left")
+        .merge(recibidas, on=key, how="left")
+        .merge(n_resp, on=key, how="left")
+    )
+    out["descriptor"] = out["promedio"].map(_descriptor_puntaje)
+    return out.sort_values("docente").reset_index(drop=True)
+
+
+def generar_indicadores_resultados(
+    df_resp: pd.DataFrame, df_estructura: pd.DataFrame, df_escala: pd.DataFrame
+) -> dict:
+    """Dict {indicador: DataFrame} con los 5 indicadores de RESULTADOS de la
+    EV1. Devuelve {} (sin romper) si faltan respuestas, estructura o escala,
+    o si el origen no tiene el mapeo pregunta->indicador (p. ej. otra
+    encuesta) — en ese caso el pipeline sigue generando sólo el avance."""
+    if (
+        df_resp is None or df_resp.empty
+        or df_estructura is None or df_estructura.empty
+        or df_escala is None or df_escala.empty
+    ):
+        log.warning(
+            "Resultados EV: faltan respuestas / estructura / escala — no se generan indicadores resultado_*."
+        )
+        return {}
+
+    cols_resp = {c.strip().lower() for c in df_resp.columns}
+    if not {"idpregunta", "idrespuesta"} <= cols_resp:
+        log.warning(
+            "Resultados EV: respuestas_raw sin IdPregunta/IdRespuesta — no se generan indicadores resultado_*."
+        )
+        return {}
+    if df_estructura["id_indicador"].notna().sum() == 0:
+        log.warning(
+            "Resultados EV: la estructura no tiene mapeo pregunta->indicador — no se generan indicadores resultado_*."
+        )
+        return {}
+
+    df_enr = _enriquecer_respuestas_con_puntaje(df_resp, df_estructura, df_escala)
+    if df_enr.empty:
+        log.warning(
+            "Resultados EV: 0 respuestas con puntaje válido tras el cruce — no se generan indicadores resultado_*."
+        )
+        return {}
+
+    df_crit = indicador_resultado_por_criterio(df_enr)
+    df_ind = indicador_resultado_por_indicador(df_crit)
+    df_dim = indicador_resultado_por_dimension(df_ind)
+    df_gen = indicador_resultado_general(df_dim, df_enr)
+    df_doc = indicador_resultado_por_docente(df_enr)
+
+    return {
+        INDICADOR_RESULTADO_GENERAL: df_gen,
+        INDICADOR_RESULTADO_DIMENSION: df_dim,
+        INDICADOR_RESULTADO_INDICADOR: df_ind,
+        INDICADOR_RESULTADO_CRITERIO: df_crit,
+        INDICADOR_RESULTADO_DOCENTE: df_doc,
+    }
+
+
 def _agregar_metadatos(
     df: pd.DataFrame,
     sede: str,
@@ -987,6 +1383,20 @@ def exportar_respuestas(id_encuesta: int, anho: int, subperiodo: int, output_dir
     df_encuesta.to_csv(path_encuesta, index=False, encoding="utf-8-sig")
     log.info("Metadados da encuesta exportados: %s (%s linhas)", path_encuesta, len(df_encuesta))
 
+    # Estrutura (pregunta->criterio/indicador/dimensão) e escala
+    # (IdRespuesta->puntaje) — base dos indicadores de RESULTADOS (EV1).
+    # Mesma VPN/base (SQL Server). Pras encuestas sem esse mapeo, os CSVs
+    # saem vazios/sem indicador e o pipeline gera só o avance.
+    df_estructura = fetch_estructura_encuesta(id_encuesta)
+    path_estructura = os.path.join(output_dir, "estructura_encuesta_raw.csv")
+    df_estructura.to_csv(path_estructura, index=False, encoding="utf-8-sig")
+    log.info("Estrutura da encuesta exportada: %s (%s linhas)", path_estructura, len(df_estructura))
+
+    df_escala = fetch_escala_encuesta(id_encuesta)
+    path_escala = os.path.join(output_dir, "escala_encuesta_raw.csv")
+    df_escala.to_csv(path_escala, index=False, encoding="utf-8-sig")
+    log.info("Escala da encuesta exportada: %s (%s linhas)", path_escala, len(df_escala))
+
     return path
 
 
@@ -1034,6 +1444,8 @@ def generar_indicadores(
     offline_resp_csv: str = None,
     offline_encuesta_csv: str = None,
     offline_contacto_csv: str = None,
+    offline_estructura_csv: str = None,
+    offline_escala_csv: str = None,
 ) -> dict:
     """Función principal, pensada para ser llamada tanto desde la línea de
     comando (via main()) como directamente desde un notebook/Jupyter:
@@ -1103,6 +1515,22 @@ def generar_indicadores(
     else:
         df_encuesta = fetch_encuesta_metadata(id_encuesta)
 
+    # Estrutura + escala pros indicadores de RESULTADOS. Se rodou offline mas
+    # não passaram os CSVs (ou eles não existem), fica sem resultados — o
+    # avance continua saindo normal.
+    df_estructura = pd.DataFrame()
+    df_escala = pd.DataFrame()
+    if offline_resp_csv:
+        if offline_estructura_csv and os.path.exists(offline_estructura_csv):
+            log.info("Usando CSV offline de estrutura da encuesta: %s", offline_estructura_csv)
+            df_estructura = pd.read_csv(offline_estructura_csv)
+        if offline_escala_csv and os.path.exists(offline_escala_csv):
+            log.info("Usando CSV offline de escala da encuesta: %s", offline_escala_csv)
+            df_escala = pd.read_csv(offline_escala_csv)
+    else:
+        df_estructura = fetch_estructura_encuesta(id_encuesta)
+        df_escala = fetch_escala_encuesta(id_encuesta)
+
     if df_plan.empty:
         log.warning("La planificación llegó vacía. Revisar anho/semestre o la conexión al bio.")
     if df_resp.empty:
@@ -1134,6 +1562,10 @@ def generar_indicadores(
         "avance_general": avance_general,
         "avance_por_alumno": avance_por_alumno,
     }
+    # Indicadores de RESULTADOS (puntajes 1..5). {} si el origen no tiene el
+    # mapeo pregunta->indicador/dimensión (sólo la EV1 lo tiene) — en ese
+    # caso el CSV combinado sale sólo con los indicadores de avance.
+    exports.update(generar_indicadores_resultados(df_resp, df_estructura, df_escala))
 
     # -------------------- Carimba metadados + combina em 1 único CSV --------------------
     # sede/nombre_encuesta/vigencia vêm de Academico.Encuesta + Parametrizacion.Sede.

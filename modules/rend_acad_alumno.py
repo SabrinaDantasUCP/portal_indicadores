@@ -4,6 +4,19 @@ import io
 import os
 from datetime import datetime
 from utils import db_pia
+from utils.ui import (
+    COLOR_ATENCION,
+    COLOR_BUENO,
+    COLOR_MALO,
+    COLOR_PRIMARIO,
+    PALETA_CATEGORICA,
+    estilizar_figura,
+    formatear_entero,
+    formatear_porcentaje,
+    render_cabecera_indicador,
+    render_tarjetas_kpi,
+    render_titulo_seccion,
+)
 from utils.system_logging import log_exception
 from services.data.alumnos import load_current_alumnos
 from services.calculations.rendimiento_academico import (
@@ -50,12 +63,25 @@ COL_DETALLE_TITULO = "detalle"
 # ------------------------------------------------------------
 # Função modular para renderizar os detalhes de um aluno
 # ------------------------------------------------------------
+def _periodos_enteros(df):
+    """Año/periodo/semestre vienen como decimales (2.0) en el parquet: se pasan
+    a enteros para mostrarlos como "2" (solo si la columna no tiene vacíos)."""
+    df = df.copy()
+    for col in (COL_PERIODO, COL_SUBPERIODO, COL_SEMESTRE_ALUMNO):
+        if col in df.columns:
+            valores = pd.to_numeric(df[col], errors="coerce")
+            if valores.notna().all() and (valores % 1 == 0).all():
+                df[col] = valores.astype(int)
+    return df
+
+
 def render_alumno_details(df_estudiante, df_completo):
     """
     Renderiza KPIs e Tabelas de rendimento de um aluno específico.
     df_estudiante: DF já filtrado para o aluno/filtros atuais.
     df_completo: DF original para cálculos globais (ex: Rendimento Geral).
     """
+    df_estudiante = _periodos_enteros(df_estudiante)
     alumno_nome = df_estudiante[COL_ALUMNO].iloc[0]
     catraca_num = df_estudiante[COL_CATRACA].iloc[0]
     cohorte = df_estudiante[COL_COHORTE].iloc[0]
@@ -154,6 +180,8 @@ def render_alumno_details(df_estudiante, df_completo):
     st.divider()
     
     for (periodo, subperiodo, semestre), df_grupo in grupos:
+        periodo, subperiodo, semestre = (int(v) if pd.notna(v) and float(v).is_integer() else v
+                                         for v in (periodo, subperiodo, semestre))
         mask_regular = df_grupo[COL_TIPO_DISCIPLINA].astype(str).str.strip() == "Regular"
         df_regulares = df_grupo[mask_regular]
         df_extracurriculares = df_grupo[~mask_regular]
@@ -201,13 +229,11 @@ def render_alumno_details(df_estudiante, df_completo):
     return rendimiento_general, grupos, alumno_nome, catraca_num, is_convalidado, status_exibicao, info_egreso_titulacion, cohorte
 
 def render():
-    st.subheader("Rendimiento Académico por Estudiante")
+    render_cabecera_indicador(
+        "Rendimiento Académico por Estudiante",
+        "Promedio de calificaciones de un alumno, semestre por semestre y en toda la carrera. Busque por número de matrícula o por nombre.",
+    )
 
-    st.markdown("""
-        <style>
-        [data-testid="stElementToolbar"] { display: none; }
-        </style>
-    """, unsafe_allow_html=True)
     
     df = load_current_alumnos(only_cde=False)
     if df.empty:
@@ -335,7 +361,8 @@ def render():
     _ensure_state("f_semestre", [])
 
     # opções iniciais (sem restrições mútuas)
-    anos_all      = sorted(df_base[COL_PERIODO].dropna().unique().tolist())
+    df_base = _periodos_enteros(df_base)
+    anos_all      = sorted(df_base[COL_PERIODO].dropna().unique().tolist(), reverse=True)
     periodos_all  = sorted(df_base[COL_SUBPERIODO].dropna().unique().tolist())
     semestres_all = sorted(df_base[COL_SEMESTRE_ALUMNO].dropna().unique().tolist())
 
@@ -347,7 +374,7 @@ def render():
             df_ano = df_ano[df_ano[COL_SUBPERIODO].isin(periodos_sel)]
         if semestres_sel:
             df_ano = df_ano[df_ano[COL_SEMESTRE_ALUMNO].isin(semestres_sel)]
-        anos_opts = sorted(df_ano[COL_PERIODO].dropna().unique().tolist())
+        anos_opts = sorted(df_ano[COL_PERIODO].dropna().unique().tolist(), reverse=True)
 
         # para Período: restringe por Año e Semestre
         df_per = df_scope.copy()
@@ -390,7 +417,8 @@ def render():
 
     # Nota: O Streamlit usa o 'key' para vincular ao st.session_state automaticamente
     anos_sel_ui = c3.multiselect("Año", anos_opts, key="f_ano")
-    periodos_sel_ui = c4.multiselect("Período", periodos_opts, key="f_periodo")
+    periodos_sel_ui = c4.multiselect("Período", periodos_opts, key="f_periodo",
+                                     format_func=lambda x: f"{int(x)}" if float(x).is_integer() else str(x))
     
     # FORMAT_FUNC aplicado aqui para exibição visual apenas
     semestres_sel_ui = c5.multiselect(
@@ -747,28 +775,30 @@ def render():
     # ------------------------------------------------------------
 
     st.divider()
+    with st.expander("¿Cómo se calcula el Rendimiento Académico del estudiante (TRASE)?", icon=":material/functions:"):
     
-    st.markdown("""        
-    La *Tasa de Rendimiento Académico (TRA)* está definida por el promedio de la calificación obtenido por el estudiante en las materias en las cuales ha presentado exámenes, independientemente del tipo de examen (*Chaín, 1995*).
-    En este caso **se calcula el rendimiento académico por estudiantes en forma individual, por asignatura, por semestre y general, por generación o cohorte.**
-    De acuerdo con el razonamiento anterior, los cálculos quedan como sigue:
+        st.markdown("""        
+        La *Tasa de Rendimiento Académico (TRA)* está definida por el promedio de la calificación obtenido por el estudiante en las materias en las cuales ha presentado exámenes, independientemente del tipo de examen (*Chaín, 1995*).
+        En este caso **se calcula el rendimiento académico por estudiantes en forma individual, por asignatura, por semestre y general, por generación o cohorte.**
+        De acuerdo con el razonamiento anterior, los cálculos quedan como sigue:
                 
-    """)
-    st.markdown("""          
-    #### Tasa de Rendimiento Académico Semestral por Estudiante, promedio (TRASE)               
-    """)
+        """)
+        st.markdown("""          
+        **Tasa de Rendimiento Académico Semestral por Estudiante, promedio (TRASE)**
+        """)
 
-    st.latex(r"""
-    \text{TRASE(1)} = \frac{\text{CEA}_{(1)} + \text{CEA}_{(2)} + \text{CEA}_{(3)} + \dots + \text{CEA}_{(n)}}{N}
-    """)
+        st.latex(r"""
+        \text{TRASE(1)} = \frac{\text{CEA}_{(1)} + \text{CEA}_{(2)} + \text{CEA}_{(3)} + \dots + \text{CEA}_{(n)}}{N}
+        """)
 
-    st.markdown("""
-    **Donde:**
+        st.markdown("""
+        **Donde:**
 
-    - **TRASE(1):** Tasa de Rendimiento Académico Semestral por Estudiante (debe ser calculada para cada estudiante).  
-    - **CEA(1):** Calificación del Estudiante 1 en la Asignatura 1 al final del semestre.  
-    - **CEA(2):** Calificación del Estudiante 1 en la Asignatura 2 al final del semestre.  
-    - **CEA(3):** Calificación del Estudiante 1 en la Asignatura 3 al final del semestre.  
-    - **CEA(n):** Calificación del Estudiante 1 en la Asignatura “n” al final del semestre.  
-    - **N:** Número de datos (cantidad de asignaturas examinadas).  
-    """)
+        - **TRASE(1):** Tasa de Rendimiento Académico Semestral por Estudiante (debe ser calculada para cada estudiante).  
+        - **CEA(1):** Calificación del Estudiante 1 en la Asignatura 1 al final del semestre.  
+        - **CEA(2):** Calificación del Estudiante 1 en la Asignatura 2 al final del semestre.  
+        - **CEA(3):** Calificación del Estudiante 1 en la Asignatura 3 al final del semestre.  
+        - **CEA(n):** Calificación del Estudiante 1 en la Asignatura “n” al final del semestre.  
+        - **N:** Número de datos (cantidad de asignaturas examinadas).  
+        """)
+

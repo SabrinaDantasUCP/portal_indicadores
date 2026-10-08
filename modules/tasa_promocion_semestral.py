@@ -4,6 +4,21 @@ import io
 import os
 from datetime import datetime
 from utils import db_pia
+from utils.ui import (
+    selector_vista,
+    COLOR_ATENCION,
+    COLOR_BUENO,
+    COLOR_MALO,
+    COLOR_PRIMARIO,
+    PALETA_CATEGORICA,
+    estilizar_figura,
+    formatear_entero,
+    formatear_porcentaje,
+    opciones_cohorte,
+    render_cabecera_indicador,
+    render_tarjetas_kpi,
+    render_titulo_seccion,
+)
 from utils.system_logging import log_exception
 from services.data.alumnos import load_current_alumnos
 from services.calculations.tasa_promocion import (
@@ -22,20 +37,23 @@ from reportlab.lib.units import cm
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 import modules.rend_acad_alumno as raa
 
-def render():
-    st.subheader("Tasa de Promoción")
 
-    # CSS para ocultar toolbar e estilizar botões
-    st.markdown("""
-        <style>
-        [data-testid="stElementToolbar"] { display: none; }
-        div[data-testid="stDownloadButton"] button {
-            min-height: 50px !important;
-            font-size: 16px !important;
-            border-radius: 8px !important;
-        }
-        </style>
-    """, unsafe_allow_html=True)
+
+def _color_semaforo(porcentaje):
+    """Verde >= 80%, amarillo >= 60%, rojo < 60% (lectura rápida de aprobación)."""
+    if porcentaje >= 80:
+        return COLOR_BUENO
+    if porcentaje >= 60:
+        return COLOR_ATENCION
+    return COLOR_MALO
+
+
+def render():
+    render_cabecera_indicador(
+        "Tasa de Promoción",
+        "Porcentaje de alumnos inscriptos en un semestre que pasan al semestre siguiente en el periodo posterior, para cada cohorte.",
+    )
+
     
     df_full = load_current_alumnos(only_regular=True)
     if df_full.empty:
@@ -118,10 +136,11 @@ def render():
         return buffer.getvalue()
 
     # --- UI ---
-    tab_cohorte, tab_detalle = st.tabs(["Análisis por Cohorte", "Detalle de Alumnos"])
+    # Sin cohortes sin definir ("None - None"); de la más reciente a la más antigua.
+    cohortes_disponibles = opciones_cohorte(df_master["Cohorte"].unique())
+    vista = selector_vista(['Análisis por Cohorte', 'Detalle de Alumnos'], "vista_promocion")
 
-    with tab_cohorte:
-        cohortes_disponibles = sorted(df_master["Cohorte"].unique(), reverse=True)
+    if vista == 'Análisis por Cohorte':
         cohorte_sel = st.selectbox("Seleccione una Cohorte", cohortes_disponibles, index=0)
         
         if cohorte_sel:
@@ -135,18 +154,35 @@ def render():
             total_epr = df_c["EPr"].sum()
             tpr_total = (total_epr / total_eins) * 100 if total_eins > 0 else 0
 
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Promoción Total (Cohorte)", f"{tpr_total:.2f}%")
-            c2.metric("Promedio Semestral", f"{avg_semestral:.2f}%")
-            c3.metric("Evaluaciones (Semestres)", len(df_c))
+            peor = df_c.loc[df_c["TPr (%)"].idxmin()]
+            render_tarjetas_kpi([
+                {"etiqueta": "Promoción total", "valor": formatear_porcentaje(tpr_total, 2),
+                 "detalle": "Promovidos ÷ inscriptos (todas las transiciones)"},
+                {"etiqueta": "Promedio por transición", "valor": formatear_porcentaje(avg_semestral, 2)},
+                {"etiqueta": "Transiciones evaluadas", "valor": len(df_c)},
+                {"etiqueta": "Transición más baja", "valor": formatear_porcentaje(peor["TPr (%)"], 2),
+                 "detalle": str(peor["Transición"]), "color": _color_semaforo(peor["TPr (%)"])},
+            ])
 
-            st.markdown("#### Evolución Semestral")
-            fig_sem = px.bar(df_c, x="Transición", y="TPr (%)", text_auto='.2f', color="TPr (%)", color_continuous_scale="GnBu")
-            st.plotly_chart(fig_sem, use_container_width=True)
+            render_titulo_seccion(
+                "Promoción por transición de semestre",
+                "Porcentaje de alumnos que pasó de cada semestre al siguiente. Colores: "
+                + "<span style=\"color:{b}\">■</span> 80% o más &nbsp; <span style=\"color:{a}\">■</span> 60% a 79% &nbsp; <span style=\"color:{m}\">■</span> menos de 60%".format(b=COLOR_BUENO, a=COLOR_ATENCION, m=COLOR_MALO),
+            )
+            df_plot = df_c.assign(Etiqueta=df_c["TPr (%)"].map(lambda v: formatear_porcentaje(v, 1)))
+            fig_sem = px.bar(df_plot, x="Transición", y="TPr (%)", text="Etiqueta", custom_data=["EIns", "EPr"])
+            fig_sem.update_traces(
+                marker_color=[_color_semaforo(v) for v in df_plot["TPr (%)"]], textposition="outside", cliponaxis=False,
+                hovertemplate="<b>%{x}</b><br>Promoción: %{text}<br>Inscriptos: %{customdata[0]}"
+                              "<br>Promovidos: %{customdata[1]}<extra></extra>",
+            )
+            estilizar_figura(fig_sem, titulo_y="Promoción", porcentaje=True, altura=380, leyenda=False)
+            fig_sem.update_yaxes(range=[0, 110])
+            st.plotly_chart(fig_sem, use_container_width=True, config={"displayModeBar": False})
 
             # Resumo Anual removido conforme solicitação do usuário
             
-            st.markdown("#### Detalle por Transición")
+            render_titulo_seccion("Detalle por transición")
             st.dataframe(df_c[["Transición", "EIns", "EPr", "TPr (%)"]].style.format({"TPr (%)": "{:.2f}%"}), hide_index=True, width="stretch")
 
             st.divider()
@@ -159,8 +195,8 @@ def render():
                 df_c.to_excel(buffer_xls, index=False)
                 st.download_button("Descargar Datos (Excel)", buffer_xls.getvalue(), f"TPr_{cohorte_sel}.xlsx", key="xls_coh", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Tasa de Promoción Semestral", "Excel"))
 
-    with tab_detalle:
-        coh_det = st.selectbox("Cohorte", df_master["Cohorte"].unique(), index=len(df_master["Cohorte"].unique())-1, key="det_coh")
+    if vista == 'Detalle de Alumnos':
+        coh_det = st.selectbox("Cohorte", cohortes_disponibles, index=0, key="det_coh")
         
         # Obter e ordenar transições numericamente (S1, S2, ..., S10)
         trans_opts = sorted(df_master[df_master["Cohorte"] == coh_det]["Transición"].unique(), 
@@ -195,17 +231,15 @@ def render():
                 
                 df_list_view = df_list[[COL_NOMBRE]].rename(columns={COL_NOMBRE: "Estudiante"}).sort_values("Estudiante")
                 
-                st.markdown(f"""
-                <div style="background-color: #e8f0fe; border-left: 5px solid #1a73e8; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
-                    <span style="color: #555; font-size: 14px; font-weight: bold; text-transform: uppercase;">Alumnos Promovidos en {trans_det}</span><br>
-                    <span style="color: #1a73e8; font-size: 28px; font-weight: bold;">{len(df_list_view)}</span>
-                </div>
-                """, unsafe_allow_html=True)
+                render_tarjetas_kpi([
+                    {"etiqueta": f"Alumnos promovidos en {trans_det}", "valor": formatear_entero(len(df_list_view)),
+                     "color": COLOR_BUENO},
+                ], columnas=2)
                 st.dataframe(df_list_view, width="stretch", hide_index=True)
 
                 # --- Buscar Histórico Detalhado ---
                 st.divider()
-                st.write("#### Consultar Histórico Detallado")
+                render_titulo_seccion("Consultar historial de un alumno")
                 
                 @st.dialog("Perfil Académico del Estudiante", width="large")
                 def modal_perfil(uid, dff):
@@ -225,10 +259,10 @@ def render():
                 st.info("No hay datos detallados para esta selección.")
 
     st.divider()
-    st.markdown("""
-    ### Metodología de Tasa de Promoción
-    Identifica la proporción de estudiantes que avanzan de un curso o semestre al siguiente en el periodo académico posterior.
-    """)
-    st.latex(r"TPr = \frac{\sum EPr}{\sum EIns} \times 100")
+    with st.expander("¿Cómo se calcula la Tasa de Promoción?", icon=":material/functions:"):
+        st.markdown("""
+        Identifica la proporción de estudiantes que avanzan de un curso o semestre al siguiente en el periodo académico posterior.
+        """)
+        st.latex(r"TPr = \frac{\sum EPr}{\sum EIns} \times 100")
     
     st.divider()

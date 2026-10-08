@@ -5,6 +5,20 @@ import io
 import os
 from datetime import datetime
 from utils import db_pia
+from utils.ui import (
+    COLOR_ATENCION,
+    COLOR_BUENO,
+    COLOR_MALO,
+    COLOR_PRIMARIO,
+    PALETA_CATEGORICA,
+    estilizar_figura,
+    formatear_entero,
+    formatear_porcentaje,
+    opciones_cohorte,
+    render_cabecera_indicador,
+    render_tarjetas_kpi,
+    render_titulo_seccion,
+)
 from utils.system_logging import log_exception
 from services.data.alumnos import load_current_alumnos
 from services.calculations.tasa_aprobacion import (
@@ -21,8 +35,22 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 
+
+
+def _color_semaforo(porcentaje):
+    """Verde >= 80%, amarillo >= 60%, rojo < 60% (lectura rápida de aprobación)."""
+    if porcentaje >= 80:
+        return COLOR_BUENO
+    if porcentaje >= 60:
+        return COLOR_ATENCION
+    return COLOR_MALO
+
+
 def render():
-    st.subheader("Tasa de Aprobación por Asignatura")
+    render_cabecera_indicador(
+        "Tasa de Aprobación por Asignatura",
+        "Porcentaje de alumnos inscriptos en cada asignatura que la aprobaron. Elija una cohorte y, si quiere, una asignatura para ver el detalle por sección.",
+    )
     
     df = load_current_alumnos(only_regular=True)
     if df.empty:
@@ -38,7 +66,7 @@ def render():
     col1, col2, col3 = st.columns(3)
     
     # 1. Cohorte
-    cohortes = sorted(df[COL_COHORTE].dropna().unique().tolist())
+    cohortes = opciones_cohorte(df[COL_COHORTE].unique())
     cohorte_sel = col1.selectbox("Cohorte", cohortes, index=None, placeholder="Seleccione Cohorte")
     
     if not cohorte_sel:
@@ -191,26 +219,36 @@ def render():
         # KPI KPI (Specific to selection)
         avg_approval_detail = resumen_seccion["% Aprobación"].mean()
         
-        st.markdown(f"""
-        <div style="text-align: center; padding: 10px; background-color: #f0f2f6; border-radius: 10px; margin-bottom: 10px;">
-            <h4 style="margin: 0; color: #555; font-size: 16px;">Promedio de Aprobación</h4>
-            <h2 style="margin: 5px 0 0 0; font-size: 32px; color: #004080;">{avg_approval_detail:.2f}%</h2>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.divider()
-        st.markdown("### Aprobación por Sección")
+        render_tarjetas_kpi([
+            {"etiqueta": "Aprobación promedio", "valor": formatear_porcentaje(avg_approval_detail, 2),
+             "detalle": asignatura_sel, "color": _color_semaforo(avg_approval_detail)},
+            {"etiqueta": "Secciones", "valor": len(resumen_seccion)},
+            {"etiqueta": "Inscriptos", "valor": formatear_entero(resumen_seccion["Inscritos"].sum())},
+            {"etiqueta": "Aprobados", "valor": formatear_entero(resumen_seccion["Aprobados"].sum()), "color": COLOR_BUENO},
+        ])
+        render_titulo_seccion(
+            "Aprobación por sección",
+            "Colores: " + "<span style=\"color:{b}\">■</span> 80% o más &nbsp; <span style=\"color:{a}\">■</span> 60% a 79% &nbsp; <span style=\"color:{m}\">■</span> menos de 60%".format(b=COLOR_BUENO, a=COLOR_ATENCION, m=COLOR_MALO),
+        )
 
         # Gráfico de Seções (Em cima)
+        datos_sec = resumen_seccion.assign(Etiqueta=resumen_seccion["% Aprobación"].map(formatear_porcentaje))
         fig_sec = px.bar(
-            resumen_seccion,
+            datos_sec,
             x=COL_SECCION,
             y="% Aprobación",
-            text_auto='.1f',
-            color="% Aprobación",
-            color_continuous_scale="Greens"
+            text="Etiqueta",
+            custom_data=["Inscritos", "Aprobados"],
         )
-        st.plotly_chart(fig_sec, use_container_width=True)
+        fig_sec.update_traces(
+            marker_color=[_color_semaforo(v) for v in datos_sec["% Aprobación"]], textposition="outside", cliponaxis=False,
+            hovertemplate="<b>Sección %{x}</b><br>Aprobación: %{text}<br>Inscriptos: %{customdata[0]}"
+                          "<br>Aprobados: %{customdata[1]}<extra></extra>",
+        )
+        estilizar_figura(fig_sec, titulo_x="Sección", titulo_y="Aprobación", porcentaje=True, altura=360, leyenda=False)
+        fig_sec.update_xaxes(type="category")
+        fig_sec.update_yaxes(range=[0, 110])
+        st.plotly_chart(fig_sec, use_container_width=True, config={"displayModeBar": False})
             
         # Prepare Data for Display and Export
         df_export_detail = resumen_seccion.rename(columns={COL_SECCION: "Sección"})
@@ -258,37 +296,46 @@ def render():
         # KPI Geral
         avg_approval = resumen["Tasa Aprobación (%)"].mean()
     
-        st.markdown(f"""
-        <div style="text-align: center; padding: 10px; background-color: #f0f2f6; border-radius: 10px; margin-bottom: 10px;">
-            <h4 style="margin: 0; color: #555; font-size: 16px;">Promedio de la Tasa de Aprobación por Asignatura</h4>
-            <h2 style="margin: 5px 0 0 0; font-size: 32px; color: #004080;">{avg_approval:.2f}%</h2>
-            <p style="margin-top: 5px; font-size: 12px; color: #666;">Cohorte: {cohorte_sel}</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.divider()
+        render_tarjetas_kpi([
+            {"etiqueta": "Aprobación promedio", "valor": formatear_porcentaje(avg_approval, 2),
+             "detalle": f"Cohorte {cohorte_sel}", "color": _color_semaforo(avg_approval)},
+            {"etiqueta": "Asignaturas", "valor": len(resumen)},
+            {"etiqueta": "80% o más", "valor": int((resumen["Tasa Aprobación (%)"] >= 80).sum()),
+             "detalle": "Asignaturas", "color": COLOR_BUENO},
+            {"etiqueta": "Menos de 60%", "valor": int((resumen["Tasa Aprobación (%)"] < 60).sum()),
+             "detalle": "Asignaturas", "color": COLOR_MALO},
+        ])
+        render_titulo_seccion(
+            "Aprobación por asignatura",
+            "Ordenadas de menor a mayor aprobación. Haga clic en una o más barras para filtrar la tabla de abajo. "
+            "Colores: " + "<span style=\"color:{b}\">■</span> 80% o más &nbsp; <span style=\"color:{a}\">■</span> 60% a 79% &nbsp; <span style=\"color:{m}\">■</span> menos de 60%".format(b=COLOR_BUENO, a=COLOR_ATENCION, m=COLOR_MALO),
+        )
 
         # Ordenar para o gráfico
         resumen_sorted = resumen.sort_values("Tasa Aprobación (%)", ascending=True)
         height_dynamic = max(400, len(resumen_sorted) * 25)
 
         fig = px.bar(
-            resumen_sorted, 
-            y=COL_DISCIPLINA, 
-            x="Tasa Aprobación (%)", 
+            resumen_sorted.assign(Etiqueta=resumen_sorted["Tasa Aprobación (%)"].map(formatear_porcentaje)),
+            y=COL_DISCIPLINA,
+            x="Tasa Aprobación (%)",
             orientation='h',
-            text_auto='.1f',
-            title=f"Tasa de Aprobación por Asignatura",
-            color="Tasa Aprobación (%)",
-            color_continuous_scale="Blues",
+            text="Etiqueta",
             height=height_dynamic
         )
-        
+        fig.update_traces(
+            marker_color=[_color_semaforo(v) for v in resumen_sorted["Tasa Aprobación (%)"]],
+            textposition="outside", cliponaxis=False,
+            hovertemplate="<b>%{y}</b><br>Aprobación: %{text}<extra></extra>",
+        )
+        estilizar_figura(fig, leyenda=False)
+        fig.update_xaxes(ticksuffix="%", range=[0, 112], showgrid=True, gridcolor="#eef2f6")
+        fig.update_yaxes(showgrid=False)
         fig.update_layout(
             clickmode='event+select',
             yaxis_title=None,
             xaxis_title="Tasa de Aprobación (%)",
-            margin=dict(l=0, r=0, t=40, b=0)
+            margin=dict(l=0, r=0, t=10, b=0)
         )
         
         # Capture selection
@@ -349,25 +396,27 @@ def render():
     # 🔹 EXPLANATION
     # ------------------------------------------------------------
     st.divider()
-    st.markdown("""        
-        La **Tasa de Aprobación** se define como la relación entre el número de aprobados o promovidos y los alumnos inscritos en el periodo. \n
-        La **Tasa de Aprobación por Asignatura (TAA)** muestra la aprobación o promoción de los estudiantes en las asignaturas
-        correspondientes a cierto semestre con relación a los estudiantes inscriptos a esas asignaturas.
+    with st.expander("¿Cómo se calcula la Tasa de Aprobación por Asignatura?", icon=":material/functions:"):
+        st.markdown("""        
+            La **Tasa de Aprobación** se define como la relación entre el número de aprobados o promovidos y los alumnos inscritos en el periodo. \n
+            La **Tasa de Aprobación por Asignatura (TAA)** muestra la aprobación o promoción de los estudiantes en las asignaturas
+            correspondientes a cierto semestre con relación a los estudiantes inscriptos a esas asignaturas.
+            """)    
+
+        st.markdown("""
+        ### Tasa de Aprobación por Asignatura (TAA)
         """)    
-
-    st.markdown("""
-    ### Tasa de Aprobación por Asignatura (TAA)
-    """)    
         
-    st.latex(r"""
-    TAA = \left( \frac{EPAS}{EIS} \right) \times 100
-    """)
+        st.latex(r"""
+        TAA = \left( \frac{EPAS}{EIS} \right) \times 100
+        """)
 
-    st.markdown("""
-    **Donde:**
+        st.markdown("""
+        **Donde:**
         
-    * **TAA:** Tasa de Aprobación por Asignatura.
-    * **EPA:** número de Estudiantes Promovidos por Asignaturas (debe ser
-        calculado por cada asignatura)
-    * **EIS:** Número de Estudiantes Inscriptos en la Asignatura
-    """)
+        * **TAA:** Tasa de Aprobación por Asignatura.
+        * **EPA:** número de Estudiantes Promovidos por Asignaturas (debe ser
+            calculado por cada asignatura)
+        * **EIS:** Número de Estudiantes Inscriptos en la Asignatura
+        """)
+

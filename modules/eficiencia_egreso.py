@@ -6,7 +6,22 @@ import os
 from datetime import datetime
 from utils import db_pia
 from utils.system_logging import log_exception
-from utils.ui import render_egresados_fuente_caption
+from utils.ui import (
+    selector_vista,
+    COLOR_ATENCION,
+    COLOR_BUENO,
+    COLOR_MALO,
+    COLOR_PRIMARIO,
+    PALETA_CATEGORICA,
+    estilizar_figura,
+    formatear_entero,
+    formatear_porcentaje,
+    opciones_cohorte,
+    render_cabecera_indicador,
+    render_tarjetas_kpi,
+    render_titulo_seccion,
+    render_egresados_fuente_caption,
+)
 from services.data.alumnos import load_current_alumnos
 from services.calculations.eficiencia_academica import (
     COL_ANO_FINAL_COHORTE,
@@ -26,18 +41,11 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 import modules.rend_acad_alumno as raa
 
 def render():
-    st.subheader("Eficiencia de Egreso (EE)")
+    render_cabecera_indicador(
+        "Eficiencia de Egreso (EE)",
+        "Porcentaje de egresados respecto de los ingresantes de cada cohorte, contando a quienes egresan en tiempo y también a los de cohortes anteriores que egresan en el periodo final de la cohorte.",
+    )
 
-    st.markdown("""
-        <style>
-        [data-testid="stElementToolbar"] { display: none; }
-        div[data-testid="stDownloadButton"] button {
-            min-height: 50px !important;
-            font-size: 16px !important;
-            border-radius: 8px !important;
-        }
-        </style>
-    """, unsafe_allow_html=True)
     
     df = load_current_alumnos()
     if df.empty:
@@ -161,14 +169,42 @@ def render():
         return buffer.getvalue()
 
     # TABS
-    tab1, tab2 = st.tabs(["Comparativo Global", "Detalle por Cohorte"])
+    vista = selector_vista(['Comparativo Global', 'Detalle por Cohorte'], "vista_eficiencia_egreso")
 
-    with tab1:
-        st.markdown("### Eficiencia de Egreso (EE) por Cohorte")
-        st.info("Considera tanto a los **egresados regulares** de la cohorte como a **egresados de cohortes anteriores** que se gradúan en el mismo periodo.")
-        
-        fig = px.bar(df_ee, x="cohorte", y="EE (%)", text_auto='.2f', color="EE (%)", color_continuous_scale="Greens")
-        st.plotly_chart(fig, use_container_width=True)
+    if vista == 'Comparativo Global':
+        total_eiic = int(df_ee["EIIC"].sum())
+        total_egr = int(df_ee["Total_Egresados"].sum())
+        render_tarjetas_kpi([
+            {"etiqueta": "Cohortes", "valor": len(df_ee), "detalle": "Con periodo final definido"},
+            {"etiqueta": "Ingresantes (EIIC)", "valor": formatear_entero(total_eiic)},
+            {"etiqueta": "Egresados", "valor": formatear_entero(total_egr), "detalle": "Regulares + de otras cohortes"},
+            {"etiqueta": "EE global", "valor": formatear_porcentaje(total_egr / total_eiic * 100 if total_eiic else 0),
+             "detalle": "Egresados ÷ ingresantes"},
+        ])
+        render_titulo_seccion(
+            "Eficiencia de Egreso por cohorte",
+            "Barras apiladas: <b>en tiempo</b> (egresados regulares de la cohorte) y <b>de otras cohortes</b> "
+            "(alumnos atrasados que egresan en el periodo final de esta cohorte).",
+        )
+        eiic_validos = df_ee["EIIC"].where(df_ee["EIIC"] > 0)
+        df_plot = df_ee.assign(
+            **{"En tiempo": df_ee["ECE_reg"] / eiic_validos * 100,
+               "De otras cohortes": df_ee["ECE_nreg"] / eiic_validos * 100}
+        ).melt(id_vars=["cohorte"], value_vars=["En tiempo", "De otras cohortes"], var_name="Tipo", value_name="Porcentaje")
+        fig = px.bar(
+            df_plot, x="cohorte", y="Porcentaje", color="Tipo",
+            color_discrete_map={"En tiempo": COLOR_PRIMARIO, "De otras cohortes": COLOR_ATENCION},
+            labels={"cohorte": "Cohorte"},
+        )
+        fig.update_traces(hovertemplate="<b>%{x}</b><br>%{fullData.name}: %{y:.2f}%<extra></extra>")
+        totales = df_ee.set_index("cohorte")["EE (%)"]
+        fig.add_scatter(
+            x=totales.index, y=totales.values, mode="text", text=[formatear_porcentaje(v) for v in totales.values],
+            textposition="top center", showlegend=False, hoverinfo="skip",
+        )
+        estilizar_figura(fig, titulo_y="Eficiencia de Egreso", porcentaje=True, altura=400)
+        fig.update_layout(barmode="stack")
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
         
         df_view = df_ee.rename(columns={
             "cohorte": "Cohorte",
@@ -195,17 +231,19 @@ def render():
         c1.download_button("Descargar Reporte (PDF)", data=pdf_all, file_name="Reporte_EE_Global.pdf", mime="application/pdf", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia de Egreso - Global", "PDF"))
         c2.download_button("Descargar Datos (Excel)", data=buf_ex.getvalue(), file_name="Datos_EE_Global.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia de Egreso - Global", "Excel"))
 
-    with tab2:
-        cohorte_sel = st.selectbox("Seleccione una Cohorte", sorted(df_ee["cohorte"].tolist()), index=None)
+    if vista == 'Detalle por Cohorte':
+        cohorte_sel = st.selectbox("Seleccione una Cohorte", opciones_cohorte(df_ee["cohorte"]), index=None)
         if cohorte_sel:
             row = df_ee[df_ee["cohorte"] == cohorte_sel].iloc[0]
             t_final = row['periodo_final']
             t_final_str = f"{t_final:.1f}" if pd.notna(t_final) else ""
             
-            c_a, c_b, c_c = st.columns(3)
-            c_a.metric("Eficiencia de Egreso", f"{row['EE (%)']:.2f}%")
-            c_b.metric("Ingresantes (EIIC)", int(row['EIIC']))
-            c_c.metric("Total Egresados", int(row['Total_Egresados']))
+            render_tarjetas_kpi([
+                {"etiqueta": "Eficiencia de Egreso", "valor": formatear_porcentaje(row["EE (%)"], 2)},
+                {"etiqueta": "Ingresantes (EIIC)", "valor": formatear_entero(row["EIIC"])},
+                {"etiqueta": "Egresados en tiempo", "valor": formatear_entero(row["ECE_reg"]), "color": COLOR_BUENO},
+                {"etiqueta": "Egresados de otras cohortes", "valor": formatear_entero(row["ECE_nreg"]), "color": COLOR_ATENCION},
+            ])
             
             st.divider()
             
@@ -238,7 +276,7 @@ def render():
                 else:
                     lista_view = lista_full[mask]
                 
-                st.markdown(f"### Alumnos Egresados en la ventana de la cohorte ({t_final_str})")
+                render_titulo_seccion(f"Egresados en el periodo final de la cohorte ({t_final_str})")
                 st.dataframe(lista_view.drop(columns=[COL_ID_ALUMNO]), width="stretch", hide_index=True)
                 
                 # Modal Perfil
@@ -248,7 +286,7 @@ def render():
                     if not ds.empty: raa.render_alumno_details(ds, dff)
                 
                 st.divider()
-                st.write("#### Consultar Histórico Detallado")
+                render_titulo_seccion("Consultar historial de un alumno")
                 col_sel, col_btn = st.columns([2, 1])
                 
                 # Lista de opciones ordenada alfabéticamente
@@ -297,17 +335,17 @@ def render():
             c4.download_button("Descargar Datos (Excel)", data=buf_ex_sel.getvalue(), file_name=f"Datos_EE_{cohorte_sel}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="excel_ee_sel", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia de Egreso", "Excel"))
 
     st.divider()
-    st.markdown("""
-    ### Metodología de Eficiencia de Egreso (EE)
-    Se define como la relación cuantitativa de los estudiantes que finalizan la enseñanza en el tiempo previsto en el plan de estudios o en periodos posteriores en relación a su cohorte de entrada.
-    """)
-    st.latex(r"EE = \frac{ECE(reg) + ECE(n\:reg)}{EIIC} \times 100")
-    st.markdown("""
-    **Donde:**
-    - **ECE(reg):** Estudiantes de la cohorte que egresan en tiempo regular.
-    - **ECE(n reg):** Estudiantes de otras cohortes que egresan en el periodo final de la cohorte actual.
-    - **EIIC:** Estudiantes matriculados en el primer semestre de la cohorte.
-    """)
+    with st.expander("¿Cómo se calcula la Eficiencia de Egreso?", icon=":material/functions:"):
+        st.markdown("""
+        Se define como la relación cuantitativa de los estudiantes que finalizan la enseñanza en el tiempo previsto en el plan de estudios o en periodos posteriores en relación a su cohorte de entrada.
+        """)
+        st.latex(r"EE = \frac{ECE(reg) + ECE(n\:reg)}{EIIC} \times 100")
+        st.markdown("""
+        **Donde:**
+        - **ECE(reg):** Estudiantes de la cohorte que egresan en tiempo regular.
+        - **ECE(n reg):** Estudiantes de otras cohortes que egresan en el periodo final de la cohorte actual.
+        - **EIIC:** Estudiantes matriculados en el primer semestre de la cohorte.
+        """)
 
     st.divider()
     

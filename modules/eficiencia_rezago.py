@@ -6,7 +6,22 @@ import os
 from datetime import datetime
 from utils import db_pia
 from utils.system_logging import log_exception
-from utils.ui import render_egresados_fuente_caption
+from utils.ui import (
+    selector_vista,
+    COLOR_ATENCION,
+    COLOR_BUENO,
+    COLOR_MALO,
+    COLOR_PRIMARIO,
+    PALETA_CATEGORICA,
+    estilizar_figura,
+    formatear_entero,
+    formatear_porcentaje,
+    opciones_cohorte,
+    render_cabecera_indicador,
+    render_tarjetas_kpi,
+    render_titulo_seccion,
+    render_egresados_fuente_caption,
+)
 from services.data.alumnos import load_current_alumnos
 from services.calculations.eficiencia_academica import (
     COL_ANO_FINAL_COHORTE,
@@ -26,18 +41,11 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 import modules.rend_acad_alumno as raa
 
 def render():
-    st.subheader("Rezago Educativo (RE)")
+    render_cabecera_indicador(
+        "Rezago Educativo (RE)",
+        "Diferencia entre la Eficiencia de Egreso y la Eficiencia Terminal: mide cuánto del egreso de cada cohorte corresponde a alumnos que se atrasaron.",
+    )
 
-    st.markdown("""
-        <style>
-        [data-testid="stElementToolbar"] { display: none; }
-        div[data-testid="stDownloadButton"] button {
-            min-height: 50px !important;
-            font-size: 16px !important;
-            border-radius: 8px !important;
-        }
-        </style>
-    """, unsafe_allow_html=True)
     
     df_full = load_current_alumnos(only_cde=False)
     df = load_current_alumnos()
@@ -153,19 +161,33 @@ def render():
         return buffer.getvalue()
 
     # TABS
-    tab1, tab2 = st.tabs(["Comparativo Global", "Detalle por Cohorte"])
+    vista = selector_vista(['Comparativo Global', 'Detalle por Cohorte'], "vista_eficiencia_rezago")
 
-    with tab1:
-        st.markdown("### Rezago Educativo (RE) por Cohorte")
-        st.info("Cuantifica el impacto de los egresados que no terminaron en tiempo regular.")
-        
-        # Gráfico ET vs EE (para mostrar el rezago)
-        df_plot = df_re.melt(id_vars=["cohorte"], value_vars=["ET (%)", "RE (%)"], var_name="Métrica", value_name="Porcentaje")
-        fig = px.bar(df_plot, x="cohorte", y="Porcentaje", color="Métrica", 
-                     title="Composición de la Eficiencia de Egreso (ET + RE)",
-                     color_discrete_map={"ET (%)": "#2E7D32", "RE (%)": "#F9A825"},
-                     text_auto='.2f')
-        st.plotly_chart(fig, use_container_width=True)
+    if vista == 'Comparativo Global':
+        render_tarjetas_kpi([
+            {"etiqueta": "Cohortes", "valor": len(df_re)},
+            {"etiqueta": "ET promedio", "valor": formatear_porcentaje(df_re["ET (%)"].mean()),
+             "detalle": "Egreso en tiempo", "color": COLOR_BUENO},
+            {"etiqueta": "RE promedio", "valor": formatear_porcentaje(df_re["RE (%)"].mean()),
+             "detalle": "Egreso con atraso", "color": COLOR_ATENCION},
+            {"etiqueta": "EE promedio", "valor": formatear_porcentaje(df_re["EE (%)"].mean()),
+             "detalle": "ET + RE"},
+        ])
+        render_titulo_seccion(
+            "Composición de la Eficiencia de Egreso por cohorte",
+            "Cada barra es la Eficiencia de Egreso (EE) dividida en la parte <b>en tiempo</b> (ET) y la parte "
+            "<b>con rezago</b> (RE). Cuanto más amarilla la barra, mayor el atraso.",
+        )
+        df_plot = df_re.rename(columns={"ET (%)": "En tiempo (ET)", "RE (%)": "Con rezago (RE)"}).melt(
+            id_vars=["cohorte"], value_vars=["En tiempo (ET)", "Con rezago (RE)"], var_name="Métrica", value_name="Porcentaje"
+        )
+        fig = px.bar(df_plot, x="cohorte", y="Porcentaje", color="Métrica",
+                     color_discrete_map={"En tiempo (ET)": COLOR_PRIMARIO, "Con rezago (RE)": COLOR_ATENCION},
+                     labels={"cohorte": "Cohorte"})
+        fig.update_traces(hovertemplate="<b>%{x}</b><br>%{fullData.name}: %{y:.2f}%<extra></extra>")
+        estilizar_figura(fig, titulo_y="% de los ingresantes", porcentaje=True, altura=400)
+        fig.update_layout(barmode="stack")
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
         
         st.dataframe(df_re.rename(columns={"cohorte": "COHORTE"})[["COHORTE", "ET (%)", "EE (%)", "RE (%)"]].style.format({
             "ET (%)": "{:.2f}%", "EE (%)": "{:.2f}%", "RE (%)": "{:.2f}%"
@@ -180,15 +202,16 @@ def render():
         c1.download_button("Descargar Reporte (PDF)", data=pdf_all, file_name="Reporte_RE_Global.pdf", mime="application/pdf", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Rezago Educativo - Global", "PDF"))
         c2.download_button("Descargar Datos (Excel)", data=buf_ex.getvalue(), file_name="Datos_RE_Global.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Rezago Educativo - Global", "Excel"))
 
-    with tab2:
-        cohorte_sel = st.selectbox("Seleccione una Cohorte", sorted(df_re["cohorte"].tolist()), index=None)
+    if vista == 'Detalle por Cohorte':
+        cohorte_sel = st.selectbox("Seleccione una Cohorte", opciones_cohorte(df_re["cohorte"]), index=None)
         if cohorte_sel:
             row = df_re[df_re["cohorte"] == cohorte_sel].iloc[0]
             
-            c_a, c_b, c_c = st.columns(3)
-            c_a.metric("Eficiencia Terminal (ET)", f"{row['ET (%)']:.2f}%")
-            c_b.metric("Rezago Educativo (RE)", f"{row['RE (%)']:.2f}%")
-            c_c.metric("Eficiencia de Egreso (EE)", f"{row['EE (%)']:.2f}%")
+            render_tarjetas_kpi([
+                {"etiqueta": "Eficiencia Terminal (ET)", "valor": formatear_porcentaje(row["ET (%)"], 2), "color": COLOR_BUENO},
+                {"etiqueta": "Rezago Educativo (RE)", "valor": formatear_porcentaje(row["RE (%)"], 2), "color": COLOR_ATENCION},
+                {"etiqueta": "Eficiencia de Egreso (EE)", "valor": formatear_porcentaje(row["EE (%)"], 2)},
+            ])
             
             st.divider()
             
@@ -204,8 +227,10 @@ def render():
             }).sort_values("Nombre")
             
             if len(lista_re) > 0:
-                st.markdown(f"### Detalle de Alumnos en Rezago (Cohorte {cohorte_sel})")
-                st.info(f"Estudiantes de cohortes anteriores que finalizaron su carrera en el periodo previsto de la cohorte seleccionada ({t_final}).")
+                render_titulo_seccion(
+                    f"Alumnos en rezago (cohorte {cohorte_sel})",
+                    f"Estudiantes de cohortes anteriores que egresaron en el periodo final de la cohorte seleccionada ({t_final}).",
+                )
                 st.dataframe(lista_view.drop(columns=[COL_ID_ALUMNO]), width="stretch", hide_index=True)
                 
                 @st.dialog("Perfil Académico del Estudiante", width="large")
@@ -214,7 +239,7 @@ def render():
                     if not ds.empty: raa.render_alumno_details(ds, dff)
                 
                 st.divider()
-                st.write("#### Consultar Histórico Detallado")
+                render_titulo_seccion("Consultar historial de un alumno")
                 col_sel, col_btn = st.columns([2, 1])
                 # Lista de opciones basada solo en los alumnos en rezago
                 with col_sel:
@@ -242,14 +267,14 @@ def render():
             c4.download_button("Descargar Datos (Excel)", data=buf_ex_sel.getvalue(), file_name=f"Datos_RE_{cohorte_sel}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="excel_re_sel", width="stretch", on_click=db_pia.log_export_callback, args=("Rezago Educativo", "Excel"))
 
     st.divider()
-    st.markdown("""
-    ### Rezago Educativo (RE)
-    Se define al rezago educativo como “la comparación porcentual de la eficiencia terminal versus la tasa de egreso” y se calcula:
-    """)
-    st.latex(r"RE = \text{Eficiencia de Egreso} - \text{Eficiencia Terminal}")
-    st.markdown("""
-    Altamira R. (1997) coincide de alguna manera con esta definición al expresar que rezago educativo es “…el atraso de los estudiantes en la inscripción a las asignaturas, según la secuencia establecida en el plan de estudios”.
-    """)
+    with st.expander("¿Cómo se calcula el Rezago Educativo?", icon=":material/functions:"):
+        st.markdown("""
+        Se define al rezago educativo como “la comparación porcentual de la eficiencia terminal versus la tasa de egreso” y se calcula:
+        """)
+        st.latex(r"RE = \text{Eficiencia de Egreso} - \text{Eficiencia Terminal}")
+        st.markdown("""
+        Altamira R. (1997) coincide de alguna manera con esta definición al expresar que rezago educativo es “…el atraso de los estudiantes en la inscripción a las asignaturas, según la secuencia establecida en el plan de estudios”.
+        """)
 
     st.divider()
     

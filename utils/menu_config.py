@@ -1,6 +1,6 @@
 MI_CUENTA = "Mi Cuenta"
 VERSION_1 = "Indicadores Versión 1"
-VERSION_2 = "Indicadores Versión 2"
+VERSION_2 = "Indicadores"
 INDICE_PERMANENCIA = "Índice de Permanencia"
 ADMINISTRACION = "Administración"
 
@@ -99,9 +99,9 @@ INDICADORES_VERSION = [
         ],
     },
     {
-        "name": "Encuestas",
+        "name": "Instrumentos de Evaluación Docente",
         "permission": "encuestas",
-        "target_category": "Encuestas",
+        "target_category": "Instrumentos de Evaluación Docente",
         "icon": "poll",
         "pages": [
             {"title": "Avance de Encuesta", "slug": "encuestas_avance", "module": "encuestas", "icon": "fact_check"},

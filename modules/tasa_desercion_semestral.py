@@ -4,6 +4,20 @@ import io
 import os
 from datetime import datetime
 from utils import db_pia
+from utils.ui import (
+    COLOR_ATENCION,
+    COLOR_BUENO,
+    COLOR_MALO,
+    COLOR_PRIMARIO,
+    PALETA_CATEGORICA,
+    estilizar_figura,
+    formatear_entero,
+    formatear_porcentaje,
+    opciones_cohorte,
+    render_cabecera_indicador,
+    render_tarjetas_kpi,
+    render_titulo_seccion,
+)
 from utils.system_logging import log_exception
 from services.data.alumnos import load_current_alumnos
 from services.calculations.tasa_desercion import (
@@ -18,19 +32,11 @@ from reportlab.lib.units import cm
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 
 def render():
-    st.subheader("Tasa de Deserción Semestral de la Cohorte (TDSC)")
+    render_cabecera_indicador(
+        "Tasa de Deserción Semestral de la Cohorte (TDSC)",
+        "Para una cohorte, qué porcentaje de los alumnos inscriptos en cada semestre ya no aparece en el semestre siguiente. Ayuda a detectar en qué momento de la carrera se pierden más alumnos.",
+    )
 
-    # CSS para ocultar toolbar e estilizar botões
-    st.markdown("""
-        <style>
-        [data-testid="stElementToolbar"] { display: none; }
-        div[data-testid="stDownloadButton"] button {
-            min-height: 50px !important;
-            font-size: 16px !important;
-            border-radius: 8px !important;
-        }
-        </style>
-    """, unsafe_allow_html=True)
     
     df = load_current_alumnos()
     if df.empty:
@@ -45,8 +51,11 @@ def render():
         st.warning("No hay datos suficientes para calcular la deserción semestral.")
         return
 
-    cohortes_list = sorted(inscritos[COL_COHORTE].unique().tolist())
-    cohorte_sel = st.selectbox("Seleccione una Cohorte para ver la evolución semestral", cohortes_list, index=None)
+    cohortes_list = opciones_cohorte(inscritos[COL_COHORTE].unique())
+    cohorte_sel = st.selectbox("Seleccione una Cohorte para ver la evolución semestral", cohortes_list, index=None,
+                               placeholder="Elija una cohorte")
+    if not cohorte_sel:
+        st.info("Seleccione una **cohorte** para ver en qué semestres se produce la deserción.", icon=":material/touch_app:")
 
     # -------------------------------------------------------------------------
     # PDF FUNCTIONS
@@ -113,10 +122,30 @@ def render():
         if df_tdsc.empty:
             st.warning("No hay datos suficientes para calcular la deserción semestral.")
         else:
-            st.markdown(f"### Evolución de Deserción Semestral - Cohorte {cohorte_sel}")
-            fig = px.line(df_tdsc, x="Semestre", y="TDSC (%)", text=[f"{v:.2f}%" for v in df_tdsc["TDSC (%)"]], markers=True)
-            fig.update_traces(textposition="top center", line_color="#b02a37")
-            st.plotly_chart(fig, use_container_width=True)
+            critico = df_tdsc.loc[df_tdsc["TDSC (%)"].idxmax()]
+            render_tarjetas_kpi([
+                {"etiqueta": "Inscriptos al inicio", "valor": formatear_entero(df_tdsc["EIS"].iloc[0]),
+                 "detalle": f"Semestre {df_tdsc['Semestre'].iloc[0].split(' ')[0]}"},
+                {"etiqueta": "Abandonos en total", "valor": formatear_entero(df_tdsc["EACS"].sum()), "color": COLOR_MALO},
+                {"etiqueta": "Deserción promedio", "valor": formatear_porcentaje(df_tdsc["TDSC (%)"].mean(), 2),
+                 "detalle": "Por cambio de semestre", "color": COLOR_ATENCION},
+                {"etiqueta": "Paso más crítico", "valor": critico["Semestre"].replace("º -> ", "º → "),
+                 "detalle": f"{formatear_porcentaje(critico['TDSC (%)'], 2)} de deserción", "color": COLOR_MALO},
+            ])
+            render_titulo_seccion(
+                f"Deserción por cambio de semestre — cohorte {cohorte_sel}",
+                "Cada barra muestra el porcentaje de alumnos de un semestre que no se inscribió en el siguiente.",
+            )
+            df_plot = df_tdsc.assign(
+                Paso=df_tdsc["Semestre"].str.replace("º -> ", "º → ", regex=False),
+                Etiqueta=df_tdsc["TDSC (%)"].map(lambda v: formatear_porcentaje(v, 2)),
+            )
+            fig = px.bar(df_plot, x="Paso", y="TDSC (%)", text="Etiqueta", custom_data=["EIS", "EACS"])
+            fig.update_traces(marker_color=COLOR_MALO, textposition="outside", cliponaxis=False,
+                              hovertemplate="<b>%{x}</b><br>Deserción: %{text}<br>Inscriptos: %{customdata[0]}"
+                                            "<br>Abandonan: %{customdata[1]}<extra></extra>")
+            estilizar_figura(fig, titulo_x="Cambio de semestre", titulo_y="Deserción", porcentaje=True, altura=380, leyenda=False)
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
             st.dataframe(df_tdsc.style.format({"TDSC (%)": "{:.2f}%"}), width="stretch", hide_index=True)
 
             st.divider()
@@ -133,14 +162,15 @@ def render():
     # METODOLOGÍA (FINAL)
     # -------------------------------------------------------------------------
     st.divider()
-    st.markdown("""
-    La **Tasa de Deserción Semestral de la Cohorte (TDSC)** caracteriza el comportamiento por semestre para tomar decisiones oportunas.
-    \n**Fórmula:**
-    """)
-    st.latex(r"TDSC = \frac{EACS}{EIS} \times 100")
-    st.markdown("""
-    **Donde:**
-    * **EACS** = Estudiantes que abandonan la Carrera (presentes en semestre S pero ausentes en S+1).
-    * **EIS** = Estudiantes Inscriptos al inicio del Semestre.
-    """)
+    with st.expander("¿Cómo se calcula la Deserción Semestral?", icon=":material/functions:"):
+        st.markdown("""
+        La **Tasa de Deserción Semestral de la Cohorte (TDSC)** caracteriza el comportamiento por semestre para tomar decisiones oportunas.
+        \n**Fórmula:**
+        """)
+        st.latex(r"TDSC = \frac{EACS}{EIS} \times 100")
+        st.markdown("""
+        **Donde:**
+        * **EACS** = Estudiantes que abandonan la Carrera (presentes en semestre S pero ausentes en S+1).
+        * **EIS** = Estudiantes Inscriptos al inicio del Semestre.
+        """)
 

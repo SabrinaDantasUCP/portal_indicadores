@@ -6,7 +6,18 @@ import os
 from datetime import datetime
 from utils import db_pia
 from utils.system_logging import log_exception
-from utils.ui import render_egresados_fuente_caption
+from utils.ui import (
+    selector_vista,
+    COLOR_PRIMARIO,
+    estilizar_figura,
+    formatear_entero,
+    formatear_porcentaje,
+    opciones_cohorte,
+    render_cabecera_indicador,
+    render_egresados_fuente_caption,
+    render_tarjetas_kpi,
+    render_titulo_seccion,
+)
 from services.data.alumnos import load_current_alumnos
 from services.calculations.eficiencia_academica import (
     COL_ANO_FINAL_COHORTE,
@@ -25,20 +36,12 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 import modules.rend_acad_alumno as raa
 
 def render():
-    st.subheader("Eficiencia Terminal (ET)")
+    render_cabecera_indicador(
+        "Eficiencia Terminal (ET)",
+        "Porcentaje de los alumnos que ingresaron a 1º semestre que egresan <b>en el tiempo previsto</b> "
+        "por el plan de estudios (hasta el último periodo de su cohorte).",
+    )
 
-    # CSS para ocultar toolbar e estilizar botões
-    st.markdown("""
-        <style>
-        [data-testid="stElementToolbar"] { display: none; }
-        div[data-testid="stDownloadButton"] button {
-            min-height: 50px !important;
-            font-size: 16px !important;
-            border-radius: 8px !important;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-    
     df = load_current_alumnos()
     if df.empty:
         st.error("Archivo de datos no encontrado.")
@@ -236,23 +239,43 @@ def render():
     # -------------------------------------------------------------------------
     # TABS
     # -------------------------------------------------------------------------
-    tab1, tab2 = st.tabs(["Comparativo Global", "Detalle por Cohorte"])
+    vista = selector_vista(['Comparativo Global', 'Detalle por Cohorte'], "vista_eficiencia_terminal")
 
-    with tab1:
-        st.markdown("### Eficiencia Terminal entre Cohortes")
-        st.info("Este indicador se calcula únicamente para las **cohortes que ya han completado los 12 semestres** del plan de estudios.")
-        
-        fig_global = px.bar(
-            resumen_et, 
-            x=COL_COHORTE, 
-            y="ET (%)", 
-            text_auto='.2f',
-            labels={"ET (%)": "Eficiencia Terminal (%)", COL_COHORTE: "Cohorte"},
-            color="ET (%)",
-            color_continuous_scale="Viridis"
+    if vista == 'Comparativo Global':
+        total_eiic = int(resumen_et["EIIC"].sum())
+        total_ece = int(resumen_et["ECE"].sum())
+        render_tarjetas_kpi([
+            {"etiqueta": "Cohortes evaluadas", "valor": len(resumen_et),
+             "detalle": "Con los 12 semestres completos"},
+            {"etiqueta": "Ingresantes (EIIC)", "valor": formatear_entero(total_eiic),
+             "detalle": "Suma de las cohortes evaluadas"},
+            {"etiqueta": "Egresados en tiempo (ECE)", "valor": formatear_entero(total_ece),
+             "detalle": "Suma de las cohortes evaluadas"},
+            {"etiqueta": "ET global", "valor": formatear_porcentaje(total_ece / total_eiic * 100 if total_eiic else 0),
+             "detalle": "ECE ÷ EIIC del conjunto"},
+        ])
+
+        render_titulo_seccion(
+            "Eficiencia Terminal por cohorte",
+            "Solo cohortes que ya completaron los 12 semestres. Quien egresa <b>después</b> del último "
+            "periodo de su cohorte no cuenta aquí (ver Rezago Educativo y Eficiencia de Egreso).",
         )
-        fig_global.update_traces(textposition='outside')
-        st.plotly_chart(fig_global, use_container_width=True)
+        datos_grafico = resumen_et.assign(Etiqueta=resumen_et["ET (%)"].map(formatear_porcentaje))
+        fig_global = px.bar(
+            datos_grafico,
+            x=COL_COHORTE,
+            y="ET (%)",
+            text="Etiqueta",
+            custom_data=["EIIC", "ECE"],
+            labels={"ET (%)": "Eficiencia Terminal (%)", COL_COHORTE: "Cohorte"},
+        )
+        fig_global.update_traces(
+            marker_color=COLOR_PRIMARIO, textposition="outside", cliponaxis=False,
+            hovertemplate="<b>%{x}</b><br>ET: %{text}<br>Ingresantes: %{customdata[0]}<br>"
+                          "Egresados en tiempo: %{customdata[1]}<extra></extra>",
+        )
+        estilizar_figura(fig_global, titulo_y="Eficiencia Terminal", porcentaje=True, altura=380, leyenda=False)
+        st.plotly_chart(fig_global, use_container_width=True, config={"displayModeBar": False})
         
         st.dataframe(
             resumen_et.rename(columns={COL_COHORTE: "COHORTE"}).style.format({"ET (%)": "{:.2f}%"}),
@@ -276,8 +299,8 @@ def render():
         with c2:
             st.download_button("Descargar Datos (Excel)", data=excel_bytes_all, file_name="Dados_ET_Comparativo.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia Terminal - Comparativo", "Excel"))
 
-    with tab2:
-        cohortes_list = sorted(resumen_et[COL_COHORTE].unique().tolist())
+    if vista == 'Detalle por Cohorte':
+        cohortes_list = opciones_cohorte(resumen_et[COL_COHORTE].unique())
         cohorte_sel = st.selectbox("Seleccione una Cohorte (Ciclo Completo)", cohortes_list, index=None)
 
         if cohorte_sel:
@@ -285,18 +308,18 @@ def render():
             dados_sel = resumen_et[resumen_et[COL_COHORTE] == cohorte_sel].iloc[0]
             
             # Cards KPI
-            col_a, col_b, col_c = st.columns(3)
-            with col_a:
-                st.metric("Eficiencia Terminal", f"{dados_sel['ET (%)']:.2f}%")
-            with col_b:
-                st.metric("Ingresantes (EIIC)", int(dados_sel['EIIC']))
-            with col_c:
-                st.metric("Egresados Regulares (ECE)", int(dados_sel['ECE']))
+            render_tarjetas_kpi([
+                {"etiqueta": "Eficiencia Terminal", "valor": formatear_porcentaje(dados_sel["ET (%)"], 2)},
+                {"etiqueta": "Ingresantes (EIIC)", "valor": formatear_entero(dados_sel["EIIC"]),
+                 "detalle": "Matriculados en 1º semestre"},
+                {"etiqueta": "Egresados en tiempo (ECE)", "valor": formatear_entero(dados_sel["ECE"]),
+                 "detalle": "Egresaron hasta el fin de la cohorte"},
+            ])
 
             st.divider()
             
             # --- Listado de Alumnos (Solicitado por el usuario) ---
-            st.markdown("### Listado de Alumnos de la Cohorte")
+            render_titulo_seccion("Alumnos de la cohorte", "Ingresantes y si egresaron en el tiempo previsto.")
             
             # Preparar dataframe de la lista
             # Marcamos quién es egresado regular cruzando con ece_df
@@ -330,7 +353,7 @@ def render():
 
             st.divider()
             
-            st.write("#### Consultar Histórico Detallado")
+            render_titulo_seccion("Consultar historial de un alumno")
             col_sel, col_btn = st.columns([2, 1])
             
             with col_sel:
@@ -373,9 +396,17 @@ def render():
 
     # Explicação Final
     st.divider()
-    st.markdown("""
-    ### Metodología de Eficiencia Terminal (ET)
+    with st.expander("¿Cómo se calcula la Eficiencia Terminal?", icon=":material/functions:"):
+        _render_metodologia()
+
+    st.divider()
     
+    col_inf, col_btn = st.columns([3, 1], vertical_alignment="center")
+    _render_pie_egresados(col_inf, col_btn)
+
+
+def _render_metodologia():
+    st.markdown("""
     La **Eficiencia Terminal** es la relación porcentual entre los egresados de un nivel educativo dado y el número de estudiantes que ingresaron al primer curso de este nivel educativo “n” años antes (Camarena et al., 1985).
     """)
     
@@ -388,10 +419,8 @@ def render():
     - **EIIC:** Número de Estudiantes que se Inscriben al Inicio de la Carrera (matriculados en el primer semestre).
     """)
 
-    st.divider()
-    
-    col_inf, col_btn = st.columns([3, 1], vertical_alignment="center")
-    
+
+def _render_pie_egresados(col_inf, col_btn):
     with col_inf:
         render_egresados_fuente_caption()
     

@@ -110,7 +110,7 @@ def calculate_panel_resumen(df):
         + df_final["Calificación 5"]
     )
     df_final["Reprobados"] = df_final["Calificación 1"]
-    df_final["% de Aprobácion"] = df_final.apply(
+    df_final["% de Aprobación"] = df_final.apply(
         lambda row: (row["Aprobados"] / row["Total_Matriculados"]) * 100
         if row["Total_Matriculados"] > 0
         else 0,
@@ -132,7 +132,6 @@ def build_panel_resumen_view(df):
         COL_RES_SECCION: "Sección",
         COL_RES_DOCENTE: "Docente",
         "Total_Matriculados": "Cantidad de Matriculados",
-        "Promedio": "Promédio",
     }
     cols_order = [
         "Asignatura",
@@ -145,8 +144,8 @@ def build_panel_resumen_view(df):
         "Calificación 3",
         "Calificación 4",
         "Calificación 5",
-        "Promédio",
-        "% de Aprobácion",
+        "Promedio",
+        "% de Aprobación",
         "% de Reprobación",
     ]
     df_view = df.rename(columns=rename_map)

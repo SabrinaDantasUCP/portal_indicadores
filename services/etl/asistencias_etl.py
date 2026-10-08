@@ -212,7 +212,7 @@ COLUMNAS_SYSEDUCA_FINALES = [
     "semestre_asignatura", "disciplinas_id", "asignatura", "turma_id",
     "seccion", "funcionario_id", "docente", "sala_id", "aula",
     "p_local_id", "sede", "matriculados", "presentes",
-    "porc_presencia", "ausentes", "tipo_clase",
+    "porc_presencia", "ausentes", "tipo_clase", "posee_practica",
 ]
 
 
@@ -234,10 +234,15 @@ def _matriculados_pool(df_matriculados, ids_activos):
     return df_matriculados[df_matriculados["usuarios_id"].isin(ids_activos)]
 
 
-def agregar_syseduca(df_detalle, df_matriculados, ids_activos=None):
+def agregar_syseduca(df_detalle, df_matriculados, ids_activos=None, df_disciplinas_practica=None):
     """ids_activos=None -> todos los alumnos (v1). ids_activos=<set> -> solo
     esos alumnos (v2). Devuelve el DataFrame en el shape final de SysEduca
-    (COLUMNAS_SYSEDUCA_FINALES), listo para unificar_asistencias()."""
+    (COLUMNAS_SYSEDUCA_FINALES), listo para unificar_asistencias().
+
+    df_disciplinas_practica (ver calcular_disciplinas_practica) agrega la
+    columna "posee_practica" (SI/NO por disciplina, según los grupos de
+    planificación que tuvo en Biometría) -- se aplica también a las clases
+    de SysEduca de esa misma disciplina, aunque el dato salga de Biometría."""
     if df_detalle.empty:
         return pd.DataFrame(columns=COLUMNAS_SYSEDUCA_FINALES)
 
@@ -273,6 +278,11 @@ def agregar_syseduca(df_detalle, df_matriculados, ids_activos=None):
     df_final["asignatura"] = df_final["disciplinas_id"].map(MAPA_DISCIPLINAS)
     df_final["fecha"] = pd.to_datetime(df_final["fecha"]).dt.strftime("%d/%m/%Y")
     df_final = df_final.dropna(subset=["ano_id"])
+
+    if df_disciplinas_practica is not None and not df_disciplinas_practica.empty:
+        df_final = df_final.merge(df_disciplinas_practica, on="disciplinas_id", how="left")
+    else:
+        df_final["posee_practica"] = np.nan
 
     return df_final[COLUMNAS_SYSEDUCA_FINALES].copy()
 
@@ -329,6 +339,58 @@ WHERE p.anho = %(anho)s
 """
 
 
+QUERY_GRUPOS_BIOMETRIA = """
+SELECT DISTINCT pa.oferta AS oferta_disciplina_id, ph.grupo_id
+FROM attendance.planificacionhorario ph
+JOIN attendance.planificacion p ON ph.planificacion_id = p.id
+JOIN attendance.planificacion_attendee pa ON p.id = pa.planificacion_id
+WHERE pa.oferta IS NOT NULL
+"""
+
+
+def fetch_grupos_biometria():
+    """Grupos de planificación (Postgres, TODO el histórico de Biometría, sin
+    filtrar por periodo) por oferta_disciplina_id -- usado por
+    calcular_disciplinas_practica() para clasificar cada disciplina."""
+    engine = _obtener_engine_pg()
+    with engine.connect() as conn:
+        return pd.read_sql(QUERY_GRUPOS_BIOMETRIA, conn)
+
+
+def calcular_disciplinas_practica(df_matriculados, df_grupos=None):
+    """Clasifica cada disciplina (agrupando TODAS sus ofertas/turmas/periodos)
+    en "posee_practica" SI/NO, según los grupos de planificación que tuvo
+    alguna vez en Biometría: si el ÚNICO grupo_id visto es 4 (Teórica) ->
+    'NO'; si aparece cualquier otro grupo_id (con o sin el 4 también) ->
+    'SI'. Disciplinas sin ningún dato en Biometría (nunca planificadas ahí,
+    ej. periodos anteriores a 2025.2) quedan fuera del resultado -- el
+    merge en agregar_syseduca/agregar_biometria las deja en NaN, no se
+    asume 'NO' por falta de datos.
+
+    df_grupos, si se pasa, evita una consulta repetida a Postgres (ver
+    services/etl/asistencias_runner.py, que la calcula una sola vez y la
+    reusa para v1 y v2)."""
+    if df_grupos is None:
+        df_grupos = fetch_grupos_biometria()
+    if df_grupos.empty:
+        return pd.DataFrame(columns=["disciplinas_id", "posee_practica"])
+
+    df = df_grupos.merge(
+        df_matriculados[["oferta_disciplina_id", "disciplinas_id"]].drop_duplicates(),
+        on="oferta_disciplina_id", how="inner",
+    )
+    if df.empty:
+        return pd.DataFrame(columns=["disciplinas_id", "posee_practica"])
+
+    tiene_no_teorica = (
+        df.groupby("disciplinas_id")["grupo_id"]
+        .apply(lambda grupos: bool((grupos != 4).any()))
+        .reset_index(name="tiene_no_teorica")
+    )
+    tiene_no_teorica["posee_practica"] = np.where(tiene_no_teorica["tiene_no_teorica"], "SI", "NO")
+    return tiene_no_teorica[["disciplinas_id", "posee_practica"]]
+
+
 def fetch_asistencias_biometria_periodo(anho, semestre_id):
     """PASO 1b (Biometría, Postgres): trae los eventos de presencia (ya
     filtrados a asistencia=1) para un único periodo. anho/semestre_id se
@@ -377,13 +439,16 @@ COLUMNAS_BIOMETRIA_FINALES = [
     "semestre_asignatura", "disciplinas_id", "asignatura", "turma_id",
     "seccion", "funcionario_id", "docente", "sala_id", "aula",
     "p_local_id", "sede", "matriculados", "presentes",
-    "porc_presencia", "ausentes", "tipo_clase",
+    "porc_presencia", "ausentes", "tipo_clase", "posee_practica",
 ]
 
 
-def agregar_biometria(df_detalle, df_matriculados, ids_activos=None):
+def agregar_biometria(df_detalle, df_matriculados, ids_activos=None, df_disciplinas_practica=None):
     """ids_activos=None -> todos (v1, sin filtrar por system_id).
-    ids_activos=<set> -> solo esos alumnos (v2, igual al script original)."""
+    ids_activos=<set> -> solo esos alumnos (v2, igual al script original).
+
+    df_disciplinas_practica: ver agregar_syseduca -- misma columna
+    "posee_practica" agregada acá también."""
     if df_detalle.empty:
         return pd.DataFrame(columns=COLUMNAS_BIOMETRIA_FINALES)
 
@@ -415,6 +480,11 @@ def agregar_biometria(df_detalle, df_matriculados, ids_activos=None):
     df_final["fecha"] = pd.to_datetime(df_final["fecha"]).dt.strftime("%d/%m/%Y")
     df_final = df_final.dropna(subset=["ano_id"])
 
+    if df_disciplinas_practica is not None and not df_disciplinas_practica.empty:
+        df_final = df_final.merge(df_disciplinas_practica, on="disciplinas_id", how="left")
+    else:
+        df_final["posee_practica"] = np.nan
+
     columnas_validas = [c for c in COLUMNAS_BIOMETRIA_FINALES if c in df_final.columns]
     return df_final[columnas_validas].copy()
 
@@ -429,6 +499,7 @@ COLUMNAS_UNIFICADAS_FINALES = [
     "semestre_asignatura", "disciplinas_id", "asignatura", "turma_id", "seccion",
     "funcionario_id", "docente", "sala_id", "aula", "p_local_id", "sede",
     "matriculados", "presentes", "ausentes", "porc_presencia", "tipo_clase",
+    "posee_practica",
 ]
 
 

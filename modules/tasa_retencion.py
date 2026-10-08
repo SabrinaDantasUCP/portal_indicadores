@@ -6,7 +6,22 @@ import os
 from datetime import datetime
 from utils import db_pia
 from utils.system_logging import log_exception
-from utils.ui import render_egresados_fuente_caption
+from utils.ui import (
+    selector_vista,
+    COLOR_ATENCION,
+    COLOR_BUENO,
+    COLOR_MALO,
+    COLOR_PRIMARIO,
+    PALETA_CATEGORICA,
+    estilizar_figura,
+    formatear_entero,
+    formatear_porcentaje,
+    opciones_cohorte,
+    render_cabecera_indicador,
+    render_tarjetas_kpi,
+    render_titulo_seccion,
+    render_egresados_fuente_caption,
+)
 from services.data.alumnos import load_current_alumnos
 from services.calculations.eficiencia_academica import (
     COL_CATRACA,
@@ -25,18 +40,11 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 import modules.rend_acad_alumno as raa
 
 def render():
-    st.subheader("Tasa de Retención (TR)")
+    render_cabecera_indicador(
+        "Tasa de Retención (TR)",
+        "Porcentaje de los alumnos que ingresaron en una cohorte que siguen inscriptos en la carrera en cada semestre, aunque repitan asignaturas.",
+    )
 
-    st.markdown("""
-        <style>
-        [data-testid="stElementToolbar"] { display: none; }
-        div[data-testid="stDownloadButton"] button {
-            min-height: 50px !important;
-            font-size: 16px !important;
-            border-radius: 8px !important;
-        }
-        </style>
-    """, unsafe_allow_html=True)
 
     df_full = load_current_alumnos(only_cde=False)
     df = load_current_alumnos()
@@ -145,22 +153,40 @@ def render():
         return buffer.getvalue()
 
     # TABS
-    tab1, tab2 = st.tabs(["Comparativo Global", "Evolución por Cohorte"])
+    # Filtro de Cohortes (se usa en ambas vistas)
+    todas_cohortes = opciones_cohorte(retencion_df[COL_COHORTE].unique())
+    vista = selector_vista(['Comparativo Global', 'Evolución por Cohorte'], "vista_retencion")
 
-    with tab1:        
-        # Filtro de Cohortes para el Gráfico
-        todas_cohortes = sorted(retencion_df[COL_COHORTE].unique().tolist())
+    if vista == 'Comparativo Global':
         
+        ultima_por_cohorte = retencion_df.sort_values(COL_SEMESTRE_ALUMNO).groupby(COL_COHORTE).last()
+        mejor = ultima_por_cohorte["TR (%)"].idxmax()
+        render_tarjetas_kpi([
+            {"etiqueta": "Cohortes", "valor": len(todas_cohortes), "detalle": f"De {todas_cohortes[-1]} a {todas_cohortes[0]}"},
+            {"etiqueta": "Ingresantes (S1)", "valor": formatear_entero(ultima_por_cohorte["EIIC"].sum()),
+             "detalle": "Suma de todas las cohortes"},
+            {"etiqueta": "Retención actual promedio", "valor": formatear_porcentaje(ultima_por_cohorte["TR (%)"].mean()),
+             "detalle": "Último semestre evaluado de cada cohorte"},
+            {"etiqueta": "Mayor retención actual", "valor": formatear_porcentaje(ultima_por_cohorte.loc[mejor, "TR (%)"]),
+             "detalle": f"Cohorte {mejor}", "color": COLOR_BUENO},
+        ])
+
+        render_titulo_seccion(
+            "Curva de retención por cohorte",
+            "Cada línea parte del 100% en el 1º semestre y muestra qué parte de la cohorte sigue en la carrera "
+            "en los semestres siguientes. Cuanto más plana la línea, mejor la retención.",
+        )
         # --- Selector de Cohortes Compacto ---
         with st.container(border=True):
             c_header, c_sel, c_btns = st.columns([1.5, 3, 1])
+
             with c_header:
-                st.markdown("#### Comparar Cohortes")
-                st.caption("Seleccione para el gráfico:")
+                st.markdown("**Cohortes a comparar**")
+                st.caption("Elija una o más cohortes:")
             with c_sel:
                 # Usar session_state para permitir selección dinámica
                 if "sel_cohortes_tr" not in st.session_state:
-                    st.session_state.sel_cohortes_tr = []
+                    st.session_state.sel_cohortes_tr = todas_cohortes[:5]
                 
                 st.multiselect(
                     "Cohortes a comparar", 
@@ -171,7 +197,7 @@ def render():
                 )
             with c_btns:
                 def sel_ultimas_5():
-                    st.session_state.sel_cohortes_tr = todas_cohortes[-5:]
+                    st.session_state.sel_cohortes_tr = todas_cohortes[:5]
                 def limpar_sel():
                     st.session_state.sel_cohortes_tr = []
 
@@ -183,12 +209,13 @@ def render():
         # Gráfico de Líneas Múltiples
         if not df_line_chart.empty:
             fig = px.line(df_line_chart, x=COL_SEMESTRE_ALUMNO, y="TR (%)", color=COL_COHORTE, markers=True,
-                         height=450,
-                         title="Evolución de la Retención (S1 a S12)",
-                         labels={COL_SEMESTRE_ALUMNO: "Semestre", "TR (%)": "Retención (%)"})
-            fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                         color_discrete_sequence=PALETA_CATEGORICA,
+                         labels={COL_SEMESTRE_ALUMNO: "Semestre", "TR (%)": "Retención (%)", COL_COHORTE: "Cohorte"})
+            fig.update_traces(hovertemplate="<b>%{fullData.name}</b><br>Semestre %{x}: %{y:.1f}%<extra></extra>")
+            estilizar_figura(fig, titulo_x="Semestre", titulo_y="Retención", porcentaje=True, altura=440)
             fig.update_xaxes(dtick=1)
-            st.plotly_chart(fig, use_container_width=True)
+            fig.update_yaxes(range=[0, 105])
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
         else:
             st.info("No hay cohortes seleccionadas. Utilice el selector superior para visualizar la comparativa.")
         
@@ -207,8 +234,8 @@ def render():
         pdf_all = gerar_pdf_tr(retencion_df)
 
         # --- Matriz de Retención (Optimización: Expander para aligerar la página) ---
-        with st.expander("Ver Matriz Detallada de Retención (%)", expanded=False):
-            st.markdown("##### Evolución de la Permanencia por Semestre")
+        with st.expander("Ver matriz de retención por cohorte y semestre (%)", expanded=False, icon=":material/grid_on:"):
+            st.caption("Verde más intenso = mayor retención. Las celdas vacías son semestres que la cohorte todavía no cursó.")
             st.dataframe(
                 pivot_tr.rename_axis(index="COHORTE").style
                 .format(lambda v: f"{v:.1f}%" if pd.notnull(v) else "")
@@ -223,7 +250,7 @@ def render():
         c1.download_button("Descargar Reporte (PDF)", data=pdf_all, file_name="Reporte_TR_Global.pdf", mime="application/pdf", icon=":material/download:", width="stretch", key="btn_pdf_global", on_click=db_pia.log_export_callback, args=("Tasa de Retención - Global", "PDF"))
         c2.download_button("Descargar Datos (Excel)", data=excel_data, file_name="Datos_TR_Global.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", key="btn_ex_global", on_click=db_pia.log_export_callback, args=("Tasa de Retención - Global", "Excel"))
 
-    with tab2:
+    if vista == 'Evolución por Cohorte':
         cohorte_sel = st.selectbox("Seleccione una Cohorte", todas_cohortes, index=None)
         if cohorte_sel:
             data_c = retencion_df[retencion_df[COL_COHORTE] == cohorte_sel].sort_values(COL_SEMESTRE_ALUMNO)
@@ -233,30 +260,33 @@ def render():
             eiic_val = data_c["EIIC"].iloc[0]
             max_sem_eval = int(data_c[COL_SEMESTRE_ALUMNO].max())
             
-            st.markdown(f"### Análisis de Cohorte {cohorte_sel}")
-            m_col1, m_col2, m_col3 = st.columns(3)
-            with m_col1:
-                st.metric("Ingreso Inicial (S1)", int(eiic_val))
-            with m_col2:
-                st.metric("Retención Actual", f"{tr_final:.2f}%", delta=f"{tr_final-100:.1f}%", delta_color="normal")
-            with m_col3:
-                st.metric("Semestres Evaluados", max_sem_eval)
+            render_tarjetas_kpi([
+                {"etiqueta": "Ingreso inicial (S1)", "valor": formatear_entero(eiic_val)},
+                {"etiqueta": "Retención actual", "valor": formatear_porcentaje(tr_final, 2),
+                 "detalle": f"En el {max_sem_eval}º semestre",
+                 "color": COLOR_BUENO if tr_final >= 80 else (COLOR_ATENCION if tr_final >= 60 else COLOR_MALO)},
+                {"etiqueta": "Pérdida acumulada", "valor": formatear_porcentaje(100 - tr_final, 2),
+                 "detalle": "Desde el 1º semestre", "color": COLOR_MALO},
+                {"etiqueta": "Semestres evaluados", "valor": max_sem_eval},
+            ])
             
             st.divider()
 
             # --- Gráfico Local de Evolución ---
-            fig_local = px.line(data_c, x=COL_SEMESTRE_ALUMNO, y="TR (%)", markers=True,
-                               title=f"Curva de Retención - Cohorte {cohorte_sel}",
+            render_titulo_seccion(f"Curva de retención de la cohorte {cohorte_sel}")
+            fig_local = px.line(data_c, x=COL_SEMESTRE_ALUMNO, y="TR (%)", markers=True, text=data_c["TR (%)"].map(formatear_porcentaje),
                                labels={COL_SEMESTRE_ALUMNO: "Semestre", "TR (%)": "Retención (%)"})
-            fig_local.update_layout(yaxis_range=[0, 105])
+            fig_local.update_traces(line_color=COLOR_PRIMARIO, textposition="top center",
+                                    hovertemplate="Semestre %{x}: %{y:.1f}%<extra></extra>")
+            estilizar_figura(fig_local, titulo_x="Semestre", titulo_y="Retención", porcentaje=True, altura=380, leyenda=False)
+            fig_local.update_yaxes(range=[0, 110])
             fig_local.update_xaxes(dtick=1)
-            st.plotly_chart(fig_local, use_container_width=True)
+            st.plotly_chart(fig_local, use_container_width=True, config={"displayModeBar": False})
 
             st.divider()
 
             # --- Selector de Semestre Estruturado (2 filas de 6) ---
-            st.markdown("#### Auditoría por Semestre")
-            st.caption("Seleccione un semestre para ver el listado de alumnos retenidos.")
+            render_titulo_seccion("Alumnos por semestre", "Seleccione un semestre para ver el listado de alumnos retenidos.")
             
             semestres_disponibles = sorted(data_c[COL_SEMESTRE_ALUMNO].unique().tolist())
             
@@ -297,7 +327,7 @@ def render():
                 if not ds.empty: raa.render_alumno_details(ds, dff)
             
             st.divider()
-            st.write("#### Consultar Histórico Detallado")
+            render_titulo_seccion("Consultar historial de un alumno")
             col_sel, col_btn = st.columns([2, 1])
             # Lista de opciones basada en la cohorte seleccionada
             with col_sel:
@@ -322,16 +352,16 @@ def render():
             c4.download_button("Descargar Datos (Excel)", data=buf_ex_sel.getvalue(), file_name=f"Datos_TR_{cohorte_sel}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="excel_tr_sel", width="stretch", on_click=db_pia.log_export_callback, args=("Tasa de Retención", "Excel"))
 
     st.divider()
-    st.markdown("""
-    ### Metodología de Tasa de Retención (TR)
-    La tasa de retención es el porcentaje de estudiantes retenidos por la institución que siguen activos en la carrera, independientemente de que repitan asignaturas.
-    """)
-    st.latex(r"TR = \frac{EIS}{EIIC} \times 100")
-    st.markdown("""
-    **Donde:**
-    - **EIS (Estudiantes Inscritos en el Semestre):** Permanecen en la institución y continúan en la carrera en el semestre evaluado.
-    - **EIIC (Ingreso Inicial):** Estudiantes matriculados en el primer semestre de la cohorte.
-    """)
+    with st.expander("¿Cómo se calcula la Tasa de Retención?", icon=":material/functions:"):
+        st.markdown("""
+        La tasa de retención es el porcentaje de estudiantes retenidos por la institución que siguen activos en la carrera, independientemente de que repitan asignaturas.
+        """)
+        st.latex(r"TR = \frac{EIS}{EIIC} \times 100")
+        st.markdown("""
+        **Donde:**
+        - **EIS (Estudiantes Inscritos en el Semestre):** Permanecen en la institución y continúan en la carrera en el semestre evaluado.
+        - **EIIC (Ingreso Inicial):** Estudiantes matriculados en el primer semestre de la cohorte.
+        """)
 
     st.divider()
     

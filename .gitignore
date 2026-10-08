@@ -19,6 +19,7 @@ __pycache__/
 *.xlsx
 *.xls
 *.parquet
+assets/data/
 
 # --- Jupyter ---
 .ipynb_checkpoints/
@@ -38,3 +39,6 @@ output/
 
 # --- Arquivo específico ---
 .antigravity
+GEMINI.md
+iniciar_portal.bat
+*.html

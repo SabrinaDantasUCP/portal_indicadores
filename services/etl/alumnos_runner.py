@@ -21,7 +21,7 @@ pia_alumnos_etl_run vía utils/db_pia.registrar_alumnos_etl_run.
 import os
 
 from services.etl import alumnos_etl as etl
-from services.etl.activos_ids import cargar_ids_activos
+from services.etl.activos_ids import cargar_ids_activos, cargar_pares_activos
 from scripts.csv_to_parquet import BASE_DIR, convert as convertir_a_parquet
 from utils import db_pia
 from utils.system_logging import get_logger
@@ -92,7 +92,8 @@ def ejecutar_alumnos_etl(anos: list, on_progress=None, cancel_check=None) -> dic
         filas_v2 = None
         ids_activos = cargar_ids_activos()
         if ids_activos:
-            df_v2 = etl.generar_alumnos_v2(df_v1, ids_activos)
+            pares_activos = cargar_pares_activos()
+            df_v2 = etl.generar_alumnos_v2(df_v1, ids_activos, pares_activos=pares_activos)
             _escribir_dataset(V2_CSV_REL, df_v2)
             filas_v2 = len(df_v2)
         else:

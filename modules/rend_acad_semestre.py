@@ -7,7 +7,22 @@ import unicodedata
 from datetime import datetime, timedelta
 from utils import db_pia
 from utils.system_logging import log_exception
-from utils.ui import render_download_button_styles, render_kpi_grid
+from utils.ui import (
+    COLOR_ATENCION,
+    COLOR_BUENO,
+    COLOR_MALO,
+    COLOR_PRIMARIO,
+    PALETA_CATEGORICA,
+    estilizar_figura,
+    formatear_entero,
+    formatear_porcentaje,
+    opciones_cohorte,
+    render_cabecera_indicador,
+    render_tarjetas_kpi,
+    render_titulo_seccion,
+    render_download_button_styles,
+    render_kpi_grid,
+)
 from services.data.alumnos import load_current_alumnos
 from services.calculations.rendimiento_academico import (
     COL_CALIFICACION,
@@ -29,7 +44,10 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 # Pagina: Tasa de Rendimiento Academico de los Semestres (TRAS)
 # ------------------------------------------------------------
 def render():
-    st.subheader("Rendimiento Académico por Semestre")
+    render_cabecera_indicador(
+        "Rendimiento Académico por Semestre",
+        "Promedio del rendimiento de los alumnos de una cohorte en cada semestre (escala 1 a 5).",
+    )
 
     render_download_button_styles()
     
@@ -51,7 +69,7 @@ def render():
     col1, col2 = st.columns(2)
 
     # 1. COHORTE
-    cohorte_vals = sorted(df[COL_COHORTE].dropna().unique().tolist())
+    cohorte_vals = opciones_cohorte(df[COL_COHORTE].unique())
     cohorte_sel = col1.selectbox(
         "Cohorte", 
         cohorte_vals, 
@@ -427,29 +445,31 @@ def render():
     # 🔹 Explicação e Geração de Documentos
     # ------------------------------------------------------------
     st.divider()
+    with st.expander("¿Cómo se calcula el Rendimiento por Semestre (TRAS)?", icon=":material/functions:"):
     
-    st.markdown("""        
-    La *Tasa de Rendimiento Académico (TRA)* está definida por el promedio de la calificación obtenido por el estudiante en las materias en las cuales ha presentado exámenes, independientemente del tipo de examen (*Chaín, 1995*).
-    En este caso **se calcula el rendimiento académico por estudiantes en forma individual, por asignatura, por semestre y general, por generación o cohorte.**
-    De acuerdo con el razonamiento anterior, los cálculos quedan como sigue:
+        st.markdown("""        
+        La *Tasa de Rendimiento Académico (TRA)* está definida por el promedio de la calificación obtenido por el estudiante en las materias en las cuales ha presentado exámenes, independientemente del tipo de examen (*Chaín, 1995*).
+        En este caso **se calcula el rendimiento académico por estudiantes en forma individual, por asignatura, por semestre y general, por generación o cohorte.**
+        De acuerdo con el razonamiento anterior, los cálculos quedan como sigue:
                 
-    """)
+        """)
 
-    st.markdown("""
-    ### Tasa de Rendimiento Académico por Semestre (TRAS)
-    """)
+        st.markdown("""
+        **Tasa de Rendimiento Académico por Semestre (TRAS)**
+        """)
 
-    st.latex(r"""
-    \text{TRAS(1)} = \frac{\text{TRASE}_{(1)} + \text{TRASE}_{(2)} + \text{TRASE}_{(3)} + \dots + \text{TRASE}_{(n)}}{N}
-    """)
+        st.latex(r"""
+        \text{TRAS(1)} = \frac{\text{TRASE}_{(1)} + \text{TRASE}_{(2)} + \text{TRASE}_{(3)} + \dots + \text{TRASE}_{(n)}}{N}
+        """)
 
-    st.markdown("""
-    **Donde:**
+        st.markdown("""
+        **Donde:**
 
-    - **TRAS(1):** Tasa de Rendimiento Académico del Semestre (TRAS) (debe ser calculada en cada semestre).  
-    - **TRASE(1):** Tasa de Rendimiento Académico del Semestre del Estudiante 1.
-    - **TRASE(2):** Tasa de Rendimiento Académico del Semestre del Estudiante 2.
-    - **TRASE(3):** Tasa de Rendimiento Académico del Semestre del Estudiante 3.
-    - **TRASE(n):** Tasa de Rendimiento Académico del Semestre del Estudiante "n".
-    - **N:** Número de datos (cantidad de estudiantes con rendimiento académico en el semestre).  
-    """)
+        - **TRAS(1):** Tasa de Rendimiento Académico del Semestre (TRAS) (debe ser calculada en cada semestre).  
+        - **TRASE(1):** Tasa de Rendimiento Académico del Semestre del Estudiante 1.
+        - **TRASE(2):** Tasa de Rendimiento Académico del Semestre del Estudiante 2.
+        - **TRASE(3):** Tasa de Rendimiento Académico del Semestre del Estudiante 3.
+        - **TRASE(n):** Tasa de Rendimiento Académico del Semestre del Estudiante "n".
+        - **N:** Número de datos (cantidad de estudiantes con rendimiento académico en el semestre).  
+        """)
+
