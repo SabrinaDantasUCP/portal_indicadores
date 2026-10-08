@@ -19,7 +19,7 @@ resultado vía utils/db_pia.registrar_asistencias_etl_run.
 import os
 
 from services.etl import asistencias_etl as etl
-from services.etl.activos_ids import cargar_ids_activos
+from services.etl.activos_ids import cargar_ids_activos, cargar_pares_activos
 from scripts.csv_to_parquet import BASE_DIR, convert as convertir_a_parquet
 from utils.system_logging import get_logger
 
@@ -107,8 +107,9 @@ def ejecutar_asistencias_etl(anos_syseduca: list, periodos_biometria: list, on_p
         filas_v2 = None
         ids_activos = cargar_ids_activos()
         if ids_activos:
-            df_v2_sys = etl.agregar_syseduca(detalle_sys, df_matriculados, ids_activos=ids_activos, df_disciplinas_practica=df_disciplinas_practica)
-            df_v2_bio = etl.agregar_biometria(df_crudo_bio, df_matriculados, ids_activos=ids_activos, df_disciplinas_practica=df_disciplinas_practica)
+            pares_activos = cargar_pares_activos()
+            df_v2_sys = etl.agregar_syseduca(detalle_sys, df_matriculados, ids_activos=ids_activos, df_disciplinas_practica=df_disciplinas_practica, pares_activos=pares_activos)
+            df_v2_bio = etl.agregar_biometria(df_crudo_bio, df_matriculados, ids_activos=ids_activos, df_disciplinas_practica=df_disciplinas_practica, pares_activos=pares_activos)
             df_v2 = etl.unificar_asistencias(df_v2_sys, df_v2_bio)
             _escribir_dataset(V2_CSV_REL, df_v2)
             filas_v2 = len(df_v2)

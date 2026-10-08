@@ -37,7 +37,8 @@ from mysql.connector import Error
 import mysql.connector
 from sqlalchemy import create_engine
 
-from services.etl.alumnos_etl import MAPA_DISCIPLINAS
+from services.etl.alumnos_etl import MAPA_DISCIPLINAS, IDS_AJUSTE_PERIODO_CONVALIDADOS
+from services.etl.activos_criterios_etl import _extraer_dict_presencia
 from services.etl.encuestas_etl import derivar_parametros_periodo
 from utils.system_logging import get_logger
 
@@ -182,9 +183,11 @@ def parsear_detalle_syseduca(df_crudo):
     como para v2 (solo activos), sin volver a parsear el JSON."""
     registros = []
     for _, row in df_crudo.iterrows():
-        try:
-            data_json = json.loads(row["presenca"])[0]
-        except Exception:
+        # Normalmente es [{...}], pero en periodos viejos puede venir como
+        # dict directo o lista anidada [[{...}]] -- mismo parsing defensivo
+        # que el ETL de activos.
+        data_json = _extraer_dict_presencia(row["presenca"])
+        if data_json is None:
             continue
         oferta_id = int(row["oferta_disciplina_id"])
         clase_id = row["aula_id"]
@@ -228,15 +231,53 @@ def _info_oferta(df_matriculados):
     })
 
 
-def _matriculados_pool(df_matriculados, ids_activos):
+def _periodo_siguiente(periodo):
+    ano, sem = periodo.split(".")
+    return f"{ano}.2" if sem == "1" else f"{int(ano) + 1}.1"
+
+
+def _matriculados_pool(df_matriculados, ids_activos, pares_activos=None):
+    """Matrículas (oferta x alumno) que cuentan para el cálculo.
+
+    - ids_activos=None -> todas (v1).
+    - pares_activos={(usuarios_id, "AAAA.S"): semestre} (ver
+      services/etl/activos_ids.cargar_pares_activos) -> solo las matrículas
+      del período en que ESE alumno está en la población de activos. Los
+      convalidados con período corregido (IDS_AJUSTE_PERIODO_CONVALIDADOS)
+      figuran en la población un período después del real, así que para
+      ellos también se acepta el período siguiente.
+    - solo ids_activos -> filtra por alumno, sin mirar el período
+      (comportamiento anterior, cuando no hay pares)."""
     if ids_activos is None:
         return df_matriculados
-    return df_matriculados[df_matriculados["usuarios_id"].isin(ids_activos)]
+    if not pares_activos:
+        return df_matriculados[df_matriculados["usuarios_id"].isin(ids_activos)]
+
+    df = df_matriculados.copy()
+    df["_uid"] = pd.to_numeric(df["usuarios_id"], errors="coerce").astype("Int64")
+    df["_periodo"] = (
+        pd.to_numeric(df["ano"], errors="coerce").astype("Int64").astype(str)
+        + "." + pd.to_numeric(df["periodo_anual"], errors="coerce").astype("Int64").astype(str)
+    )
+    claves = pd.DataFrame(list(pares_activos.keys()), columns=["_uid", "_periodo"]).astype({"_uid": "Int64"})
+    claves["_en_poblacion"] = True
+
+    mask = df.merge(claves, on=["_uid", "_periodo"], how="left")["_en_poblacion"].eq(True).to_numpy()
+
+    convalidado = df["_uid"].isin(IDS_AJUSTE_PERIODO_CONVALIDADOS).to_numpy(dtype=bool)
+    if convalidado.any():
+        sub = df.loc[convalidado, ["_uid", "_periodo"]].copy()
+        sub["_periodo"] = sub["_periodo"].map(lambda p: _periodo_siguiente(p) if "<NA>" not in p else p)
+        mask[convalidado] |= sub.merge(claves, on=["_uid", "_periodo"], how="left")["_en_poblacion"].eq(True).to_numpy()
+
+    return df_matriculados[mask]
 
 
-def agregar_syseduca(df_detalle, df_matriculados, ids_activos=None, df_disciplinas_practica=None):
+def agregar_syseduca(df_detalle, df_matriculados, ids_activos=None, df_disciplinas_practica=None,
+                     pares_activos=None):
     """ids_activos=None -> todos los alumnos (v1). ids_activos=<set> -> solo
-    esos alumnos (v2). Devuelve el DataFrame en el shape final de SysEduca
+    esos alumnos (v2); con pares_activos, además solo en los períodos en que
+    cada uno está en la población (ver _matriculados_pool). Devuelve el DataFrame en el shape final de SysEduca
     (COLUMNAS_SYSEDUCA_FINALES), listo para unificar_asistencias().
 
     df_disciplinas_practica (ver calcular_disciplinas_practica) agrega la
@@ -247,7 +288,7 @@ def agregar_syseduca(df_detalle, df_matriculados, ids_activos=None, df_disciplin
         return pd.DataFrame(columns=COLUMNAS_SYSEDUCA_FINALES)
 
     df_info_oferta = _info_oferta(df_matriculados)
-    pool = _matriculados_pool(df_matriculados, ids_activos)
+    pool = _matriculados_pool(df_matriculados, ids_activos, pares_activos)
 
     total_matriculados = (
         pool.groupby("oferta_disciplina_id")["usuarios_id"].nunique().reset_index(name="matriculados")
@@ -443,9 +484,13 @@ COLUMNAS_BIOMETRIA_FINALES = [
 ]
 
 
-def agregar_biometria(df_detalle, df_matriculados, ids_activos=None, df_disciplinas_practica=None):
+def agregar_biometria(df_detalle, df_matriculados, ids_activos=None, df_disciplinas_practica=None,
+                      pares_activos=None):
     """ids_activos=None -> todos (v1, sin filtrar por system_id).
     ids_activos=<set> -> solo esos alumnos (v2, igual al script original).
+    Con pares_activos, matriculados y presentes se restringen a las
+    matrículas (oferta x alumno) del período en que cada alumno está en la
+    población (ver _matriculados_pool).
 
     df_disciplinas_practica: ver agregar_syseduca -- misma columna
     "posee_practica" agregada acá también."""
@@ -453,12 +498,20 @@ def agregar_biometria(df_detalle, df_matriculados, ids_activos=None, df_discipli
         return pd.DataFrame(columns=COLUMNAS_BIOMETRIA_FINALES)
 
     df_info_oferta = _info_oferta(df_matriculados)
-    pool = _matriculados_pool(df_matriculados, ids_activos)
+    pool = _matriculados_pool(df_matriculados, ids_activos, pares_activos)
     total_matriculados = (
         pool.groupby("oferta_disciplina_id")["usuarios_id"].nunique().reset_index(name="matriculados")
     )
 
-    detalle = df_detalle if ids_activos is None else df_detalle[df_detalle["system_id"].isin(ids_activos)]
+    if ids_activos is None:
+        detalle = df_detalle
+    elif pares_activos:
+        claves_pool = pool[["oferta_disciplina_id", "usuarios_id"]].drop_duplicates().rename(
+            columns={"oferta_disciplina_id": "oferta", "usuarios_id": "system_id"}
+        )
+        detalle = df_detalle.merge(claves_pool, on=["oferta", "system_id"], how="inner")
+    else:
+        detalle = df_detalle[df_detalle["system_id"].isin(ids_activos)]
 
     df_contagem_presenca = (
         detalle.groupby(["fecha", "oferta", "planificacion_horario_id", "tipo_clase"])

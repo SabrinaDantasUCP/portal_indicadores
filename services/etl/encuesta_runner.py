@@ -28,7 +28,7 @@ import os
 import pandas as pd
 
 from services.etl import encuestas_etl as etl
-from services.etl.activos_ids import cargar_ids_activos
+from services.etl.activos_ids import cargar_ids_activos, cargar_pares_activos
 from scripts.csv_to_parquet import BASE_DIR, convert as convertir_a_parquet
 from utils.system_logging import get_logger
 
@@ -90,6 +90,16 @@ def _ejecutar_alumno_docente(config: dict) -> int:
     _escribir_dataset(f"{dataset_name}_v1", df_v1)
 
     ids_activos = cargar_ids_activos()
+    pares_activos = cargar_pares_activos()
+    if pares_activos:
+        # Solo los alumnos que están en la población en ESTE período (no
+        # cualquiera que haya sido activo en algún período).
+        ids_activos = {uid for (uid, periodo) in pares_activos if periodo == config["periodo"]}
+        if not ids_activos:
+            log.warning(
+                "La población de activos no tiene alumnos en el periodo %s: no se genera la variante v2 de %s.",
+                config["periodo"], dataset_name,
+            )
     if ids_activos:
         exports_v2 = dict(exports)
         exports_v2["avance_por_alumno"] = etl.filtrar_avance_por_alumno_activos(
