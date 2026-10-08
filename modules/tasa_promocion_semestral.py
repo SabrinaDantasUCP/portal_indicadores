@@ -13,6 +13,7 @@ from utils.ui import (
     estilizar_figura,
     formatear_entero,
     formatear_porcentaje,
+    opciones_cohorte,
     render_cabecera_indicador,
     render_tarjetas_kpi,
     render_titulo_seccion,
@@ -137,9 +138,8 @@ def render():
     tab_cohorte, tab_detalle = st.tabs(["Análisis por Cohorte", "Detalle de Alumnos"])
 
     with tab_cohorte:
-        # Se omiten cohortes sin definir ("None - None"), que antes quedaban como opción por defecto.
-        cohortes_validas = sorted(c for c in df_master["Cohorte"].unique() if "None" not in str(c))
-        cohortes_disponibles = cohortes_validas[::-1]
+        # Sin cohortes sin definir ("None - None"); de la más reciente a la más antigua.
+        cohortes_disponibles = opciones_cohorte(df_master["Cohorte"].unique())
         cohorte_sel = st.selectbox("Seleccione una Cohorte", cohortes_disponibles, index=0)
         
         if cohorte_sel:
@@ -195,7 +195,7 @@ def render():
                 st.download_button("Descargar Datos (Excel)", buffer_xls.getvalue(), f"TPr_{cohorte_sel}.xlsx", key="xls_coh", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Tasa de Promoción Semestral", "Excel"))
 
     with tab_detalle:
-        coh_det = st.selectbox("Cohorte", cohortes_validas, index=len(cohortes_validas) - 1, key="det_coh")
+        coh_det = st.selectbox("Cohorte", cohortes_disponibles, index=0, key="det_coh")
         
         # Obter e ordenar transições numericamente (S1, S2, ..., S10)
         trans_opts = sorted(df_master[df_master["Cohorte"] == coh_det]["Transición"].unique(), 

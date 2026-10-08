@@ -63,12 +63,25 @@ COL_DETALLE_TITULO = "detalle"
 # ------------------------------------------------------------
 # Função modular para renderizar os detalhes de um aluno
 # ------------------------------------------------------------
+def _periodos_enteros(df):
+    """Año/periodo/semestre vienen como decimales (2.0) en el parquet: se pasan
+    a enteros para mostrarlos como "2" (solo si la columna no tiene vacíos)."""
+    df = df.copy()
+    for col in (COL_PERIODO, COL_SUBPERIODO, COL_SEMESTRE_ALUMNO):
+        if col in df.columns:
+            valores = pd.to_numeric(df[col], errors="coerce")
+            if valores.notna().all() and (valores % 1 == 0).all():
+                df[col] = valores.astype(int)
+    return df
+
+
 def render_alumno_details(df_estudiante, df_completo):
     """
     Renderiza KPIs e Tabelas de rendimento de um aluno específico.
     df_estudiante: DF já filtrado para o aluno/filtros atuais.
     df_completo: DF original para cálculos globais (ex: Rendimento Geral).
     """
+    df_estudiante = _periodos_enteros(df_estudiante)
     alumno_nome = df_estudiante[COL_ALUMNO].iloc[0]
     catraca_num = df_estudiante[COL_CATRACA].iloc[0]
     cohorte = df_estudiante[COL_COHORTE].iloc[0]
@@ -348,7 +361,8 @@ def render():
     _ensure_state("f_semestre", [])
 
     # opções iniciais (sem restrições mútuas)
-    anos_all      = sorted(df_base[COL_PERIODO].dropna().unique().tolist())
+    df_base = _periodos_enteros(df_base)
+    anos_all      = sorted(df_base[COL_PERIODO].dropna().unique().tolist(), reverse=True)
     periodos_all  = sorted(df_base[COL_SUBPERIODO].dropna().unique().tolist())
     semestres_all = sorted(df_base[COL_SEMESTRE_ALUMNO].dropna().unique().tolist())
 
@@ -360,7 +374,7 @@ def render():
             df_ano = df_ano[df_ano[COL_SUBPERIODO].isin(periodos_sel)]
         if semestres_sel:
             df_ano = df_ano[df_ano[COL_SEMESTRE_ALUMNO].isin(semestres_sel)]
-        anos_opts = sorted(df_ano[COL_PERIODO].dropna().unique().tolist())
+        anos_opts = sorted(df_ano[COL_PERIODO].dropna().unique().tolist(), reverse=True)
 
         # para Período: restringe por Año e Semestre
         df_per = df_scope.copy()
@@ -403,7 +417,8 @@ def render():
 
     # Nota: O Streamlit usa o 'key' para vincular ao st.session_state automaticamente
     anos_sel_ui = c3.multiselect("Año", anos_opts, key="f_ano")
-    periodos_sel_ui = c4.multiselect("Período", periodos_opts, key="f_periodo")
+    periodos_sel_ui = c4.multiselect("Período", periodos_opts, key="f_periodo",
+                                     format_func=lambda x: f"{int(x)}" if float(x).is_integer() else str(x))
     
     # FORMAT_FUNC aplicado aqui para exibição visual apenas
     semestres_sel_ui = c5.multiselect(

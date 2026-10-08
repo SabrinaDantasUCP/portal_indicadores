@@ -1,6 +1,6 @@
 MI_CUENTA = "Mi Cuenta"
 VERSION_1 = "Indicadores Versión 1"
-VERSION_2 = "Indicadores Versión 2"
+VERSION_2 = "Indicadores"
 INDICE_PERMANENCIA = "Índice de Permanencia"
 ADMINISTRACION = "Administración"
 

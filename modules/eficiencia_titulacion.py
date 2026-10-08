@@ -15,6 +15,7 @@ from utils.ui import (
     estilizar_figura,
     formatear_entero,
     formatear_porcentaje,
+    opciones_cohorte,
     render_cabecera_indicador,
     render_tarjetas_kpi,
     render_titulo_seccion,
@@ -200,7 +201,7 @@ def render():
         c2.download_button("Descargar Datos (Excel)", data=buf_ex.getvalue(), file_name="Datos_ETE_Global.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia de Titulación - Global", "Excel"))
 
     with tab2:
-        cohorte_sel = st.selectbox("Seleccione una Cohorte", sorted(df_ete["cohorte"].tolist()), index=None)
+        cohorte_sel = st.selectbox("Seleccione una Cohorte", opciones_cohorte(df_ete["cohorte"]), index=None)
         if cohorte_sel:
             row = df_ete[df_ete["cohorte"] == cohorte_sel].iloc[0]
             t_final = row['periodo_final']

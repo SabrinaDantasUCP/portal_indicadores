@@ -15,6 +15,7 @@ from utils.ui import (
     estilizar_figura,
     formatear_entero,
     formatear_porcentaje,
+    opciones_cohorte,
     render_cabecera_indicador,
     render_tarjetas_kpi,
     render_titulo_seccion,
@@ -192,7 +193,7 @@ def render():
         c2.download_button("Descargar Datos (Excel)", data=buf_ex.getvalue(), file_name="Datos_TME_Global.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Tiempos Medios de Egreso", "Excel"))
 
     with tab2:
-        coh_list = sorted(tme_resumen[COL_COHORTE].unique().tolist())
+        coh_list = opciones_cohorte(tme_resumen[COL_COHORTE].unique())
         sel_coh = st.selectbox("Seleccione una Cohorte", options=coh_list, index=None)
         
         if sel_coh:

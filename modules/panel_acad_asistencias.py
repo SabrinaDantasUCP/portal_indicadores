@@ -294,6 +294,10 @@ def render():
 
         # 1. Filtro: Año (Obligatorio)
         anhos_disponibles = sorted(df[COL_ASIS_PERIODO].unique(), reverse=True)
+        st.caption(
+            f"Hay registros de asistencia de {min(anhos_disponibles)} a {max(anhos_disponibles)}: el ETL de "
+            "Asistencias toma SysEduca desde 2021 (años anteriores no tienen asistencia cargada en el sistema)."
+        )
         anho_sel = c1.multiselect("Periodo (Año) *", anhos_disponibles, default=anhos_disponibles[:1])
 
         # Filtrado progresivo para Periodo

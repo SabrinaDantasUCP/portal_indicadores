@@ -142,7 +142,7 @@ def modal_confirmar_ejecucion(periodos):
         f"Esto va a filtrar la población de alumnos activos subida (CSV) por **{len(periodos)} "
         "periodo(s)** y reemplazar el archivo de ids activos (y los pares alumno-periodo) que usan "
         "Alumnos, Asistencias y Encuestas. Tarda unos segundos.\n\nDespués hay que ejecutar los ETL "
-        "de Alumnos, Asistencias y Encuestas para regenerar la Versión 2.\n\n¿Desea ejecutar el ETL ahora?"
+        "de Alumnos, Asistencias y Encuestas para regenerar los Indicadores.\n\n¿Desea ejecutar el ETL ahora?"
     )
     c1, c2 = st.columns(2)
     with c1:
@@ -233,7 +233,7 @@ def _render_poblacion_section():
         "Semestre, Sección, Motivo** (obligatorias: Año, Periodo, ID Usuario, Semestre). El portal no "
         "modifica semestre ni sección; una sección vacía es válida.\n\n"
         "Después de guardar: **\"Ejecutar ahora\"** más abajo (o esperar el cron) y luego los ETL de "
-        "**Alumnos**, **Asistencias** y **Encuestas** para regenerar la Versión 2."
+        "**Alumnos**, **Asistencias** y **Encuestas** para regenerar los Indicadores."
     )
 
     if "temp_msg_activos_poblacion" in st.session_state:
@@ -314,7 +314,7 @@ def _render_upload_manual_section():
         "Suba un .txt con **un id de usuario por línea**. Si el archivo tiene más de una "
         "columna por línea (por ejemplo un número de fila adelante), se usa la última "
         "columna. Al subir, **sobrescribe** el resultado generado a partir de la población (CSV) "
-        "y borra los pares alumno-periodo, así que la Versión 2 pasa a incluir TODO el historial "
+        "y borra los pares alumno-periodo, así que los Indicadores pasan a incluir TODO el historial "
         "de esos ids -- la próxima ejecución del ETL (cron o \"Ejecutar ahora\" más arriba) lo "
         "vuelve a reemplazar con la población."
     )
@@ -385,7 +385,7 @@ def render():
 
     st.subheader("Alumnos Activos - Configuración ETL")
     st.markdown(
-        "Define quiénes son los \"alumnos activos\" usados para generar la **Versión 2** de los "
+        "Define quiénes son los \"alumnos activos\" usados para generar el menú **Indicadores** de los "
         "indicadores en tres ETL: **Alumnos**, **Asistencias** y **Encuestas** (tipo "
         "Alumno→Docente). La fuente es la **población oficial (CSV)** cerrada fuera del portal: el "
         "portal no recalcula criterios, notas, recortes ni cohortes, solo filtra esa lista por los "

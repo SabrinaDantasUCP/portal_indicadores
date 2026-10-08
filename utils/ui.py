@@ -136,10 +136,6 @@ COLOR_ATENCION = "#e9a23b"
 COLOR_MALO = "#c0392b"
 COLOR_NEUTRO = "#94a3b8"
 
-_VERSIONES = {
-    "indicadores_v1": ("Versión 1", "Todos los alumnos", "#475569", "#f1f5f9"),
-    "indicadores_v2": ("Versión 2", "Solo alumnos activos (población oficial)", "#0f6b5c", "#e6f4f1"),
-}
 
 
 def aplicar_estilos_indicador():
@@ -155,10 +151,6 @@ def aplicar_estilos_indicador():
         .ind-cabecera {{ margin: 0 0 18px 0; }}
         .ind-titulo {{ font-size: 26px; font-weight: 700; color: {COLOR_TEXTO}; line-height: 1.25; margin: 0; }}
         .ind-descripcion {{ font-size: 14.5px; color: {COLOR_TEXTO_SUAVE}; margin: 6px 0 0 0; max-width: 900px; }}
-        .ind-sello {{
-            display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600;
-            padding: 3px 10px; border-radius: 999px; margin-top: 10px;
-        }}
         .ind-kpi {{
             margin-bottom: 14px;
             background: #ffffff; border: 1px solid {COLOR_BORDE}; border-left: 4px solid var(--acento);
@@ -179,23 +171,21 @@ def aplicar_estilos_indicador():
     )
 
 
-def render_cabecera_indicador(titulo, descripcion=None, mostrar_version=True):
-    """Cabecera estándar: título, una frase de qué mide el indicador y un
-    sello que indica si se están viendo datos de la Versión 1 o 2."""
+def render_cabecera_indicador(titulo, descripcion=None):
+    """Cabecera estándar: título y una frase de qué mide el indicador."""
     aplicar_estilos_indicador()
-    sello = ""
-    if mostrar_version:
-        version = st.session_state.get("data_version", "indicadores_v1")
-        nombre, alcance, color, fondo = _VERSIONES.get(version, _VERSIONES["indicadores_v1"])
-        sello = (
-            f'<div class="ind-sello" style="color:{color}; background:{fondo};">'
-            f'{escape(nombre)} · {escape(alcance)}</div>'
-        )
     texto = f'<div class="ind-descripcion">{descripcion}</div>' if descripcion else ""
     st.markdown(
-        f'<div class="ind-cabecera"><div class="ind-titulo">{escape(str(titulo))}</div>{texto}{sello}</div>',
+        f'<div class="ind-cabecera"><div class="ind-titulo">{escape(str(titulo))}</div>{texto}</div>',
         unsafe_allow_html=True,
     )
+
+
+def opciones_cohorte(valores):
+    """Cohortes para un selector: sin vacíos ni cohortes sin definir
+    ("None - None") y de la más reciente a la más antigua."""
+    validas = {str(v).strip() for v in valores if v is not None and v == v}
+    return sorted((c for c in validas if c and "None" not in c and c.lower() != "nan"), reverse=True)
 
 
 def render_tarjetas_kpi(items, columnas=None):

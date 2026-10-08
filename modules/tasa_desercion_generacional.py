@@ -13,6 +13,7 @@ from utils.ui import (
     estilizar_figura,
     formatear_entero,
     formatear_porcentaje,
+    opciones_cohorte,
     render_cabecera_indicador,
     render_tarjetas_kpi,
     render_titulo_seccion,
@@ -155,7 +156,7 @@ def render():
         st.divider()
 
     with tab2:
-        cohorte_sel = st.selectbox("Seleccione una Cohorte", sorted(resumen_tdg_full[COL_COHORTE].unique()), index=None)
+        cohorte_sel = st.selectbox("Seleccione una Cohorte", opciones_cohorte(resumen_tdg_full[COL_COHORTE].unique()), index=None)
         if cohorte_sel:
             row = resumen_tdg_full[resumen_tdg_full[COL_COHORTE] == cohorte_sel].iloc[0]
             render_tarjetas_kpi([

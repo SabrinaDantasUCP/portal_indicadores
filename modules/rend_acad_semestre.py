@@ -16,6 +16,7 @@ from utils.ui import (
     estilizar_figura,
     formatear_entero,
     formatear_porcentaje,
+    opciones_cohorte,
     render_cabecera_indicador,
     render_tarjetas_kpi,
     render_titulo_seccion,
@@ -68,7 +69,7 @@ def render():
     col1, col2 = st.columns(2)
 
     # 1. COHORTE
-    cohorte_vals = sorted(df[COL_COHORTE].dropna().unique().tolist())
+    cohorte_vals = opciones_cohorte(df[COL_COHORTE].unique())
     cohorte_sel = col1.selectbox(
         "Cohorte", 
         cohorte_vals, 

@@ -61,10 +61,11 @@ def render():
     validos = ano_num.notna() & sub_num.notna()
     df = df[validos].copy()
     df["_periodo_lectivo"] = ano_num[validos].astype(int).astype(str) + "." + sub_num[validos].astype(int).astype(str)
-    periodos = sorted(df["_periodo_lectivo"].unique(), key=lambda p: tuple(int(x) for x in p.split(".")))
+    # Del más reciente al más antiguo; por defecto, el más reciente.
+    periodos = sorted(df["_periodo_lectivo"].unique(), key=lambda p: tuple(int(x) for x in p.split(".")), reverse=True)
 
     periodo_sel = st.multiselect(
-        "Periodo lectivo *", periodos, default=periodos[-1:], placeholder="Elija uno o más periodos",
+        "Periodo lectivo *", periodos, default=periodos[:1], placeholder="Elija uno o más periodos",
         help="Formato AAAA.S (año y semestre lectivo). Solo se listan periodos con datos.",
     )
     if not periodo_sel:

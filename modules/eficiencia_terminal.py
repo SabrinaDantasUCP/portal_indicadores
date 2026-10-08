@@ -11,6 +11,7 @@ from utils.ui import (
     estilizar_figura,
     formatear_entero,
     formatear_porcentaje,
+    opciones_cohorte,
     render_cabecera_indicador,
     render_egresados_fuente_caption,
     render_tarjetas_kpi,
@@ -298,7 +299,7 @@ def render():
             st.download_button("Descargar Datos (Excel)", data=excel_bytes_all, file_name="Dados_ET_Comparativo.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia Terminal - Comparativo", "Excel"))
 
     with tab2:
-        cohortes_list = sorted(resumen_et[COL_COHORTE].unique().tolist())
+        cohortes_list = opciones_cohorte(resumen_et[COL_COHORTE].unique())
         cohorte_sel = st.selectbox("Seleccione una Cohorte (Ciclo Completo)", cohortes_list, index=None)
 
         if cohorte_sel:

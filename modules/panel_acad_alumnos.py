@@ -115,7 +115,7 @@ def _build_alumnos_list(df):
     ).reset_index(drop=True)
 
 
-@st.dialog("Rendimiento académico del estudiante", width="large")
+@st.dialog("Historial académico del estudiante", width="large")
 def _mostrar_rendimiento(id_alumno, df_completo):
     """Ventana con el perfil académico (mismo detalle que Rendimiento Académico > Estudiante)."""
     df_estudiante = df_completo[df_completo[raa.COL_ID_ALUMNO] == id_alumno].copy()
@@ -125,8 +125,14 @@ def _mostrar_rendimiento(id_alumno, df_completo):
     raa.render_alumno_details(df_estudiante, df_completo)
 
 
+ALUMNOS_POR_PAGINA = 20
+
+
 def _render_listado(alumnos_list, df_completo):
-    busqueda = st.text_input(
+    """Listado paginado con un botón "Ver historial académico" en cada alumno
+    (abre la misma ficha que Rendimiento Académico > Estudiante)."""
+    c_busqueda, c_info = st.columns([2, 1], vertical_alignment="bottom")
+    busqueda = c_busqueda.text_input(
         "Buscar alumno", placeholder="Nombre o número de matrícula", key="alumnos_busqueda",
     ).strip().lower()
     listado = alumnos_list
@@ -135,34 +141,54 @@ def _render_listado(alumnos_list, df_completo):
             alumnos_list["Nombre y Apellido"].astype(str).str.lower().str.contains(busqueda, regex=False)
             | alumnos_list["Número de Matrícula"].astype(str).str.contains(busqueda, regex=False)
         ].reset_index(drop=True)
-    st.caption(
-        f"{formatear_entero(len(listado))} alumno(s) · se muestra el último periodo y semestre de cada uno. "
-        "Haga clic en el 👁 de un alumno para ver su rendimiento académico."
-    )
+    c_info.caption(f"{formatear_entero(len(listado))} alumno(s) · último periodo y semestre de cada uno")
 
-    vista = listado.drop(columns=[COL_ID_ALUMNO])
-    vista.insert(0, "Ver", "👁")
-    # Selección por celda: un clic sobre el 👁 abre el perfil (sin casillas de selección de fila).
-    evento = st.dataframe(
-        vista.style.format({"Semestre": "{:.0f}"}),
-        width="stretch",
-        hide_index=True,
-        on_select="rerun",
-        selection_mode="single-cell",
-        key="alumnos_listado_tabla",
-        column_config={"Ver": st.column_config.TextColumn("Ver", width="small", help="Ver rendimiento académico")},
-    )
-
-    celdas = evento.selection.cells if evento and evento.selection else []
-    celdas_ojo = [fila for fila, columna in celdas if columna == "Ver"]
-    if not celdas_ojo:
-        st.session_state.pop("alumnos_perfil_abierto", None)
+    if listado.empty:
+        st.info("No se encontraron alumnos con esa búsqueda.")
         return
-    id_alumno = listado.iloc[celdas_ojo[0]][COL_ID_ALUMNO]
-    # Se abre una sola vez por clic: al cerrar la ventana no vuelve a abrirse en cada recarga.
-    if st.session_state.get("alumnos_perfil_abierto") != id_alumno:
-        st.session_state["alumnos_perfil_abierto"] = id_alumno
-        _mostrar_rendimiento(id_alumno, df_completo)
+
+    # Paginación: vuelve a la página 1 cuando cambia la búsqueda.
+    total_paginas = (len(listado) - 1) // ALUMNOS_POR_PAGINA + 1
+    if st.session_state.get("alumnos_busqueda_anterior") != busqueda:
+        st.session_state["alumnos_busqueda_anterior"] = busqueda
+        st.session_state["alumnos_pagina"] = 1
+    pagina = min(max(1, st.session_state.get("alumnos_pagina", 1)), total_paginas)
+    pagina_df = listado.iloc[(pagina - 1) * ALUMNOS_POR_PAGINA: pagina * ALUMNOS_POR_PAGINA]
+
+    anchos = [1.2, 3.4, 1, 1, 2.2]
+    with st.container(border=True, gap=None):  # sin espacio extra entre filas
+        cab = st.columns(anchos, vertical_alignment="center")
+        for col, titulo in zip(cab, ["**Matrícula**", "**Nombre y apellido**", "**Periodo**", "**Semestre**", ""]):
+            col.markdown(titulo)
+        for _, fila in pagina_df.iterrows():
+            st.markdown('<hr style="margin:6px 0; border:none; border-top:1px solid #eef2f6;">', unsafe_allow_html=True)
+            cols = st.columns(anchos, vertical_alignment="center")
+            cols[0].write(str(fila["Número de Matrícula"]))
+            cols[1].write(str(fila["Nombre y Apellido"]))
+            cols[2].write(str(fila["Periodo"]))
+            cols[3].write(f"{int(fila['Semestre'])}º")
+            if cols[4].button(
+                "Ver historial académico", icon=":material/history_edu:", key=f"hist_alumno_{fila[COL_ID_ALUMNO]}",
+                width="stretch", help="Abre el rendimiento académico del alumno, semestre por semestre",
+            ):
+                _mostrar_rendimiento(fila[COL_ID_ALUMNO], df_completo)
+
+    c_ant, c_pag, c_sig = st.columns([1, 2, 1], vertical_alignment="center")
+    if c_ant.button("Anterior", icon=":material/chevron_left:", disabled=pagina <= 1, width="stretch",
+                    key="alumnos_pag_anterior"):
+        st.session_state["alumnos_pagina"] = pagina - 1
+        st.rerun()
+    desde = (pagina - 1) * ALUMNOS_POR_PAGINA + 1
+    hasta = min(pagina * ALUMNOS_POR_PAGINA, len(listado))
+    c_pag.markdown(
+        f"<div style='text-align:center; color:#64748b; font-size:14px;'>Página {pagina} de {total_paginas} · "
+        f"alumnos {formatear_entero(desde)}–{formatear_entero(hasta)} de {formatear_entero(len(listado))}</div>",
+        unsafe_allow_html=True,
+    )
+    if c_sig.button("Siguiente", icon=":material/chevron_right:", disabled=pagina >= total_paginas, width="stretch",
+                    key="alumnos_pag_siguiente"):
+        st.session_state["alumnos_pagina"] = pagina + 1
+        st.rerun()
 
 
 def _grafico_por_periodo(period_summary):

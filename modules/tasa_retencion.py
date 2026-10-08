@@ -15,6 +15,7 @@ from utils.ui import (
     estilizar_figura,
     formatear_entero,
     formatear_porcentaje,
+    opciones_cohorte,
     render_cabecera_indicador,
     render_tarjetas_kpi,
     render_titulo_seccion,
@@ -155,12 +156,12 @@ def render():
 
     with tab1:        
         # Filtro de Cohortes para el Gráfico
-        todas_cohortes = sorted(retencion_df[COL_COHORTE].unique().tolist())
+        todas_cohortes = opciones_cohorte(retencion_df[COL_COHORTE].unique())
         
         ultima_por_cohorte = retencion_df.sort_values(COL_SEMESTRE_ALUMNO).groupby(COL_COHORTE).last()
         mejor = ultima_por_cohorte["TR (%)"].idxmax()
         render_tarjetas_kpi([
-            {"etiqueta": "Cohortes", "valor": len(todas_cohortes), "detalle": f"De {todas_cohortes[0]} a {todas_cohortes[-1]}"},
+            {"etiqueta": "Cohortes", "valor": len(todas_cohortes), "detalle": f"De {todas_cohortes[-1]} a {todas_cohortes[0]}"},
             {"etiqueta": "Ingresantes (S1)", "valor": formatear_entero(ultima_por_cohorte["EIIC"].sum()),
              "detalle": "Suma de todas las cohortes"},
             {"etiqueta": "Retención actual promedio", "valor": formatear_porcentaje(ultima_por_cohorte["TR (%)"].mean()),
@@ -184,7 +185,7 @@ def render():
             with c_sel:
                 # Usar session_state para permitir selección dinámica
                 if "sel_cohortes_tr" not in st.session_state:
-                    st.session_state.sel_cohortes_tr = todas_cohortes[-5:]
+                    st.session_state.sel_cohortes_tr = todas_cohortes[:5]
                 
                 st.multiselect(
                     "Cohortes a comparar", 
@@ -195,7 +196,7 @@ def render():
                 )
             with c_btns:
                 def sel_ultimas_5():
-                    st.session_state.sel_cohortes_tr = todas_cohortes[-5:]
+                    st.session_state.sel_cohortes_tr = todas_cohortes[:5]
                 def limpar_sel():
                     st.session_state.sel_cohortes_tr = []
 
