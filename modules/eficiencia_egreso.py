@@ -7,6 +7,7 @@ from datetime import datetime
 from utils import db_pia
 from utils.system_logging import log_exception
 from utils.ui import (
+    selector_vista,
     COLOR_ATENCION,
     COLOR_BUENO,
     COLOR_MALO,
@@ -168,9 +169,9 @@ def render():
         return buffer.getvalue()
 
     # TABS
-    tab1, tab2 = st.tabs(["Comparativo Global", "Detalle por Cohorte"])
+    vista = selector_vista(['Comparativo Global', 'Detalle por Cohorte'], "vista_eficiencia_egreso")
 
-    with tab1:
+    if vista == 'Comparativo Global':
         total_eiic = int(df_ee["EIIC"].sum())
         total_egr = int(df_ee["Total_Egresados"].sum())
         render_tarjetas_kpi([
@@ -230,7 +231,7 @@ def render():
         c1.download_button("Descargar Reporte (PDF)", data=pdf_all, file_name="Reporte_EE_Global.pdf", mime="application/pdf", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia de Egreso - Global", "PDF"))
         c2.download_button("Descargar Datos (Excel)", data=buf_ex.getvalue(), file_name="Datos_EE_Global.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia de Egreso - Global", "Excel"))
 
-    with tab2:
+    if vista == 'Detalle por Cohorte':
         cohorte_sel = st.selectbox("Seleccione una Cohorte", opciones_cohorte(df_ee["cohorte"]), index=None)
         if cohorte_sel:
             row = df_ee[df_ee["cohorte"] == cohorte_sel].iloc[0]

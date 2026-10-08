@@ -5,6 +5,7 @@ import os
 from datetime import datetime
 from utils import db_pia
 from utils.ui import (
+    selector_vista,
     COLOR_ATENCION,
     COLOR_BUENO,
     COLOR_MALO,
@@ -135,11 +136,11 @@ def render():
         return buffer.getvalue()
 
     # --- UI ---
-    tab_cohorte, tab_detalle = st.tabs(["Análisis por Cohorte", "Detalle de Alumnos"])
+    # Sin cohortes sin definir ("None - None"); de la más reciente a la más antigua.
+    cohortes_disponibles = opciones_cohorte(df_master["Cohorte"].unique())
+    vista = selector_vista(['Análisis por Cohorte', 'Detalle de Alumnos'], "vista_promocion")
 
-    with tab_cohorte:
-        # Sin cohortes sin definir ("None - None"); de la más reciente a la más antigua.
-        cohortes_disponibles = opciones_cohorte(df_master["Cohorte"].unique())
+    if vista == 'Análisis por Cohorte':
         cohorte_sel = st.selectbox("Seleccione una Cohorte", cohortes_disponibles, index=0)
         
         if cohorte_sel:
@@ -194,7 +195,7 @@ def render():
                 df_c.to_excel(buffer_xls, index=False)
                 st.download_button("Descargar Datos (Excel)", buffer_xls.getvalue(), f"TPr_{cohorte_sel}.xlsx", key="xls_coh", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Tasa de Promoción Semestral", "Excel"))
 
-    with tab_detalle:
+    if vista == 'Detalle de Alumnos':
         coh_det = st.selectbox("Cohorte", cohortes_disponibles, index=0, key="det_coh")
         
         # Obter e ordenar transições numericamente (S1, S2, ..., S10)

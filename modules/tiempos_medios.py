@@ -7,6 +7,7 @@ from datetime import datetime
 from utils import db_pia
 from utils.system_logging import log_exception
 from utils.ui import (
+    selector_vista,
     COLOR_ATENCION,
     COLOR_BUENO,
     COLOR_MALO,
@@ -139,9 +140,9 @@ def render():
         return buffer.getvalue()
 
     # --- Interfaz Principal ---
-    tab1, tab2 = st.tabs(["Comparativo Global", "Detalle por Cohorte"])
+    vista = selector_vista(['Comparativo Global', 'Detalle por Cohorte'], "vista_tiempos_medios")
 
-    with tab1:
+    if vista == 'Comparativo Global':
         tme_general = egresados_df["Semestres"].mean()
         en_tiempo = (egresados_df["Semestres"] <= 12).mean() * 100
         render_tarjetas_kpi([
@@ -192,7 +193,7 @@ def render():
             egresados_df[[COL_COHORTE, COL_NOMBRE, COL_CATRACA, "Semestres"]].to_excel(wr, index=False, sheet_name='Detalle Egresados')
         c2.download_button("Descargar Datos (Excel)", data=buf_ex.getvalue(), file_name="Datos_TME_Global.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Tiempos Medios de Egreso", "Excel"))
 
-    with tab2:
+    if vista == 'Detalle por Cohorte':
         coh_list = opciones_cohorte(tme_resumen[COL_COHORTE].unique())
         sel_coh = st.selectbox("Seleccione una Cohorte", options=coh_list, index=None)
         

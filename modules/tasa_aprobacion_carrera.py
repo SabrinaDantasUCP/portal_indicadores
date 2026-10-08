@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 from utils import db_pia
 from utils.ui import (
+    selector_vista,
     COLOR_ATENCION,
     COLOR_BUENO,
     COLOR_MALO,
@@ -216,12 +217,12 @@ def render():
     # -------------------------------------------------------------------------
     # TABS
     # -------------------------------------------------------------------------
-    tab1, tab2 = st.tabs(["Comparativo", "Detalle por Cohorte"])
+    vista = selector_vista(['Comparativo', 'Detalle por Cohorte'], "vista_aprobacion_carrera")
 
     # -------------------------------------------------------------------------
     # TAB 1: Vista General
     # -------------------------------------------------------------------------
-    with tab1:
+    if vista == 'Comparativo':
         # Chart: Average TAC per Cohorte (ignoring semesters)
         resumen_cohorte = resumen_semestre_all.groupby(COL_COHORTE)["TAC (%)"].mean().reset_index()
         resumen_cohorte = resumen_cohorte.sort_values(COL_COHORTE)
@@ -307,7 +308,7 @@ def render():
     # -------------------------------------------------------------------------
     # TAB 2: Detalle por Cohorte (Existing Logic)
     # -------------------------------------------------------------------------
-    with tab2:
+    if vista == 'Detalle por Cohorte':
         
         cohortes = opciones_cohorte(df[COL_COHORTE].unique())
         cohorte_sel = st.selectbox(

@@ -11,6 +11,7 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.units import cm
 from utils import db_pia
 from utils.ui import (
+    selector_vista,
     COLOR_ATENCION,
     COLOR_BUENO,
     COLOR_MALO,
@@ -404,10 +405,24 @@ def render():
     # ---------------------------------------------------------------------
     # TABS
     # ---------------------------------------------------------------------
-    tab1, tab2, tab3 = st.tabs(["Resumen", "Detalle", "Por Fecha"])
+    # Título y filtros de los reportes (los usan las tres vistas).
+    periodos_titulo = " / ".join(
+        f"{anho}.{periodo}" for anho in sorted(anho_sel) for periodo in sorted(periodo_sel)
+    )
+    filtros_aplicados = [
+        ("Período (Año)", format_filter_values(anho_sel)),
+        ("Subperíodo (Semestre)", format_filter_values(periodo_sel)),
+        ("Semestre de la Asignatura", format_filter_values(semestre_sel, "º Semestre")),
+        ("Asignatura", format_filter_values(asignatura_sel)),
+        ("Docente", format_filter_values(docente_sel)),
+        ("Sección", format_filter_values(seccion_sel)),
+        ("Tipo de Clase", format_filter_values(tipo_clase_sel)),
+    ]
+
+    vista = selector_vista(["Resumen", "Detalle", "Por Fecha"], "vista_asistencias")
 
     # --- TAB 1: RESUMEN ---
-    with tab1:
+    if vista == "Resumen":
         render_titulo_seccion(
             "Presencia y ausencia por mes",
             "Cada barra suma 100%: la parte verde son las presencias y la roja, las ausencias.",
@@ -464,19 +479,7 @@ def render():
         for col in ["% Presentes", "% Ausentes"]:
             if col in df_export_resumen.columns:
                 df_export_resumen[col] = df_export_resumen[col].round(2)
-        periodos_titulo = " / ".join(
-            f"{anho}.{periodo}" for anho in sorted(anho_sel) for periodo in sorted(periodo_sel)
-        )
         titulo_resumen = f"Evolución de Asistencia {periodos_titulo}"
-        filtros_aplicados = [
-            ("Período (Año)", format_filter_values(anho_sel)),
-            ("Subperíodo (Semestre)", format_filter_values(periodo_sel)),
-            ("Semestre de la Asignatura", format_filter_values(semestre_sel, "º Semestre")),
-            ("Asignatura", format_filter_values(asignatura_sel)),
-            ("Docente", format_filter_values(docente_sel)),
-            ("Sección", format_filter_values(seccion_sel)),
-            ("Tipo de Clase", format_filter_values(tipo_clase_sel)),
-        ]
         
         # PDF - No Chart
         _pdf_bajo_demanda(c_pdf, "asist_pdf_resumen", df_export_resumen, titulo_resumen, None, filtros_aplicados,
@@ -496,7 +499,7 @@ def render():
 
 
     # --- TAB 2: DETALLE ---
-    with tab2:
+    if vista == "Detalle":
         render_titulo_seccion("Resumen por asignatura, sección y docente")
         
         # Seleccionar columnas relevantes para mostrar
@@ -565,7 +568,7 @@ def render():
         render_calculation_guide()
 
     # --- TAB 3: POR FECHA ---
-    with tab3:
+    if vista == "Por Fecha":
         render_titulo_seccion("Asistencia por fecha")
 
         df_by_date = build_asistencia_by_date(df_filtered)

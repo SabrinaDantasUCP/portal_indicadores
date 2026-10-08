@@ -7,6 +7,7 @@ from datetime import datetime
 from utils import db_pia
 from utils.system_logging import log_exception
 from utils.ui import (
+    selector_vista,
     COLOR_ATENCION,
     COLOR_BUENO,
     COLOR_MALO,
@@ -152,11 +153,11 @@ def render():
         return buffer.getvalue()
 
     # TABS
-    tab1, tab2 = st.tabs(["Comparativo Global", "Evolución por Cohorte"])
+    # Filtro de Cohortes (se usa en ambas vistas)
+    todas_cohortes = opciones_cohorte(retencion_df[COL_COHORTE].unique())
+    vista = selector_vista(['Comparativo Global', 'Evolución por Cohorte'], "vista_retencion")
 
-    with tab1:        
-        # Filtro de Cohortes para el Gráfico
-        todas_cohortes = opciones_cohorte(retencion_df[COL_COHORTE].unique())
+    if vista == 'Comparativo Global':
         
         ultima_por_cohorte = retencion_df.sort_values(COL_SEMESTRE_ALUMNO).groupby(COL_COHORTE).last()
         mejor = ultima_por_cohorte["TR (%)"].idxmax()
@@ -249,7 +250,7 @@ def render():
         c1.download_button("Descargar Reporte (PDF)", data=pdf_all, file_name="Reporte_TR_Global.pdf", mime="application/pdf", icon=":material/download:", width="stretch", key="btn_pdf_global", on_click=db_pia.log_export_callback, args=("Tasa de Retención - Global", "PDF"))
         c2.download_button("Descargar Datos (Excel)", data=excel_data, file_name="Datos_TR_Global.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", key="btn_ex_global", on_click=db_pia.log_export_callback, args=("Tasa de Retención - Global", "Excel"))
 
-    with tab2:
+    if vista == 'Evolución por Cohorte':
         cohorte_sel = st.selectbox("Seleccione una Cohorte", todas_cohortes, index=None)
         if cohorte_sel:
             data_c = retencion_df[retencion_df[COL_COHORTE] == cohorte_sel].sort_values(COL_SEMESTRE_ALUMNO)

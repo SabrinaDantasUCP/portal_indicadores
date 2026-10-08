@@ -181,6 +181,15 @@ def render_cabecera_indicador(titulo, descripcion=None):
     )
 
 
+def selector_vista(opciones, clave):
+    """Reemplazo de st.tabs que recuerda la vista elegida: st.tabs volvía a la
+    primera pestaña en cada recarga (al hacer clic en "Ver perfil", cambiar de
+    página, preparar un PDF, etc.). Devuelve la opción elegida."""
+    return st.segmented_control(
+        "Vista", opciones, default=opciones[0], key=clave, label_visibility="collapsed",
+    ) or opciones[0]
+
+
 def opciones_cohorte(valores):
     """Cohortes para un selector: sin vacíos ni cohortes sin definir
     ("None - None") y de la más reciente a la más antigua."""

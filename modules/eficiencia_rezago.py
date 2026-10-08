@@ -7,6 +7,7 @@ from datetime import datetime
 from utils import db_pia
 from utils.system_logging import log_exception
 from utils.ui import (
+    selector_vista,
     COLOR_ATENCION,
     COLOR_BUENO,
     COLOR_MALO,
@@ -160,9 +161,9 @@ def render():
         return buffer.getvalue()
 
     # TABS
-    tab1, tab2 = st.tabs(["Comparativo Global", "Detalle por Cohorte"])
+    vista = selector_vista(['Comparativo Global', 'Detalle por Cohorte'], "vista_eficiencia_rezago")
 
-    with tab1:
+    if vista == 'Comparativo Global':
         render_tarjetas_kpi([
             {"etiqueta": "Cohortes", "valor": len(df_re)},
             {"etiqueta": "ET promedio", "valor": formatear_porcentaje(df_re["ET (%)"].mean()),
@@ -201,7 +202,7 @@ def render():
         c1.download_button("Descargar Reporte (PDF)", data=pdf_all, file_name="Reporte_RE_Global.pdf", mime="application/pdf", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Rezago Educativo - Global", "PDF"))
         c2.download_button("Descargar Datos (Excel)", data=buf_ex.getvalue(), file_name="Datos_RE_Global.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Rezago Educativo - Global", "Excel"))
 
-    with tab2:
+    if vista == 'Detalle por Cohorte':
         cohorte_sel = st.selectbox("Seleccione una Cohorte", opciones_cohorte(df_re["cohorte"]), index=None)
         if cohorte_sel:
             row = df_re[df_re["cohorte"] == cohorte_sel].iloc[0]

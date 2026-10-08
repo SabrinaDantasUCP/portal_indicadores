@@ -323,9 +323,14 @@ def render():
         kpi_variacion,
     ])
 
-    tab_resumen, tab_listado = st.tabs(["Por periodo y semestre", "Listado de alumnos"])
+    # Selector de vista guardado en la sesión (st.tabs volvía a la primera pestaña
+    # en cada recarga, por ejemplo al abrir el historial de un alumno o cambiar de página).
+    vistas = ["Por periodo y semestre", "Listado de alumnos"]
+    vista = st.segmented_control(
+        "Vista", vistas, default=vistas[0], key="alumnos_vista", label_visibility="collapsed",
+    ) or vistas[0]
 
-    with tab_resumen:
+    if vista == vistas[0]:
         render_titulo_seccion("Alumnos por periodo", "Total de alumnos distintos en cada periodo lectivo.")
         st.plotly_chart(_grafico_por_periodo(period_summary), use_container_width=True, config={"displayModeBar": False})
 
@@ -335,8 +340,7 @@ def render():
             "por periodo. La fila TOTAL coincide con el gráfico de arriba.",
         )
         st.markdown(_matriz_html(matriz, period_summary), unsafe_allow_html=True)
-
-    with tab_listado:
+    else:
         _render_listado(alumnos_list, df_completo)
 
     st.divider()

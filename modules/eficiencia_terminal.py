@@ -7,6 +7,7 @@ from datetime import datetime
 from utils import db_pia
 from utils.system_logging import log_exception
 from utils.ui import (
+    selector_vista,
     COLOR_PRIMARIO,
     estilizar_figura,
     formatear_entero,
@@ -238,9 +239,9 @@ def render():
     # -------------------------------------------------------------------------
     # TABS
     # -------------------------------------------------------------------------
-    tab1, tab2 = st.tabs(["Comparativo Global", "Detalle por Cohorte"])
+    vista = selector_vista(['Comparativo Global', 'Detalle por Cohorte'], "vista_eficiencia_terminal")
 
-    with tab1:
+    if vista == 'Comparativo Global':
         total_eiic = int(resumen_et["EIIC"].sum())
         total_ece = int(resumen_et["ECE"].sum())
         render_tarjetas_kpi([
@@ -298,7 +299,7 @@ def render():
         with c2:
             st.download_button("Descargar Datos (Excel)", data=excel_bytes_all, file_name="Dados_ET_Comparativo.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia Terminal - Comparativo", "Excel"))
 
-    with tab2:
+    if vista == 'Detalle por Cohorte':
         cohortes_list = opciones_cohorte(resumen_et[COL_COHORTE].unique())
         cohorte_sel = st.selectbox("Seleccione una Cohorte (Ciclo Completo)", cohortes_list, index=None)
 

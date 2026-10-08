@@ -4,6 +4,7 @@ import plotly.express as px
 import io
 from utils import db_pia
 from utils.ui import (
+    selector_vista,
     COLOR_ATENCION,
     COLOR_BUENO,
     COLOR_MALO,
@@ -126,12 +127,12 @@ def render():
     # ---------------------------------------------------------------------
     # TABS
     # ---------------------------------------------------------------------
-    tab1, tab2 = st.tabs(["Resumen Académico", "Listado de Alumnos"])
+    vista = selector_vista(['Resumen Académico', 'Listado de Alumnos'], "vista_panel_resumen")
 
     # ---------------------------------------------------------------------
     # TAB 1: Resumen por Materia e Sección (Renamed Columns)
     # ---------------------------------------------------------------------
-    with tab1:
+    if vista == 'Resumen Académico':
         render_titulo_seccion(
             "Distribución de calificaciones",
             "Cantidad de calificaciones finales de cada valor. El 1 es reprobado; de 2 a 5, aprobado.",
@@ -187,7 +188,7 @@ def render():
     # ---------------------------------------------------------------------
     # TAB 2: Listado de Alumnos (With Grade Filter)
     # ---------------------------------------------------------------------
-    with tab2:
+    if vista == 'Listado de Alumnos':
         render_titulo_seccion("Listado de alumnos", "Una fila por alumno y asignatura, con su calificación final.")
         
         # 5. Calificación Filter (Local to this tab)
