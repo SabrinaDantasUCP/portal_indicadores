@@ -103,6 +103,11 @@ def _construir_registro():
                 data_config.DATASETS.setdefault("indicadores_v2", {})[dataset_name] = path_v2
             scope = None
 
+        nombre_encuesta = (
+            f"{tipo_label} EV1 {cfg['periodo']}"
+            if tipo_label == TIPO_ALUMNOS_DOCENTE
+            else f"{tipo_label} {cfg['periodo']}"
+        )
         (
             registro
             .setdefault(cfg["sede"], {})
@@ -110,7 +115,7 @@ def _construir_registro():
             .setdefault(cfg["carrera"], {})
         )[tipo_label] = {
             "dataset": dataset_name,
-            "nombre": f"{tipo_label} {cfg['periodo']}",
+            "nombre": nombre_encuesta,
             "scope": scope,
         }
     return registro
