@@ -2516,7 +2516,7 @@ def _render_subvista_analisis_pedagogico(
     n_resp_auditadas = int(fila_res.get("n_respuestas_validas", 668224)) if fila_res is not None and fila_res.get("n_respuestas_validas") is not None else 668224
 
     st.divider()
-    st.markdown("#### Origen de los Datos, Escala y Metodología de Cálculo")
+    st.markdown("#### Origen de los Datos, Escala y Metodología de Cálculo General")
 
     s_resp_auditadas = f"{n_resp_auditadas:,}".replace(",", ".")
     col_orig1, col_orig2 = st.columns([1.1, 1.3])
