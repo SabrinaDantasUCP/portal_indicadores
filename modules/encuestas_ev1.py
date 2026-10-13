@@ -226,20 +226,20 @@ def _etiqueta_estado_html(estado: str) -> str:
     """Devuelve un badge HTML estilizado para el estado de la asignación."""
     estilo_base = "display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 0.76rem; font-weight: 700;"
     if estado == "Completada":
-        return f'<span style="{estilo_base} color: #17845f; background-color: #e7f6f0;">● {escape(estado)}</span>'
+        return f'<span style="{estilo_base} color: var(--portal-badge-green-text, #17845f); background-color: var(--portal-badge-green-bg, #e7f6f0);">● {escape(estado)}</span>'
     elif estado in ("En proceso", "Parcial"):
-        return f'<span style="{estilo_base} color: #b87908; background-color: #fff5d9;">● {escape(estado)}</span>'
-    return f'<span style="{estilo_base} color: #bd3f4a; background-color: #fdecef;">● {escape(estado)}</span>'
+        return f'<span style="{estilo_base} color: var(--portal-badge-yellow-text, #b87908); background-color: var(--portal-badge-yellow-bg, #fff5d9);">● {escape(estado)}</span>'
+    return f'<span style="{estilo_base} color: var(--portal-badge-red-text, #bd3f4a); background-color: var(--portal-badge-red-bg, #fdecef);">● {escape(estado)}</span>'
 
 
 def _etiqueta_semaforo_html(porcentaje: float) -> str:
     """Genera badge para semáforo pedagógico: verde >= 80%, amarillo 50..79%, rojo < 50%."""
     estilo_base = "display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 0.74rem; font-weight: 700;"
     if porcentaje >= 80.0:
-        return f'<span style="{estilo_base} color: #17845f; background-color: #e7f6f0;">Adecuado</span>'
+        return f'<span style="{estilo_base} color: var(--portal-badge-green-text, #17845f); background-color: var(--portal-badge-green-bg, #e7f6f0);">Adecuado</span>'
     elif porcentaje >= 50.0:
-        return f'<span style="{estilo_base} color: #b87908; background-color: #fff5d9;">Seguimiento</span>'
-    return f'<span style="{estilo_base} color: #bd3f4a; background-color: #fdecef;">Crítico</span>'
+        return f'<span style="{estilo_base} color: var(--portal-badge-yellow-text, #b87908); background-color: var(--portal-badge-yellow-bg, #fff5d9);">Seguimiento</span>'
+    return f'<span style="{estilo_base} color: var(--portal-badge-red-text, #bd3f4a); background-color: var(--portal-badge-red-bg, #fdecef);">Crítico</span>'
 
 
 def _formatear_porcentaje(valor: float) -> str:
@@ -278,45 +278,59 @@ def _render_kpi_card_ev1(
     ayuda: str = "",
     detalle: str = "",
     color_acento: str = "#12263f",
-    color_fondo: str = "#f3f6fa",
-    color_borde: str = "#dbe3ed",
+    color_fondo: str = "#ffffff",
+    color_borde: str = "#e2e8f0",
+    porcentaje_progreso: float = None,
 ):
     """
-    Renderiza una tarjeta KPI con diseño moderno, sombra sutil, elevación suave en hover
-    y un tooltip explicativo en español (atributo HTML 'title') con cantidades y cálculo exacto.
+    Renderiza una tarjeta KPI con la estética institucional corporativa idéntica a la imagen de referencia:
+    fondo blanco limpio, borde perimetral sutil, franja superior distintiva de acento de 4px,
+    esquinas redondeadas de 12px, sombra suave y tipografía de alto contraste con tooltip informativo.
     """
     attr_title = f'title="{escape(ayuda)}"' if ayuda else ""
+    barra_progreso_html = ""
+    if porcentaje_progreso is not None:
+        p_val = min(max(float(porcentaje_progreso), 0.0), 100.0)
+        barra_progreso_html = f"""
+        <div style="height: 5px; border-radius: 999px; background: #e2e8f0; overflow: hidden; margin-top: 10px;">
+            <div style="height: 100%; width: {p_val:.1f}%; background: {color_acento}; border-radius: inherit;"></div>
+        </div>
+        """
     st.markdown(
         f"""
         <div {attr_title} class="ev1-kpi-card" style="
-            background-color: {color_fondo};
-            border: 1px solid {color_borde};
-            border-radius: 10px;
-            padding: 16px 14px;
+            background-color: var(--portal-bg-card, #ffffff);
+            border: 1px solid var(--portal-border-color, {color_borde});
+            border-top: 4px solid {color_acento};
+            border-radius: 12px;
+            padding: 20px 16px;
             text-align: center;
             height: 100%;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.04);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
             transition: transform 0.18s ease, box-shadow 0.18s ease;
             cursor: help;
         ">
             <div style="
-                font-size: 0.76rem;
-                color: #55657a;
+                font-size: 0.78rem;
+                color: var(--portal-text-secondary, #475569);
                 font-weight: 700;
                 text-transform: uppercase;
-                letter-spacing: 0.03em;
-                margin-bottom: 5px;
+                letter-spacing: 0.04em;
+                margin-bottom: 8px;
             ">
                 {escape(titulo)}
             </div>
-            <div style="font-size: 1.75rem; color: {color_acento}; font-weight: 800; line-height: 1.15;">
+            <div style="font-size: 2.10rem; color: {color_acento}; font-weight: 800; line-height: 1.15; margin-bottom: 8px;">
                 {escape(valor)}
             </div>
-            {f'<div style="font-size: 0.74rem; color: #64748b; margin-top: 5px; font-weight: 500;">{escape(detalle)}</div>' if detalle else ''}
+            {f'<div style="font-size: 0.82rem; color: var(--portal-text-muted, #64748b); font-weight: 500;">{escape(detalle)}</div>' if detalle else ''}
+            {barra_progreso_html}
         </div>
         """,
         unsafe_allow_html=True,
     )
+
+
 
 
 # ==============================================================================
@@ -348,20 +362,23 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
             box-shadow: 0 6px 14px rgba(0,0,0,0.08) !important;
         }
         .ev1-note {
-            background-color: #f0f6fd;
-            border-left: 4px solid #245ea8;
+            background-color: var(--portal-bg-card-subtle, #f0f6fd);
+            border-left: 4px solid var(--portal-accent, #245ea8);
+            border-top: 1px solid var(--portal-border-color, transparent);
+            border-right: 1px solid var(--portal-border-color, transparent);
+            border-bottom: 1px solid var(--portal-border-color, transparent);
             padding: 12px 16px;
             border-radius: 10px;
-            color: #1a3c63;
+            color: var(--portal-text-primary, #1a3c63);
             font-size: 0.88rem;
             margin-bottom: 16px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.02);
             line-height: 1.45;
         }
         .ev1-note-privacy {
-            background-color: #f5f2fb;
-            border-left: 4px solid #6f42c1;
-            color: #41296d;
+            background-color: var(--portal-bg-card-subtle, #f5f2fb);
+            border-left: 4px solid #8b5cf6;
+            color: var(--portal-text-primary, #41296d);
         }
         .ev1-card-teacher {
             background: linear-gradient(135deg, #12263f 0%, #1a3b63 100%);
@@ -388,8 +405,8 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
             letter-spacing: -0.02em;
         }
         .ev1-criterio-box {
-            background: #ffffff;
-            border: 1px solid #e2e8f0;
+            background: var(--portal-bg-card, #ffffff);
+            border: 1px solid var(--portal-border-color, #e2e8f0);
             border-radius: 10px;
             padding: 14px 16px;
             margin-bottom: 12px;
@@ -397,13 +414,13 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
             transition: box-shadow 0.2s ease, transform 0.2s ease;
         }
         .ev1-criterio-box:hover {
-            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
             transform: translateY(-1px);
         }
         .ev1-indicador-box {
             margin-top: 8px;
-            background: #f8fafc;
-            border-left: 3px solid #245ea8;
+            background: var(--portal-bg-card-subtle, #f8fafc);
+            border-left: 3px solid var(--portal-accent, #245ea8);
             border-radius: 6px;
             padding: 9px 13px;
         }
@@ -414,18 +431,8 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
 
 
     # --- 2. PREPARACIÓN DEL CONJUNTO DE DATOS (REAL vs FALLBACK) ---
-    # Normalización del universo docente según el Modelo Rector Recomendado (Escenario A: 213 titulares)
-    # Se excluyen de las ofertas de detalle los 4 docentes que actuaron en cátedras compartidas o reemplazos
-    # cuyas evaluaciones y alumnos fueron procesados formalmente bajo los docentes titulares de la materia.
-    DOCENTES_EXCLUIDOS_ESCENARIO_A = [
-        "GESSICA ADRIANA ORDANO LOPEZ",
-        "MIRNA ANALIA ROMERO FRANCO",
-        "PATRICIA RECEDA FOX JIMENEZ",
-        "SARA GABRIELA MARECO ROMERO",
-    ]
-    if df_detalle is not None and not df_detalle.empty:
-        df_detalle = df_detalle[~df_detalle["docente"].isin(DOCENTES_EXCLUIDOS_ESCENARIO_A)].copy()
-
+    # Universo docente oficial: Planificación curricular normal (tipo_planificacion = 1)
+    # Se eliminan exclusiones manuales para respetar el universo completo de clases normales.
     datos_disponibles_alumnos = df_alumnos is not None and not df_alumnos.empty
     if datos_disponibles_alumnos:
         df_base = df_alumnos.copy()
@@ -510,7 +517,7 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
     )
 
     # --- 4. SUB-PESTAÑAS DE NAVEGACIÓN EV1 ---
-    tab_avance, tab_alumno, tab_materia, tab_resultados, tab_docente, tab_pedagogico, tab_explicacion = st.tabs(
+    tab_avance, tab_alumno, tab_materia, tab_resultados, tab_docente, tab_pedagogico, tab_guia_metodologica = st.tabs(
         [
             "Avance general",
             "Participación de alumnos",
@@ -518,7 +525,7 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
             "Respuestas EV1",
             "Por docente",
             "Análisis pedagógico",
-            "Explicación",
+            "Guía Metodológica",
         ]
     )
 
@@ -534,6 +541,7 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
             df_det_filtrado=df_det_filtrado,
             filtro_estado=sel_estado,
             sede=sede,
+            df_detalle=df_detalle,
         )
 
     # --------------------------------------------------------------------------
@@ -606,10 +614,11 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
         )
 
     # --------------------------------------------------------------------------
-    # SUB-PESTAÑA 7: EXPLICACIÓN Y GUÍA METODOLÓGICA
+    # SUB-PESTAÑA 7: GUÍA METODOLÓGICA DE INDICADORES
     # --------------------------------------------------------------------------
-    with tab_explicacion:
-        _render_subvista_explicacion(df_base, df_detalle, fila_general)
+    with tab_guia_metodologica:
+        _render_subvista_guia_metodologica(df_base, df_detalle, fila_general, sede=sede)
+
 
 
 # ==============================================================================
@@ -618,13 +627,20 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
 
 def _render_subvista_avance_general(
     df_filtrado: pd.DataFrame,
-    df_total: pd.DataFrame,
+    df_base: pd.DataFrame = None,
     fila_general=None,
     filtros_activos: bool = False,
     df_det_filtrado: pd.DataFrame = None,
     filtro_estado: str = "Todos",
     sede: str = "Ciudad del Este",
+    df_detalle: pd.DataFrame = None,
+    df_total: pd.DataFrame = None,
 ):
+    if df_base is None and df_total is not None:
+        df_base = df_total
+    elif df_total is None and df_base is not None:
+        df_total = df_base
+
     st.markdown(
         """
         <div class="ev1-note">
@@ -637,13 +653,20 @@ def _render_subvista_avance_general(
 
     id_col = "system_id" if "system_id" in df_filtrado.columns else "alumno"
 
-    # 1. Total de alumnos convocados (distinct de alumnos únicos)
-    if not filtros_activos and fila_general is not None and "alumnos_unicos_esperados" in fila_general:
-        alumnos_convocados = int(fila_general["alumnos_unicos_esperados"])
+    # 1. Total de alumnos convocados (adaptado automáticamente a versión 1 y versión 2):
+    # En vista general sin filtros toma los alumnos únicos de la versión activa cargada en df_base (6.978 en v1 o 6.732 en v2)
+    id_col_base = "system_id" if (df_base is not None and "system_id" in df_base.columns) else "alumno"
+    if not filtros_activos:
+        if df_base is not None and not df_base.empty:
+            alumnos_convocados = int(df_base[id_col_base].nunique())
+        elif fila_general is not None and "alumnos_unicos_esperados" in fila_general and pd.notna(fila_general["alumnos_unicos_esperados"]):
+            alumnos_convocados = int(fila_general["alumnos_unicos_esperados"])
+        else:
+            alumnos_convocados = int(df_filtrado[id_col].nunique()) if not df_filtrado.empty else 0
     else:
         alumnos_convocados = int(df_filtrado[id_col].nunique()) if not df_filtrado.empty else 0
 
-    # 2. Universo de evaluaciones a docentes (Opción 1: coherencia directa con la tabla de ofertas y materias)
+    # 2. Universo de evaluaciones a docentes (asignaciones estudiante - docente):
     # Funciona dinámicamente tanto para versión 1 como para versión 2
     total_esperadas = len(df_filtrado)
     completadas = int((df_filtrado["estado"] == "Completada").sum()) if "estado" in df_filtrado.columns else int((df_filtrado["respondio"] == True).sum())
@@ -662,7 +685,7 @@ def _render_subvista_avance_general(
         c_parcial = 0
     pct_parcial = (c_parcial / alumnos_convocados * 100.0) if alumnos_convocados > 0 else 0.0
 
-    # Fila de KPIs principales
+    # Fila de KPIs principales con diseño limpio, alto contraste y barra de progreso
     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
     with kpi1:
         _render_kpi_card_ev1(
@@ -671,7 +694,6 @@ def _render_subvista_avance_general(
             ayuda="Cantidad total de estudiantes habilitados para responder la encuesta en este periodo y carrera.",
             detalle="Matrícula convocada",
             color_acento="#12263f",
-            color_fondo="#f3f6fa",
             color_borde="#dbe3ed",
         )
     with kpi2:
@@ -681,7 +703,6 @@ def _render_subvista_avance_general(
             ayuda="Total de asignaciones de evaluación a docentes (cada alumno evalúa a los profesores de sus materias).",
             detalle="Asignaciones a docentes",
             color_acento="#245ea8",
-            color_fondo="#eaf2fb",
             color_borde="#c7d5e8",
         )
     with kpi3:
@@ -691,7 +712,6 @@ def _render_subvista_avance_general(
             ayuda="Cantidad de evaluaciones a docentes respondidas efectivamente por los estudiantes.",
             detalle=f"Avance del {porcentaje_avance:.1f}%",
             color_acento="#17845f",
-            color_fondo="#e7f6f0",
             color_borde="#b5e3d0",
         )
     with kpi4:
@@ -701,8 +721,8 @@ def _render_subvista_avance_general(
             ayuda="Tasa de respuesta de evaluaciones a docentes: (Completadas / Esperadas) × 100.",
             detalle=f"{completadas:,} de {total_esperadas:,} respondidas".replace(",", "."),
             color_acento="#3c7bc4",
-            color_fondo="#e8f0fe",
             color_borde="#a9c6f5",
+            porcentaje_progreso=porcentaje_avance,
         )
 
     # Tarjetas explicativas de correspondencia y jerarquía de datos (Estudiantes · Materias · Docentes)
@@ -712,70 +732,123 @@ def _render_subvista_avance_general(
         n_doc_unicos = df_det_filtrado["docente"].dropna().nunique()
     else:
         n_doc_unicos = df_filtrado["docente"].dropna().nunique() if not df_filtrado.empty else 0
-    n_doc_total = 213 if not filtros_activos else n_doc_unicos
 
-    if not filtros_activos and fila_general is not None:
-        mat_esperadas = int(fila_general.get("encuestas_esperadas", 0))
-        mat_respondidas = int(fila_general.get("encuestas_respondidas", 0))
-        pct_mat = float(fila_general.get("porcentaje_avance_encuestas", 0.0))
-        alumnos_respondieron = int(fila_general.get("alumnos_unicos_que_respondieron_al_menos_una", 0))
-        pct_alumnos = float(fila_general.get("porcentaje_alumnos_que_respondieron_al_menos_una", 0.0))
-        if pct_alumnos == 0.0 and alumnos_convocados > 0:
-            pct_alumnos = (alumnos_respondieron / alumnos_convocados * 100.0)
+    # Docentes totales según el universo oficial de planificación normal (tipo_planificacion = 1)
+    if not filtros_activos:
+        if df_detalle is not None and not df_detalle.empty and "docente" in df_detalle.columns:
+            n_doc_total = df_detalle["docente"].dropna().nunique()
+        else:
+            n_doc_total = n_doc_unicos
+    else:
+        n_doc_total = n_doc_unicos
+
+    # Métricas y textos adaptativos según presencia de filtros o vista consolidada
+    if not filtros_activos:
+        comp_series_base = (df_base["estado"] == "Completada") if "estado" in df_base.columns else (df_base["respondio"] == True)
+        alumnos_respondieron = int(df_base[comp_series_base][id_col_base].nunique()) if df_base is not None and not df_base.empty else 0
+        pct_alumnos = (alumnos_respondieron / alumnos_convocados * 100.0) if alumnos_convocados > 0 else 0.0
         alumnos_restantes = max(alumnos_convocados - alumnos_respondieron, 0)
 
-        st.markdown(
-            f"""
-            <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px 20px; margin: 18px 0 22px 0;">
-                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; border-bottom: 1px solid #e2e8f0; padding-bottom: 10px;">
-                    <div style="font-weight: 700; font-size: 0.96rem; color: #1e3a63; display: flex; align-items: center; gap: 8px;">
-                        Correspondencia de Cifras: Estudiantes ➔ Materias ➔ Asignaciones Docentes
+        # Materias curriculares únicas en el universo
+        n_materias_total = int(df_base["materia"].dropna().nunique()) if "materia" in df_base.columns else 0
+        if df_detalle is not None and not df_detalle.empty and "materia" in df_detalle.columns:
+            n_materias_total = int(df_detalle["materia"].dropna().nunique())
+
+        # Inscripciones estudiante x materia (pares únicos alumno-materia)
+        if "planificacion_id" in df_base.columns:
+            pares_mat = df_base.drop_duplicates(subset=[id_col_base, "planificacion_id"])
+        else:
+            pares_mat = df_base.drop_duplicates(subset=[id_col_base, "materia"])
+        mat_esperadas = len(pares_mat)
+        comp_pares = (pares_mat["estado"] == "Completada") if "estado" in pares_mat.columns else (pares_mat["respondio"] == True)
+        mat_respondidas = int(comp_pares.sum())
+        pct_mat = (mat_respondidas / mat_esperadas * 100.0) if mat_esperadas > 0 else 0.0
+
+        titulo_correspondencia = "Correspondencia de Cifras: Estudiantes ➔ Materias ➔ Asignaciones Docentes"
+        desc_tarjeta1 = f"<strong>{alumnos_respondieron:,}</strong> alumnos completaron evaluaciones (<strong>{pct_alumnos:.1f}%</strong> de participación activa). Restan {alumnos_restantes:,} sin participar."
+        val_tarjeta2 = f"{mat_respondidas:,}"
+        span_tarjeta2 = f"/ {mat_esperadas:,} materias"
+        desc_tarjeta2 = f"<strong>{pct_mat:.1f}%</strong> de materias respondidas ({n_materias_total} asignaturas de la malla). Cada estudiante cursa en promedio ~6 materias."
+        desc_tarjeta3 = f"<strong>{porcentaje_avance:.1f}%</strong> respondidas. Comprende a docentes de teoría y comisiones de clases prácticas en aulas y laboratorios (G1, G2, subgrupos, MO/MS, simulación) en la sede <strong>{escape(str(sede))}</strong> ({n_doc_total} docentes evaluados bajo planificación normal)."
+    else:
+        if not df_filtrado.empty:
+            comp_series = (df_filtrado["estado"] == "Completada") if "estado" in df_filtrado.columns else (df_filtrado["respondio"] == True)
+            alumnos_respondieron = int(df_filtrado[comp_series][id_col].nunique()) if id_col in df_filtrado.columns else 0
+            n_materias_sel = int(df_filtrado["materia"].dropna().nunique()) if "materia" in df_filtrado.columns else 1
+        else:
+            alumnos_respondieron = 0
+            n_materias_sel = 0
+        pct_alumnos = (alumnos_respondieron / alumnos_convocados * 100.0) if alumnos_convocados > 0 else 0.0
+        alumnos_restantes = max(alumnos_convocados - alumnos_respondieron, 0)
+        n_ofertas_sel = len(df_det_filtrado) if df_det_filtrado is not None and not df_det_filtrado.empty else len(df_filtrado)
+
+        titulo_correspondencia = "Correspondencia de Cifras (Selección Filtrada Activa)"
+
+        desc_tarjeta1 = f"<strong>{f'{alumnos_respondieron:,}'.replace(',', '.')}</strong> alumnos con evaluaciones completadas en esta selección (<strong>{pct_alumnos:.1f}%</strong>). Restan {f'{alumnos_restantes:,}'.replace(',', '.')} pendientes."
+        val_tarjeta2 = f"{n_materias_sel:,}".replace(",", ".")
+        span_tarjeta2 = "materia(s) en selección"
+        desc_tarjeta2 = f"Distribuidas en <strong>{f'{n_ofertas_sel:,}'.replace(',', '.')}</strong> oferta(s) académica(s) según los filtros aplicados en la sede <strong>{escape(str(sede))}</strong>."
+        desc_tarjeta3 = f"<strong>{porcentaje_avance:.1f}%</strong> respondidas para <strong>{n_doc_unicos}</strong> docente(s) (teoría y comisiones prácticas en aulas o laboratorios) bajo los criterios seleccionados."
+
+    s_completadas = f"{completadas:,}".replace(",", ".")
+    s_total_esp = f"{total_esperadas:,}".replace(",", ".")
+    s_alu_conv = f"{alumnos_convocados:,}".replace(",", ".")
+    s_pend = f"{pendientes:,}".replace(",", ".")
+    s_parc = f"{c_parcial:,}".replace(",", ".")
+    s_pct_av = f"{porcentaje_avance:.1f}%".replace(".", ",")
+    s_pct_par = f"{pct_parcial:.1f}%".replace(".", ",")
+    s_pct_pend = f"{pct_pendientes:.1f}%".replace(".", ",")
+
+    st.markdown(
+        f"""
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px 20px; margin: 18px 0 22px 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; border-bottom: 1px solid #e2e8f0; padding-bottom: 10px;">
+                <div style="font-weight: 700; font-size: 0.96rem; color: #1e3a63; display: flex; align-items: center; gap: 8px;">
+                    {titulo_correspondencia}
+                </div>
+                <div style="font-size: 0.78rem; background: #e2e8f0; color: #334155; padding: 4px 12px; border-radius: 12px; font-weight: 600;">
+                    Estado: {s_completadas} completadas ({s_pct_av}) · {s_parc} parcial ({s_pct_par}) · {s_pend} pendientes ({s_pct_pend})
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px;">
+                <div style="background: #ffffff; border: 1px solid #e2e8f0; border-top: 4px solid #12263f; border-radius: 12px; padding: 18px 16px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
+                    <div style="font-size: 0.78rem; font-weight: 700; color: #12263f; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px;">
+                        1. Nivel Estudiantes (Personas)
                     </div>
-                    <div style="font-size: 0.78rem; background: #e2e8f0; color: #334155; padding: 4px 12px; border-radius: 12px; font-weight: 600;">
-                        Estado: {completadas:,} completadas ({porcentaje_avance:.1f}%) · {c_parcial:,} parcial ({pct_parcial:.1f}%) · {pendientes:,} pendientes ({pct_pendientes:.1f}%)
+                    <div style="font-size: 1.60rem; font-weight: 800; color: #12263f; margin-bottom: 6px; line-height: 1.2;">
+                        {s_alu_conv} <span style="font-size: 0.85rem; font-weight: 500; color: #64748b;">convocados</span>
+                    </div>
+                    <div style="font-size: 0.82rem; color: #475569; line-height: 1.5;">
+                        {desc_tarjeta1}
                     </div>
                 </div>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px;">
-                    <div style="background: #ffffff; border: 1px solid #e2e8f0; border-top: 3px solid #12263f; border-radius: 8px; padding: 14px 16px;">
-                        <div style="font-size: 0.74rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em;">
-                            1. Nivel Estudiantes (Personas)
-                        </div>
-                        <div style="font-size: 1.25rem; font-weight: 800; color: #12263f; margin: 4px 0;">
-                            {alumnos_convocados:,} <span style="font-size: 0.8rem; font-weight: 500; color: #64748b;">convocados</span>
-                        </div>
-                        <div style="font-size: 0.80rem; color: #475569; line-height: 1.45;">
-                            <strong>{alumnos_respondieron:,}</strong> alumnos completaron evaluaciones (<strong>{pct_alumnos:.1f}%</strong> de participación activa). Restan {alumnos_restantes:,} sin participar.
-                        </div>
+                <div style="background: #ffffff; border: 1px solid #e2e8f0; border-top: 4px solid #245ea8; border-radius: 12px; padding: 18px 16px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
+                    <div style="font-size: 0.78rem; font-weight: 700; color: #245ea8; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px;">
+                        2. Nivel Asignaturas (Materias)
                     </div>
-                    <div style="background: #ffffff; border: 1px solid #e2e8f0; border-top: 3px solid #245ea8; border-radius: 8px; padding: 14px 16px;">
-                        <div style="font-size: 0.74rem; font-weight: 700; color: #245ea8; text-transform: uppercase; letter-spacing: 0.04em;">
-                            2. Nivel Asignaturas (Materias)
-                        </div>
-                        <div style="font-size: 1.25rem; font-weight: 800; color: #245ea8; margin: 4px 0;">
-                            {mat_respondidas:,} <span style="font-size: 0.8rem; font-weight: 500; color: #64748b;">/ {mat_esperadas:,} materias</span>
-                        </div>
-                        <div style="font-size: 0.80rem; color: #475569; line-height: 1.45;">
-                            <strong>{pct_mat:.1f}%</strong> de materias respondidas. Cada estudiante cursa en promedio ~6 materias en su malla curricular.
-                        </div>
+                    <div style="font-size: 1.60rem; font-weight: 800; color: #245ea8; margin-bottom: 6px; line-height: 1.2;">
+                        {val_tarjeta2} <span style="font-size: 0.85rem; font-weight: 500; color: #64748b;">{span_tarjeta2}</span>
                     </div>
-                    <div style="background: #ffffff; border: 1px solid #e2e8f0; border-top: 3px solid #17845f; border-radius: 8px; padding: 14px 16px;">
-                        <div style="font-size: 0.74rem; font-weight: 700; color: #17845f; text-transform: uppercase; letter-spacing: 0.04em;">
-                            3. Asignaciones Docentes (EV1)
-                        </div>
-                        <div style="font-size: 1.25rem; font-weight: 800; color: #17845f; margin: 4px 0;">
-                            {completadas:,} <span style="font-size: 0.8rem; font-weight: 500; color: #64748b;">/ {total_esperadas:,} asignaciones</span>
-                        </div>
-                        <div style="font-size: 0.80rem; color: #475569; line-height: 1.45;">
-                            <strong>{porcentaje_avance:.1f}%</strong> respondidas. Comprende a los docentes de la sede <strong>{escape(str(sede))}</strong> (<strong>213 titulares que culminaron cátedra</strong> en el Escenario A Rector). <em>Consulte detalles en la pestaña <strong>Explicación</strong></em>.
-                        </div>
+                    <div style="font-size: 0.82rem; color: #475569; line-height: 1.5;">
+                        {desc_tarjeta2}
+                    </div>
+                </div>
+                <div style="background: #ffffff; border: 1px solid #e2e8f0; border-top: 4px solid #17845f; border-radius: 12px; padding: 18px 16px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
+                    <div style="font-size: 0.78rem; font-weight: 700; color: #17845f; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px;">
+                        3. Asignaciones Docentes (EV1)
+                    </div>
+                    <div style="font-size: 1.60rem; font-weight: 800; color: #17845f; margin-bottom: 6px; line-height: 1.2;">
+                        {s_completadas} <span style="font-size: 0.85rem; font-weight: 500; color: #64748b;">/ {s_total_esp} asignaciones</span>
+                    </div>
+                    <div style="font-size: 0.82rem; color: #475569; line-height: 1.5;">
+                        {desc_tarjeta3}
                     </div>
                 </div>
             </div>
-            """.replace(",", "."),
-            unsafe_allow_html=True,
-        )
-    else:
-        st.caption(f"Estado de la selección: **{completadas:,}** completadas ({porcentaje_avance:.1f}%) · **{c_parcial:,}** parcial ({pct_parcial:.1f}%) · **{pendientes:,}** pendientes ({pct_pendientes:.1f}%)".replace(",", "."))
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     st.divider()
 
     # Layout de dos columnas: gráfico/tabla izquierda vs donut/participación derecha
@@ -825,10 +898,12 @@ def _render_subvista_avance_general(
             )
             fig_mat.update_layout(
                 height=max(220, len(resumen_materia) * 45),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
                 xaxis_title="Porcentaje de avance (%)",
                 yaxis_title=None,
                 coloraxis_showscale=False,
-                hoverlabel=dict(bgcolor="white", bordercolor="#dbe3ed", font_size=12),
+                hoverlabel=dict(font_size=12),
                 margin=dict(l=10, r=40, t=10, b=10),
             )
             st.plotly_chart(fig_mat, use_container_width=True, key="ev1_grafico_materias")
@@ -843,7 +918,7 @@ def _render_subvista_avance_general(
                     labels=["Completadas", "Abiertas"],
                     values=[completadas, abiertas],
                     hole=0.68,
-                    marker=dict(colors=["#245ea8", "#e4eaf2"]),
+                    marker=dict(colors=["#245ea8", "rgba(100, 116, 139, 0.25)"]),
                     textinfo="none",
                     sort=False,
                     hovertemplate=(
@@ -857,10 +932,12 @@ def _render_subvista_avance_general(
         )
         fig_donut.update_layout(
             height=240,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
             margin=dict(l=10, r=10, t=10, b=10),
             showlegend=True,
             legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5),
-            hoverlabel=dict(bgcolor="white", bordercolor="#dbe3ed", font_size=12),
+            hoverlabel=dict(font_size=12),
             annotations=[
                 dict(
                     text=f"<b>{_formatear_porcentaje(porcentaje_avance)}</b>",
@@ -875,14 +952,24 @@ def _render_subvista_avance_general(
         st.caption("*Toque el gráfico de dona para ver la proporción y cantidad exacta de evaluaciones completadas vs abiertas.*")
 
         st.markdown("##### Estado de participación de alumnos")
-        if not filtros_activos and fila_general is not None:
-            total_alu = alumnos_convocados
-            completaron_todo = int(fila_general.get("alumnos_unicos_que_respondieron_todas", 0))
-            al_menos_una = int(fila_general.get("alumnos_unicos_que_respondieron_al_menos_una", 0))
-            sin_iniciar = max(total_alu - al_menos_una, 0)
-            parcial = max(al_menos_una - completaron_todo, 0)
+        df_target_alu = df_filtrado if filtros_activos else df_base
+        id_col_target = id_col if filtros_activos else id_col_base
+        if df_target_alu is not None and not df_target_alu.empty:
+            comp_series_target = (df_target_alu["estado"] == "Completada") if "estado" in df_target_alu.columns else (df_target_alu["respondio"] == True)
+            resumen_alumnos = (
+                df_target_alu.assign(_comp=comp_series_target).groupby(id_col_target)
+                .agg(
+                    total=("_comp", "count"),
+                    completadas=("_comp", "sum"),
+                )
+                .reset_index()
+            )
+            total_alu = len(resumen_alumnos)
+            completaron_todo = int((resumen_alumnos["completadas"] == resumen_alumnos["total"]).sum())
+            sin_iniciar = int((resumen_alumnos["completadas"] == 0).sum())
+            parcial = max(total_alu - completaron_todo - sin_iniciar, 0)
 
-            pct_todo = float(fila_general.get("porcentaje_avance_alumnos_todas", 0.0))
+            pct_todo = (completaron_todo / total_alu * 100.0) if total_alu > 0 else 0.0
             pct_parcial = (parcial / total_alu * 100.0) if total_alu > 0 else 0.0
             pct_sin = (sin_iniciar / total_alu * 100.0) if total_alu > 0 else 0.0
 
@@ -892,31 +979,7 @@ def _render_subvista_avance_general(
             st.progress(min(max(pct_parcial / 100.0, 0.0), 1.0))
             st.write(f"**Sin iniciar:** {sin_iniciar:,} ({pct_sin:.1f}%)".replace(",", "."))
             st.progress(min(max(pct_sin / 100.0, 0.0), 1.0))
-        elif total_esperadas > 0:
-            id_col = "system_id" if "system_id" in df_filtrado.columns else "alumno"
-            resumen_alumnos = (
-                df_filtrado.groupby(id_col)
-                .agg(
-                    total=("estado", "count"),
-                    completadas=("estado", lambda s: (s == "Completada").sum()),
-                )
-                .reset_index()
-            )
-            total_alu = len(resumen_alumnos)
-            completaron_todo = int((resumen_alumnos["completadas"] == resumen_alumnos["total"]).sum())
-            sin_iniciar = int((resumen_alumnos["completadas"] == 0).sum())
-            parcial = max(total_alu - completaron_todo - sin_iniciar, 0)
 
-            pct_todo = (completaron_todo / total_alu * 100.0) if total_alu > 0 else 0
-            pct_parcial = (parcial / total_alu * 100.0) if total_alu > 0 else 0
-            pct_sin = (sin_iniciar / total_alu * 100.0) if total_alu > 0 else 0
-
-            st.write(f"**Completaron todo:** {completaron_todo:,} ({pct_todo:.1f}%)".replace(",", "."))
-            st.progress(min(max(pct_todo / 100.0, 0.0), 1.0))
-            st.write(f"**Avance parcial:** {parcial:,} ({pct_parcial:.1f}%)".replace(",", "."))
-            st.progress(min(max(pct_parcial / 100.0, 0.0), 1.0))
-            st.write(f"**Sin iniciar:** {sin_iniciar:,} ({pct_sin:.1f}%)".replace(",", "."))
-            st.progress(min(max(pct_sin / 100.0, 0.0), 1.0))
 
     # Detalle del universo de evaluación a ancho completo
     st.divider()
@@ -983,7 +1046,7 @@ def _render_subvista_avance_general(
                 ),
                 "Grupo": st.column_config.TextColumn(
                     "Grupo",
-                    help="Grupo académico (Teoría, Laboratorio, MO, MS, etc.).",
+                    help="Grupo o comisión académica: Teoría o clases prácticas vinculadas a aulas o laboratorios (G1, G2, G3, G1-Sub 01, G1-MO, G1-MS, simulación, etc.).",
                 ),
                 "Docente": st.column_config.TextColumn(
                     "Docente",
@@ -1135,9 +1198,11 @@ def _render_subvista_por_alumno(df_filtrado: pd.DataFrame):
         )
         fig_donut_part.update_layout(
             height=290,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
             margin=dict(l=15, r=15, t=35, b=20),
             showlegend=False,
-            hoverlabel=dict(bgcolor="white", bordercolor="#dbe3ed", font_size=12),
+            hoverlabel=dict(font_size=12),
         )
         st.plotly_chart(fig_donut_part, use_container_width=True, key="ev1_grafico_donut_part")
 
@@ -1175,12 +1240,14 @@ def _render_subvista_por_alumno(df_filtrado: pd.DataFrame):
         )
         fig_bar_part.update_layout(
             height=290,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
             showlegend=False,
             xaxis_range=[0, max_alu * 1.25],
             margin=dict(l=10, r=80, t=10, b=10),
             xaxis_title="Cantidad de alumnos",
             yaxis_title=None,
-            hoverlabel=dict(bgcolor="white", bordercolor="#dbe3ed", font_size=12),
+            hoverlabel=dict(font_size=12),
         )
         st.plotly_chart(fig_bar_part, use_container_width=True, key="ev1_grafico_bar_part")
         st.caption("*Toque los gráficos para visualizar las cantidades y porcentajes de estudiantes en cada nivel de participación.*")
@@ -1342,11 +1409,11 @@ def _render_subvista_materia_seccion_grupo(
             color_borde="#dbe3ed",
         )
     with k2:
-        detalle_doc = "213 titulares rector" if not filtros_activos else f"{n_docentes} docentes filtrados"
+        detalle_doc = f"{n_docentes} docentes normales" if not filtros_activos else f"{n_docentes} docentes filtrados"
         _render_kpi_card_ev1(
             "Docentes a evaluar",
             str(n_docentes),
-            ayuda="Cantidad de profesores asignados a estas ofertas académicas según el Modelo Rector (Escenario A: 213 titulares que culminaron cátedra).",
+            ayuda="Cantidad de profesores con planificación normal (tipo_planificacion = 1) asignados a estas ofertas académicas.",
             detalle=detalle_doc,
             color_acento="#245ea8",
             color_fondo="#eaf2fb",
@@ -1579,7 +1646,7 @@ def _render_subvista_resultados_ev1(
         df_dim_activos = pd.DataFrame()
         st.warning(
             "El docente o criterio filtrado no cuenta con calificaciones psicométricas directas en el ERP "
-            "(sus respuestas fueron procesadas técnicamente bajo la titularidad de cátedra; consulte la pestaña **Explicación**)."
+            "(sus respuestas fueron procesadas técnicamente bajo la titularidad de cátedra; consulte la pestaña **Guía Metodológica**)."
         )
     else:
         # Modo consolidado institucional general (sin filtros activos)
@@ -1711,9 +1778,11 @@ def _render_subvista_resultados_ev1(
         )
         fig_dim.update_layout(
             height=260,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
             xaxis_title="Puntaje promedio (1 a 5)",
             yaxis_title=None,
-            hoverlabel=dict(bgcolor="white", bordercolor="#dbe3ed", font_size=12),
+            hoverlabel=dict(font_size=12),
             margin=dict(l=10, r=40, t=10, b=10),
         )
         st.plotly_chart(fig_dim, use_container_width=True, key="ev1_grafico_dimensiones")
@@ -1811,10 +1880,12 @@ def _render_subvista_resultados_ev1(
         )
         fig_dist.update_layout(
             height=220,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
             showlegend=False,
             xaxis_title="Porcentaje (%)",
             yaxis_title=None,
-            hoverlabel=dict(bgcolor="white", bordercolor="#dbe3ed", font_size=12),
+            hoverlabel=dict(font_size=12),
             margin=dict(l=10, r=20, t=10, b=10),
         )
         st.plotly_chart(fig_dist, use_container_width=True, key="ev1_grafico_distribucion")
@@ -1823,15 +1894,15 @@ def _render_subvista_resultados_ev1(
         st.markdown("##### Lectura ejecutiva")
         st.markdown(
             f"""
-            <div style="background: #ffffff; border: 1px solid #dbe3ed; border-radius: 10px; padding: 14px; margin-bottom: 12px;">
+            <div style="background: var(--portal-bg-card, #ffffff); border: 1px solid var(--portal-border-color, #dbe3ed); border-radius: 10px; padding: 14px; margin-bottom: 12px;">
                 <span style="font-size: 0.8rem; color: #65738a; font-weight: 600;">Mayor fortaleza</span><br>
                 <strong style="color: #17845f; font-size: 0.95rem;">{escape(dim_mejor)}</strong>
-                <p style="margin: 4px 0 0 0; font-size: 0.95rem; font-weight: 750;">{_formatear_puntaje(score_mejor)} / 5,00</p>
+                <p style="margin: 4px 0 0 0; font-size: 0.95rem; font-weight: 750; color: var(--portal-text-primary, inherit);">{_formatear_puntaje(score_mejor)} / 5,00</p>
             </div>
-            <div style="background: #ffffff; border: 1px solid #dbe3ed; border-radius: 10px; padding: 14px;">
+            <div style="background: var(--portal-bg-card, #ffffff); border: 1px solid var(--portal-border-color, #dbe3ed); border-radius: 10px; padding: 14px;">
                 <span style="font-size: 0.8rem; color: #65738a; font-weight: 600;">Principal oportunidad de mejora</span><br>
                 <strong style="color: #b87908; font-size: 0.95rem;">{escape(dim_oportunidad)}</strong>
-                <p style="margin: 4px 0 0 0; font-size: 0.95rem; font-weight: 750;">{_formatear_puntaje(score_oportunidad)} / 5,00</p>
+                <p style="margin: 4px 0 0 0; font-size: 0.95rem; font-weight: 750; color: var(--portal-text-primary, inherit);">{_formatear_puntaje(score_oportunidad)} / 5,00</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -1917,7 +1988,7 @@ def _render_subvista_por_docente(
             docente_elegido = docentes_disponibles[0]
         st.caption(
             f"Mostrando análisis individual del docente seleccionado en la barra superior: **{escape(docente_elegido)}** "
-            f"(universo rector oficial de **213 docentes que culminaron cátedra**)."
+            f"(universo oficial de docentes con planificación normal: **tipo_planificacion = 1**)."
         )
     else:
         docente_elegido = docentes_disponibles[0]
@@ -2032,10 +2103,12 @@ def _render_subvista_por_docente(
     )
     fig_doc_dim.update_layout(
         height=280,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
         margin=dict(l=10, r=40, t=10, b=10),
         xaxis_title="Puntaje promedio (1 a 5)",
         yaxis_title=None,
-        hoverlabel=dict(bgcolor="white", bordercolor="#dbe3ed", font_size=12),
+        hoverlabel=dict(font_size=12),
     )
     st.plotly_chart(fig_doc_dim, use_container_width=True, key="ev1_grafico_doc_dim")
     st.caption("*Toque cualquier barra para ver la calificación obtenida por el profesor en cada dimensión.*")
@@ -2433,7 +2506,7 @@ def _render_subvista_analisis_pedagogico(
             )
         else:
             st.warning(
-                f"El docente **{escape(docente_seleccionado)}** no cuenta con calificaciones psicométricas directas registradas en el ERP (sus respuestas de encuestas fueron consolidadas técnicamente bajo la titularidad de cátedra; consulte la pestaña **Explicación**)."
+                f"El docente **{escape(docente_seleccionado)}** no cuenta con calificaciones psicométricas directas registradas en el ERP (sus respuestas de encuestas fueron consolidadas técnicamente bajo la titularidad de cátedra; consulte la pestaña **Guía Metodológica**)."
             )
 
     # --------------------------------------------------------------------------
@@ -2441,38 +2514,37 @@ def _render_subvista_analisis_pedagogico(
     # --------------------------------------------------------------------------
     fila_res = load_resultado_general(sede, periodo, carrera, tipo)
     n_resp_auditadas = int(fila_res.get("n_respuestas_validas", 668224)) if fila_res is not None and fila_res.get("n_respuestas_validas") is not None else 668224
-    n_doc_auditados = int(fila_res.get("n_docentes_evaluados", 216)) if fila_res is not None and fila_res.get("n_docentes_evaluados") is not None else 216
 
     st.divider()
     st.markdown("#### Origen de los Datos, Escala y Metodología de Cálculo")
 
+    s_resp_auditadas = f"{n_resp_auditadas:,}".replace(",", ".")
     col_orig1, col_orig2 = st.columns([1.1, 1.3])
     with col_orig1:
         st.markdown(
             f"""
-            <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px 18px; height: 100%;">
-                <h6 style="color: #1e3a63; margin-top: 0; margin-bottom: 10px; font-weight: 700;">
+            <div style="background-color: var(--portal-bg-card-subtle, #f8fafc); border: 1px solid var(--portal-border-color, #e2e8f0); border-radius: 10px; padding: 16px 18px; height: 100%;">
+                <h6 style="color: var(--portal-accent, #1e3a63); margin-top: 0; margin-bottom: 10px; font-weight: 700;">
                     Fuente y Origen Oficial de los Datos
                 </h6>
-                <ul style="margin: 0; padding-left: 18px; font-size: 0.84rem; color: #475569; line-height: 1.6;">
+                <ul style="margin: 0; padding-left: 18px; font-size: 0.84rem; color: var(--portal-text-primary, #475569); line-height: 1.6;">
                     <li><strong>Instrumento:</strong> Encuesta oficial EV1 (Opinión del Estudiante sobre el Desempeño Docente).</li>
                     <li><strong>Población evaluada:</strong> Estudiantes matriculados que cursaron materias en el periodo (Sede {escape(sede)}, Carrera {escape(carrera)}).</li>
-                    <li><strong>Respuestas válidas procesadas:</strong> <strong style="color: #17845f;">{n_resp_auditadas:,}</strong> respuestas a ítems computadas.</li>
-                    <li><strong>Docentes evaluados:</strong> <strong>{n_doc_auditados}</strong> profesores con respuestas válidas registradas en el ERP (en el <strong>Escenario A Recomendado</strong> corresponden a <strong>213 titulares que culminaron cátedra</strong>; consulte la matriz comparativa y auditoría en la pestaña <strong>Explicación</strong>).</li>
+                    <li><strong>Respuestas válidas procesadas:</strong> <strong style="color: #17845f;">{s_resp_auditadas}</strong> respuestas a ítems computadas.</li>
                 </ul>
             </div>
-            """.replace(",", "."),
+            """,
             unsafe_allow_html=True,
         )
 
     with col_orig2:
         st.markdown(
             """
-            <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px 18px; height: 100%;">
-                <h6 style="color: #1e3a63; margin-top: 0; margin-bottom: 10px; font-weight: 700;">
+            <div style="background-color: var(--portal-bg-card-subtle, #f8fafc); border: 1px solid var(--portal-border-color, #e2e8f0); border-radius: 10px; padding: 16px 18px; height: 100%;">
+                <h6 style="color: var(--portal-accent, #1e3a63); margin-top: 0; margin-bottom: 10px; font-weight: 700;">
                     Escala de Valoración (Likert 1 a 5)
                 </h6>
-                <p style="margin: 0 0 10px 0; font-size: 0.84rem; color: #475569; line-height: 1.45;">
+                <p style="margin: 0 0 10px 0; font-size: 0.84rem; color: var(--portal-text-primary, #475569); line-height: 1.45;">
                     Cada estudiante califica los criterios en una escala ordinal estandarizada de 5 niveles:
                 </p>
                 <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; text-align: center;">
@@ -2504,33 +2576,33 @@ def _render_subvista_analisis_pedagogico(
 
     st.markdown(
         """
-        <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px 20px; margin-top: 14px; box-shadow: 0 1px 4px rgba(0,0,0,0.02);">
-            <h6 style="color: #1e3a63; margin-top: 0; margin-bottom: 10px; font-weight: 700;">
+        <div style="background-color: var(--portal-bg-card, #ffffff); border: 1px solid var(--portal-border-color, #e2e8f0); border-radius: 10px; padding: 18px 20px; margin-top: 14px; box-shadow: 0 1px 4px rgba(0,0,0,0.02);">
+            <h6 style="color: var(--portal-accent, #1e3a63); margin-top: 0; margin-bottom: 10px; font-weight: 700;">
                 Fórmulas y Jerarquía de Cálculo del Modelo Pedagógico
             </h6>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; font-size: 0.84rem; color: #334155; line-height: 1.55;">
-                <div style="background: #f8fafc; border-left: 3px solid #245ea8; border-radius: 6px; padding: 10px 14px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; font-size: 0.84rem; color: var(--portal-text-primary, #334155); line-height: 1.55;">
+                <div style="background: var(--portal-bg-card-subtle, #f8fafc); border-left: 3px solid #245ea8; border-radius: 6px; padding: 10px 14px;">
                     <strong style="color: #245ea8; display: block; margin-bottom: 4px;">1. Criterios (16 Criterios Específicos)</strong>
                     Se calculan como el promedio aritmético directo de todas las puntuaciones válidas (1 a 5) otorgadas por los estudiantes a cada pregunta:<br>
-                    <code style="background: #ffffff; padding: 2px 6px; border-radius: 4px; color: #0f172a; font-weight: 600;">
+                    <code style="background: var(--portal-bg-card, #ffffff); border: 1px solid var(--portal-border-color, #e2e8f0); padding: 2px 6px; border-radius: 4px; color: var(--portal-text-primary, #0f172a); font-weight: 600;">
                         Promedio Criterio = Σ(Puntajes respondidos) / Total respuestas válidas
                     </code>
                 </div>
-                <div style="background: #f8fafc; border-left: 3px solid #17845f; border-radius: 6px; padding: 10px 14px;">
+                <div style="background: var(--portal-bg-card-subtle, #f8fafc); border-left: 3px solid #17845f; border-radius: 6px; padding: 10px 14px;">
                     <strong style="color: #17845f; display: block; margin-bottom: 4px;">2. Indicadores (10 Indicadores Pedagógicos)</strong>
                     Agrupan criterios afines y se calculan como el promedio ponderado de sus criterios asociados:<br>
-                    <code style="background: #ffffff; padding: 2px 6px; border-radius: 4px; color: #0f172a; font-weight: 600;">
+                    <code style="background: var(--portal-bg-card, #ffffff); border: 1px solid var(--portal-border-color, #e2e8f0); padding: 2px 6px; border-radius: 4px; color: var(--portal-text-primary, #0f172a); font-weight: 600;">
                         Promedio Indicador = Promedio(Criterios que lo integran)
                     </code>
                 </div>
-                <div style="background: #f8fafc; border-left: 3px solid #7654a8; border-radius: 6px; padding: 10px 14px;">
+                <div style="background: var(--portal-bg-card-subtle, #f8fafc); border-left: 3px solid #7654a8; border-radius: 6px; padding: 10px 14px;">
                     <strong style="color: #7654a8; display: block; margin-bottom: 4px;">3. Dimensiones (5 Macro-Ejes Institucionales)</strong>
                     Sintetizan los indicadores en los 5 ejes formativos (Planificación, Recursos, Comunicación, Evaluación y Puntualidad):<br>
-                    <code style="background: #ffffff; padding: 2px 6px; border-radius: 4px; color: #0f172a; font-weight: 600;">
+                    <code style="background: var(--portal-bg-card, #ffffff); border: 1px solid var(--portal-border-color, #e2e8f0); padding: 2px 6px; border-radius: 4px; color: var(--portal-text-primary, #0f172a); font-weight: 600;">
                         Promedio Dimensión = Promedio(Indicadores de la dimensión)
                     </code>
                 </div>
-                <div style="background: #f8fafc; border-left: 3px solid #b87908; border-radius: 6px; padding: 10px 14px;">
+                <div style="background: var(--portal-bg-card-subtle, #f8fafc); border-left: 3px solid #b87908; border-radius: 6px; padding: 10px 14px;">
                     <strong style="color: #b87908; display: block; margin-bottom: 4px;">4. Semáforo y Descriptores Cualitativos</strong>
                     Los descriptores institucionales clasifican el nivel de desempeño según el puntaje alcanzado:<br>
                     <span style="font-size: 0.78rem;">
@@ -2548,18 +2620,16 @@ def _render_subvista_analisis_pedagogico(
 
 
 # ==============================================================================
-# SUB-PESTAÑA 7: EXPLICACIÓN Y GUÍA METODOLÓGICA DE INDICADORES EV1
+# SUB-PESTAÑA 7: GUÍA METODOLÓGICA DE INDICADORES EV1
 # ==============================================================================
 
-def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=None):
+def _render_subvista_guia_metodologica(df_base=None, df_detalle=None, fila_general=None, sede="Ciudad del Este"):
     """
-    Sub-vista explicativa y de auditoría metodológica de la encuesta EV1:
-    - Escenario A (Recomendado): Modelo Rector de 213 titulares que culminaron cátedra (1.174 ofertas rectoras).
-    - Matriz comparativa de escenarios metodológicos (213 vs 211 vs 212 vs malla física actual).
-    - Documentación de casos auditados en ERP (Andrea Romero, María Bordaberry, Gessica Ordano, 42 mixtos).
+    Sub-vista de Guía Metodológica y auditoría institucional de la encuesta EV1:
+    - Universo Docente Oficial: Planificación curricular normal (tipo_planificacion = 1).
     - Jerarquía de 3 niveles de cifras (Estudiantes -> Materias -> Asignaciones a Docentes).
     - Semáforo institucional de cobertura de ofertas (>=80%, 50-79.9%, <50%).
-    - Resolución metodológica de cátedras compartidas y reemplazos curriculares.
+    - Cátedra compartida y consistencia de asignaciones.
     - Confidencialidad y anonimato institucional.
     - Glosario de términos y métricas de desempeño.
     """
@@ -2569,7 +2639,7 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
                 <div>
                     <h4 style="margin: 0; font-size: 1.35rem; font-weight: 800; letter-spacing: -0.01em; color: #ffffff;">
-                        Guía Metodológica y Explicación de Indicadores EV1
+                        Guía Metodológica de Indicadores EV1
                     </h4>
                     <p style="margin: 6px 0 0 0; font-size: 0.88rem; color: #c7d5e8; line-height: 1.45;">
                         Documentación técnica y metodológica sobre la jerarquía de cifras, el universo docente, las reglas de co-docencia y los semáforos institucionales de la evaluación estudiantil.
@@ -2585,191 +2655,156 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
     )
 
     # --------------------------------------------------------------------------
-    # 1. UNIVERSO DOCENTE: MODELO RECTOR DE 213 TITULARES (ESCENARIO A - RECOMENDADO)
+    # CÁLCULOS DINÁMICOS Y SINCRONIZACIÓN INSTITUCIONAL DE CIFRAS REALES (V1 / V2)
     # --------------------------------------------------------------------------
-    st.markdown("#### 1. Universo Docente: Modelo Rector de 213 Titulares que Culminaron Cátedra (Escenario A - Recomendado)")
-    st.caption("Estructura metodológica definitiva que resuelve el cuadre analítico entre la planificación académica, la captura de encuestas y el procesamiento de resultados en el ERP:")
+    # 1. Universo Docente Oficial (Planificación normal tipo 1)
+    if df_detalle is not None and not df_detalle.empty and "docente" in df_detalle.columns:
+        n_docentes_oficial = int(df_detalle["docente"].dropna().nunique())
+    elif df_base is not None and not df_base.empty and "docente" in df_base.columns:
+        n_docentes_oficial = int(df_base["docente"].dropna().nunique())
+    else:
+        n_docentes_oficial = 217
 
-    c_doc1, c_doc2, c_doc3 = st.columns(3)
-    with c_doc1:
-        st.markdown(
-            """
-            <div style="background: #ffffff; border: 1px solid #dbe3ed; border-top: 4px solid #17845f; border-radius: 10px; padding: 16px 18px; height: 100%; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
-                <div style="font-size: 0.76rem; font-weight: 700; color: #17845f; text-transform: uppercase; letter-spacing: 0.04em;">
-                    Modelo Rector Recomendado
-                </div>
-                <div style="font-size: 1.85rem; font-weight: 800; color: #17845f; margin: 4px 0;">
-                    213 <span style="font-size: 0.88rem; font-weight: 600; color: #475569;">docentes</span>
-                </div>
-                <div style="font-size: 0.84rem; color: #1e293b; font-weight: 700; margin-bottom: 6px;">
-                    Titulares que Culminaron Cátedra
-                </div>
-                <div style="font-size: 0.80rem; color: #475569; line-height: 1.5;">
-                    Comprende a los <strong>211 docentes titulares originales</strong> (169 puros + 42 mixtos) más las <strong>2 docentes que asumieron y culminaron la planificación académica</strong> hasta el 13/06/2026 (Romero y Bordaberry). Representa <strong>1.174 ofertas académicas rectoras</strong> con <strong>41.617 evaluaciones respondidas</strong> (67,08% de avance).
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with c_doc2:
-        st.markdown(
-            """
-            <div style="background: #ffffff; border: 1px solid #dbe3ed; border-top: 4px solid #1e3a63; border-radius: 10px; padding: 16px 18px; height: 100%; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
-                <div style="font-size: 0.76rem; font-weight: 700; color: #1e3a63; text-transform: uppercase; letter-spacing: 0.04em;">
-                    Malla Inicial
-                </div>
-                <div style="font-size: 1.85rem; font-weight: 800; color: #1e3a63; margin: 4px 0;">
-                    211 <span style="font-size: 0.88rem; font-weight: 600; color: #475569;">docentes</span>
-                </div>
-                <div style="font-size: 0.84rem; color: #1e293b; font-weight: 700; margin-bottom: 6px;">
-                    Titulares Originales del Día 1
-                </div>
-                <div style="font-size: 0.80rem; color: #475569; line-height: 1.5;">
-                    Profesores con fecha de apertura 09/02/2026 (169 titulares puros + 42 mixtos en sus cátedras titulares, <strong>1.171 ofertas</strong>). El <strong>100% de estos 211 profesores (211 de 211)</strong> cuenta con cuestionarios psicométricos de alumnos registrados a su propio nombre en el ERP.
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with c_doc3:
-        st.markdown(
-            """
-            <div style="background: #ffffff; border: 1px solid #dbe3ed; border-top: 4px solid #64748b; border-radius: 10px; padding: 16px 18px; height: 100%; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
-                <div style="font-size: 0.76rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em;">
-                    Auditoría Técnica de Malla
-                </div>
-                <div style="font-size: 1.85rem; font-weight: 800; color: #334155; margin: 4px 0;">
-                    217 / 216 <span style="font-size: 0.84rem; font-weight: 600; color: #64748b;">registros</span>
-                </div>
-                <div style="font-size: 0.84rem; color: #1e293b; font-weight: 700; margin-bottom: 6px;">
-                    Malla Física y Notas en ERP
-                </div>
-                <div style="font-size: 0.80rem; color: #475569; line-height: 1.5;">
-                    Los <strong>217</strong> en Biometría incluían a 4 docentes de reemplazo interino. Los <strong>216</strong> registros en ERP corresponden a <strong>214 personas físicas únicas con notas</strong> (211 titulares + 3 reemplazantes con notas directas), donde 2 docentes figuran duplicados por inconsistencias tipográficas en ERP.
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    # 2. Ofertas Académicas Oficiales
+    if df_detalle is not None and not df_detalle.empty:
+        n_ofertas_oficial = len(df_detalle)
+    else:
+        n_ofertas_oficial = 1289
 
-    # Matriz comparativa de escenarios y casos auditados
-    st.markdown(
-        """
-        <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-left: 4px solid #17845f; border-radius: 8px; padding: 16px 20px; margin-top: 16px; font-size: 0.84rem; color: #1e293b; line-height: 1.6;">
-            <div style="font-size: 0.92rem; font-weight: 800; color: #0f172a; margin-bottom: 8px;">
-                Matriz Comparativa de Escenarios y Auditoría de Cátedras
-            </div>
-            <div style="overflow-x: auto; margin-bottom: 12px;">
-                <table style="width: 100%; border-collapse: collapse; font-size: 0.80rem; text-align: left;">
-                    <thead>
-                        <tr style="background: #1e3a63; color: #ffffff;">
-                            <th style="padding: 6px 10px; border: 1px solid #cbd5e1;">Escenario Metodológico</th>
-                            <th style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center;">Docentes</th>
-                            <th style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center;">Ofertas</th>
-                            <th style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center;">Avance de Alumnos</th>
-                            <th style="padding: 6px 10px; border: 1px solid #cbd5e1;">Situación en Base de Datos ERP</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr style="background: #eff6ff; font-weight: 700;">
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; color: #1e3a63;">Escenario A (Recomendado): 213 Titulares que Culminaron Cátedra</td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center; color: #17845f;">213</td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center; color: #1e3a63;">1.174</td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center;">41.617 / 62.043 (67,08%)</td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1;">Cuadre exacto con las cátedras que finalizaron semestre con los alumnos.</td>
-                        </tr>
-                        <tr style="background: #ffffff;">
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1;">Escenario B: Solo Titulares Originales (Día 1)</td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center;">211</td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center;">1.171</td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center;">41.595 / 62.018 (67,07%)</td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1;">100% directo: Los 211 cuentan con evaluaciones directas en ERP.</td>
-                        </tr>
-                        <tr style="background: #f8fafc;">
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1;">Escenario C: Filtro Estricto de Ficha Propia en ERP</td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center;">212</td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center;">1.172</td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center;">41.595 / 62.018 (67,07%)</td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1;">Excluye a Romero (cuyas respuestas se cargaron bajo la titular de cirugía).</td>
-                        </tr>
-                        <tr style="background: #ffffff; color: #64748b;">
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1;">Estado Actual Malla Física (Sin ajustes, con bug drop_duplicates)</td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center;">217 / 213</td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center;">1.289</td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: center;">44.488 / 66.279 (67,12%)</td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1;">Descuadrado por deduplicación ciega y 2 registros duplicados en ERP.</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-            <strong>Auditoría de Casos Específicos y Resolución de Duplicados en ERP:</strong><br>
-            • <strong>Dra. Andrea Araceli Romero Giménez (Clínica Quirúrgica I, Sec. A, G1/G2-Sub 01)</strong>:
-              Asumió la comisión práctica el 01/03/2026 en relevo de la Dra. Mónica Mabel Vieth García y <strong>dictó las clases hasta culminar el ciclo lectivo el 13/06/2026</strong>. 22 de sus 25 alumnos respondieron la encuesta (88,0% de avance).
-              <em>¿Por qué no tuvo ficha propia en <code>resultado_por_docente</code>?</em> Porque en el ERP (<code>Academico.RespuestaUsuario</code>) el formulario de evaluación de esa cátedra quedó precargado bajo el identificador de la titular (Dra. Vieth); las respuestas de los 22 alumnos se almacenaron técnicamente bajo la titular, computándole 0 respuestas a nombre de Romero. Sin embargo, en <code>avance_por_alumno</code> la Dra. Romero sí figuró al frente de esas 25 asignaciones, y al haber culminado el ciclo lectivo con pleno avance, es parte ineludible de los <strong>213 titulares del Modelo Rector</strong>.<br>
-            • <strong>Los 2 Registros Duplicados en ERP (216 filas = 214 personas físicas con notas)</strong>:
-              Al auditar <code>resultado_por_docente</code> por código único de docente, se evidenció que existen 214 profesores físicos y 2 duplicados por inconsistencia tipográfica en origen:
-              <br>&nbsp;&nbsp;1) <em>Docente ID 23354.0</em>: <code>GARAY SALDAÑA, BRUNO JOSE</code> y <code>GARAY SALDAÑA, DOCENTE_BRUNO JOSE</code> (generado por una cuenta con prefijo administrativo <code>DOCENTE_</code>).
-              <br>&nbsp;&nbsp;2) <em>Docente ID 23295.0</em>: <code>MARTINEZ GONZALEZ, DEISY MARIELA</code> y <code>MARTÍNEZ GONZÁLEZ, DEISY MARIELA</code> (generado por disparidad ortográfica de tildes en el ERP).
-              <br>De estas 214 personas físicas: 211 son titulares + 3 reemplazantes evaluados directamente a su propio nombre (Bordaberry, Centurión y Da Silva).<br>
-            • <strong>Mecánica del Descuadre por "Deduplicación Ciega" en el ETL</strong>:
-              En <code>services/etl/encuestas_etl.py</code> (línea 691), la instrucción <code>drop_duplicates(subset=["system_id", "planificacion_id", "grupo"])</code> retiene automáticamente la <em>primera fila</em> que lee en el archivo CSV y descarta las siguientes, sin considerar fechas de inicio/fin ni horas dictadas.
-              Cuando el titular figuraba primero (Ordano, Romero Franco, Fox Jiménez y Mareco Romero), el ETL descartó a las 4 reemplazantes. Cuando la reemplazante figuraba primero (Romero y Bordaberry), el ETL las retuvo a ellas y descartó al titular. Por ello, el <strong>Escenario A Rector</strong> corrige esta distorsión reconociendo a los 213 que efectivamente culminaron cátedra.<br>
-            • <strong>Dra. María Fernanda Bordaberry Villalba (Clínica Quirúrgica I, Sec. B)</strong>: Asumió la teoría tras la renuncia del titular Dr. Roque Duarte y <strong>finalizó el semestre con los 100 alumnos</strong> (1.392 respuestas válidas a su nombre en el ERP).<br>
-            • <strong>Prof. Gessica Adriana Ordano López (Medicina Comunitaria, Sec. I)</strong>: Asumió el relevo el 02/05/2026. Los alumnos evaluaron a la titular que inició el semestre, Dra. Ana Michelli Luis Giménez (496 respuestas). Ordano <strong>está plenamente registrada en el ERP</strong> (<code>IdDocenteExterno: 560</code>, <code>IdUsuario: 1279</code>) y <strong>completó su Autoevaluación Docente institucional (<code>IdEncuesta = 5</code>)</strong> el 31/07/2026.<br>
-            • <strong>Los 42 Docentes Mixtos</strong>: Desempeñaron titularidad en sus materias principales y asumieron 100 ofertas de reemplazo (todas culminadas el 13/06/2026). En 64 comisiones fueron evaluados a su propio nombre en el ERP y en 36 las evaluaciones quedaron registradas bajo el titular original.
-        </div>
-        <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-left: 4px solid #b87908; border-radius: 8px; padding: 16px 20px; margin-top: 14px; font-size: 0.84rem; color: #1e293b; line-height: 1.6;">
-            <div style="font-size: 0.92rem; font-weight: 800; color: #7c5208; margin-bottom: 8px;">
-                Desglose y Justificación Técnica de los 4 Docentes Excluidos (217 ➔ 213 Docentes)
-            </div>
-            <p style="margin: 0 0 10px 0; font-size: 0.82rem; color: #475569;">
-                En la malla física original figuraban <strong>217 docentes</strong>. Para conformar el <strong>Modelo Rector de 213 Titulares que Culminaron Cátedra (Escenario A)</strong>, se excluyeron a <strong>4 docentes</strong> que participaron en calidad de apoyo o reemplazo temporal sin titularidad independiente ni evaluaciones a su nombre en el ERP, cuyas asignaciones fueron absorbidas formalmente por los profesores titulares de cada cátedra:
-            </p>
-            <div style="overflow-x: auto; margin-bottom: 8px;">
-                <table style="width: 100%; border-collapse: collapse; font-size: 0.80rem; text-align: left;">
-                    <thead>
-                        <tr style="background: #245ea8; color: #ffffff;">
-                            <th style="padding: 6px 10px; border: 1px solid #cbd5e1;">Docente Excluido</th>
-                            <th style="padding: 6px 10px; border: 1px solid #cbd5e1;">Planificación Vinculada</th>
-                            <th style="padding: 6px 10px; border: 1px solid #cbd5e1;">Titular de Cátedra en ERP</th>
-                            <th style="padding: 6px 10px; border: 1px solid #cbd5e1;">Motivo Técnico y Metodológico de Exclusión</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr style="background: #f8fafc;">
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; font-weight: 700; color: #1e3a63;">1. GESSICA ADRIANA ORDANO LOPEZ</td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1;"><strong>Medicina Comunitaria</strong><br>Sección <em>I</em> · Teórica<br>68 esperados / 31 respondieron</td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; font-weight: 600; color: #17845f;">ANA MICHELLI LUIS GIMENEZ</td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1;">Asumió el 02/05/2026. Los alumnos evaluaron formalmente a la titular Dra. Ana Michelli Luis (496 respuestas válidas en ERP). El ETL deduplicó por alumno-grupo conservando a la titular original para no duplicar la carga evaluativa. Ordano cuenta con 0 encuestas de alumnos, pero completó su Autoevaluación Docente institucional (<code>IdEncuesta = 5</code>) el 31/07/2026.</td>
-                        </tr>
-                        <tr style="background: #ffffff;">
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; font-weight: 700; color: #1e3a63;">2. MIRNA ANALIA ROMERO FRANCO</td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1;"><strong>Anatomía I</strong> (Secc. I: G1-MO, G1-MS, G2-MO, G2-MS, G3-MO, G3-MS - 6 ofertas)<br><strong>Anatomía II</strong> (Secc. H: G1-MO, G2-MO, G3-MO - 3 ofertas)<br><em>Total: 9 ofertas prácticas</em></td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; font-weight: 600; color: #17845f;">LIS CARMEN ELVIRA AGÜERO CANO<br>(Anatomía I)<br>MARYAM GISSELLE KACHMAR CARVALLO<br>(Anatomía II)</td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1;">Docencia de apoyo y práctica en laboratorios. En el sistema de encuestas, los estudiantes respondieron exclusivamente bajo la titularidad de cátedra de Agüero Cano y Kachmar Carvallo. El ETL retuvo a las titulares principales y eliminó la duplicidad de fila de Romero Franco, quien no culminó una titularidad curricular independiente.</td>
-                        </tr>
-                        <tr style="background: #f8fafc;">
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; font-weight: 700; color: #1e3a63;">3. PATRICIA RECEDA FOX JIMENEZ</td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1;"><strong>Metodología de la Investigación</strong><br>Secc. <em>C</em> (83 esp. / 59 resp.)<br>Secc. <em>D</em> (78 esp. / 59 resp.)<br><em>Total: 2 ofertas teóricas</em></td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; font-weight: 600; color: #17845f;">JOHANA BELEN LEGUIZAMON VERA</td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1;">Cátedra compartida y apoyo temporal en comisiones teóricas. Las encuestas estudiantiles (118 completadas) fueron imputadas en ERP a nombre de la titular de cátedra Johana Belén Leguizamón Vera. Para evitar doble conteo de los 161 alumnos convocados, el ETL retuvo a la titular Leguizamón Vera y excluyó la asignación simultánea de Fox Jiménez.</td>
-                        </tr>
-                        <tr style="background: #ffffff;">
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; font-weight: 700; color: #1e3a63;">4. SARA GABRIELA MARECO ROMERO</td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1;"><strong>Toxicología</strong><br>Sección <em>G</em> · Teórica<br>66 esperados / 49 respondieron</td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; font-weight: 600; color: #17845f;">ELADIO GABRIEL ORTEGA LASPINA</td>
-                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1;">Apoyo docente temporal en teoría. Los 49 alumnos que respondieron evaluaron formalmente al titular institucional Dr. Eladio Gabriel Ortega Laspina en el ERP. El ETL conservó al titular institucional y excluyó la duplicidad con Mareco Romero para proteger la consistencia de la matrícula.</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-            <div style="font-size: 0.78rem; color: #64748b; font-style: italic;">
-                Conclusión técnica: Estas 13 ofertas académicas no se pierden ni se alteran; sus respuestas y evaluaciones están computadas íntegramente al 100% bajo los profesores titulares rectores correspondientes.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    # 3. Estudiantes Convocados (Personas Físicas) - adaptado dinámicamente a v1 (6.978) y v2 (6.732)
+    if df_base is not None and not df_base.empty:
+        id_col = "system_id" if "system_id" in df_base.columns else "alumno"
+        n_estudiantes_oficial = int(df_base[id_col].nunique())
+    elif fila_general is not None and "alumnos_unicos_esperados" in fila_general and pd.notna(fila_general["alumnos_unicos_esperados"]):
+        n_estudiantes_oficial = int(fila_general["alumnos_unicos_esperados"])
+    else:
+        n_estudiantes_oficial = 6978
+
+    # 4. Asignaciones a Docentes (Evaluaciones Esperadas EV1)
+    if df_base is not None and not df_base.empty:
+        n_asignaciones_oficial = len(df_base)
+    elif fila_general is not None and "encuestas_esperadas" in fila_general and pd.notna(fila_general["encuestas_esperadas"]):
+        n_asignaciones_oficial = int(fila_general["encuestas_esperadas"])
+    else:
+        n_asignaciones_oficial = 61832
+
+    # 5. Participación de Estudiantes (Nivel 1)
+    if df_base is not None and not df_base.empty:
+        id_col = "system_id" if "system_id" in df_base.columns else "alumno"
+        comp_series = (df_base["estado"] == "Completada") if "estado" in df_base.columns else (df_base["respondio"] == True)
+        alu_con_resp = df_base[comp_series][id_col].nunique()
+        n_alu_respondieron = int(alu_con_resp)
+        pct_alu_respondieron = (n_alu_respondieron / n_estudiantes_oficial * 100.0) if n_estudiantes_oficial > 0 else 0.0
+
+        resumen_alu = df_base.assign(_comp=comp_series).groupby(id_col).agg(total=("_comp", "count"), comp=("_comp", "sum"))
+        n_alu_todas = int((resumen_alu["comp"] == resumen_alu["total"]).sum())
+        pct_alu_todas = (n_alu_todas / n_estudiantes_oficial * 100.0) if n_estudiantes_oficial > 0 else 0.0
+    elif fila_general is not None and "alumnos_unicos_que_respondieron_al_menos_una" in fila_general and pd.notna(fila_general["alumnos_unicos_que_respondieron_al_menos_una"]):
+        n_alu_respondieron = int(fila_general["alumnos_unicos_que_respondieron_al_menos_una"])
+        pct_alu_respondieron = float(fila_general.get("porcentaje_avance_alumnos", 0.0))
+        n_alu_todas = int(fila_general.get("alumnos_unicos_que_respondieron_todas", 4531))
+        pct_alu_todas = float(fila_general.get("porcentaje_avance_alumnos_todas", 64.9))
+    else:
+        n_alu_respondieron = 4701
+        pct_alu_respondieron = 67.4
+        n_alu_todas = 4531
+        pct_alu_todas = 64.9
+
+    n_alu_no_iniciaron = max(n_estudiantes_oficial - n_alu_respondieron, 0)
+    pct_alu_no_iniciaron = (n_alu_no_iniciaron / n_estudiantes_oficial * 100.0) if n_estudiantes_oficial > 0 else 0.0
+
+    # 6. Nivel Asignaturas (Materias)
+    if df_base is not None and not df_base.empty:
+        id_col = "system_id" if "system_id" in df_base.columns else "alumno"
+        col_mat_key = "planificacion_id" if "planificacion_id" in df_base.columns else "materia"
+        pares_materia = df_base.drop_duplicates(subset=[id_col, col_mat_key])
+        mat_esperadas = len(pares_materia)
+        comp_m = (pares_materia["estado"] == "Completada") if "estado" in pares_materia.columns else (pares_materia["respondio"] == True)
+        mat_respondidas = int(comp_m.sum())
+        pct_mat_respondidas = (mat_respondidas / mat_esperadas * 100.0) if mat_esperadas > 0 else 0.0
+    elif fila_general is not None and "encuestas_esperadas" in fila_general and pd.notna(fila_general["encuestas_esperadas"]):
+        mat_esperadas = int(fila_general["encuestas_esperadas"])
+        mat_respondidas = int(fila_general.get("encuestas_respondidas", 29565))
+        pct_mat_respondidas = float(fila_general.get("porcentaje_avance_encuestas", 66.8))
+    else:
+        mat_esperadas = 44289
+        mat_respondidas = 29565
+        pct_mat_respondidas = 66.8
+
+    prom_mat_alumno = (mat_esperadas / n_estudiantes_oficial) if n_estudiantes_oficial > 0 else 6.35
+
+    # 7. Nivel Asignaciones a Docentes (EV1)
+    if df_base is not None and not df_base.empty:
+        comp_series = (df_base["estado"] == "Completada") if "estado" in df_base.columns else (df_base["respondio"] == True)
+        n_asig_respondidas = int(comp_series.sum())
+        pct_asig_respondidas = (n_asig_respondidas / n_asignaciones_oficial * 100.0) if n_asignaciones_oficial > 0 else 0.0
+    else:
+        n_asig_respondidas = 41499
+        pct_asig_respondidas = (n_asig_respondidas / n_asignaciones_oficial * 100.0) if n_asignaciones_oficial > 0 else 67.1
+
+    prom_asig_alumno = (n_asignaciones_oficial / n_estudiantes_oficial) if n_estudiantes_oficial > 0 else 8.8
+
+
+    # 8. Semáforo Institucional de Cobertura de Ofertas
+    if df_detalle is not None and not df_detalle.empty and "porcentaje_avance" in df_detalle.columns:
+        s_adecuadas = int((df_detalle["porcentaje_avance"] >= 80.0).sum())
+        s_100pct = int((df_detalle["porcentaje_avance"] == 100.0).sum())
+        s_seguimiento = int(((df_detalle["porcentaje_avance"] >= 50.0) & (df_detalle["porcentaje_avance"] < 80.0)).sum())
+        s_criticas = int((df_detalle["porcentaje_avance"] < 50.0).sum())
+    else:
+        s_adecuadas = 317
+        s_100pct = 18
+        s_seguimiento = 754
+        s_criticas = 218
+
+    total_semaforo = s_adecuadas + s_seguimiento + s_criticas
+    pct_adecuadas = (s_adecuadas / total_semaforo * 100.0) if total_semaforo > 0 else 0.0
+    pct_seguimiento = (s_seguimiento / total_semaforo * 100.0) if total_semaforo > 0 else 0.0
+    pct_criticas = (s_criticas / total_semaforo * 100.0) if total_semaforo > 0 else 0.0
+
+    # --------------------------------------------------------------------------
+    # 1. UNIVERSO ACADÉMICO OFICIAL CONSOLIDADO (PLANIFICACIÓN NORMAL TIPO 1)
+    # --------------------------------------------------------------------------
+    st.markdown("#### 1. Universo Académico Oficial Consolidado")
+    st.caption(f"Cifras institucionales consolidadas para la evaluación estudiantil EV1 en {escape(str(sede))} (Planificación Normal):")
+
+    cu1, cu2, cu3, cu4 = st.columns(4)
+    with cu1:
+        _render_kpi_card_ev1(
+            "Docentes",
+            f"{n_docentes_oficial:,}".replace(",", "."),
+            ayuda="Total de docentes con evaluaciones en planificación normal (Tipo 1).",
+            detalle="Planificación normal (Tipo 1)",
+            color_acento="#12263f",
+            color_borde="#dbe3ed",
+        )
+    with cu2:
+        _render_kpi_card_ev1(
+            "Ofertas Académicas",
+            f"{n_ofertas_oficial:,}".replace(",", "."),
+            ayuda="Ofertas planificadas por materia, sección, grupo y docente en la sede.",
+            detalle="Materia · Sección · Grupo · Docente",
+            color_acento="#245ea8",
+            color_borde="#c7d5e8",
+        )
+    with cu3:
+        _render_kpi_card_ev1(
+            "Estudiantes Convocados",
+            f"{n_estudiantes_oficial:,}".replace(",", "."),
+            ayuda=f"Matrícula de alumnos habilitados para evaluar en {escape(str(sede))}.",
+            detalle=f"Matrícula habilitada en {escape(str(sede))}",
+            color_acento="#17845f",
+            color_borde="#b5e3d0",
+        )
+    with cu4:
+        _render_kpi_card_ev1(
+            "Asignaciones a Evaluar",
+            f"{n_asignaciones_oficial:,}".replace(",", "."),
+            ayuda="Total de evaluaciones alumno-docente esperadas en el periodo.",
+            detalle="Evaluaciones esperadas",
+            color_acento="#3c7bc4",
+            color_borde="#a9c6f5",
+        )
 
     st.divider()
 
@@ -2779,18 +2814,27 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
     st.markdown("#### 2. Jerarquía de Datos: Estudiantes ➔ Materias ➔ Asignaciones a Docentes")
     st.caption("Comprende la correspondencia matemática exacta entre la matrícula estudiantil, las inscripciones curriculares y las evaluaciones a profesores:")
 
+    s_estudiantes_oficial = f"{n_estudiantes_oficial:,}".replace(",", ".")
+    s_alu_respondieron = f"{n_alu_respondieron:,}".replace(",", ".")
+    s_alu_todas = f"{n_alu_todas:,}".replace(",", ".")
+    s_alu_no_iniciaron = f"{n_alu_no_iniciaron:,}".replace(",", ".")
+    s_mat_esperadas = f"{mat_esperadas:,}".replace(",", ".")
+    s_mat_respondidas = f"{mat_respondidas:,}".replace(",", ".")
+    s_asig_oficial = f"{n_asignaciones_oficial:,}".replace(",", ".")
+    s_asig_respondidas = f"{n_asig_respondidas:,}".replace(",", ".")
+
     n1, n2, n3 = st.columns(3)
     with n1:
         st.markdown(
-            """
-            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; height: 100%;">
-                <div style="font-size: 0.74rem; font-weight: 700; color: #12263f; text-transform: uppercase;">Nivel 1: Personas Físicas</div>
-                <div style="font-size: 1.5rem; font-weight: 800; color: #12263f; margin: 4px 0;">6.978 alumnos</div>
-                <div style="font-size: 0.82rem; color: #475569; line-height: 1.5;">
-                    Total de estudiantes convocados en Medicina CDE.<br>
-                    • <strong>4.701 completaron al menos una encuesta</strong> (<strong>67,4%</strong> de participación activa).<br>
-                    • <strong>4.531 completaron el 100%</strong> de sus encuestas (<strong>64,9%</strong>).<br>
-                    • 2.277 alumnos no iniciaron su participación.
+            f"""
+            <div style="background-color: var(--portal-bg-card, #ffffff); border: 1px solid var(--portal-border-color, #e2e8f0); border-top: 4px solid #12263f; border-radius: 12px; padding: 20px 18px; height: 100%; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
+                <div style="font-size: 0.78rem; font-weight: 700; color: #12263f; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px;">Nivel 1: Personas Físicas</div>
+                <div style="font-size: 1.80rem; font-weight: 800; color: #12263f; margin-bottom: 8px; line-height: 1.2;">{s_estudiantes_oficial} alumnos</div>
+                <div style="font-size: 0.82rem; color: #475569; line-height: 1.55;">
+                    Total de estudiantes convocados en {escape(str(sede))}.<br>
+                    • <strong>{s_alu_respondieron} completaron al menos una encuesta</strong> (<strong>{pct_alu_respondieron:.1f}%</strong> de participación activa).<br>
+                    • <strong>{s_alu_todas} completaron el 100%</strong> de sus encuestas (<strong>{pct_alu_todas:.1f}%</strong>).<br>
+                    • {s_alu_no_iniciaron} alumnos no iniciaron su participación ({pct_alu_no_iniciaron:.1f}%).
                 </div>
             </div>
             """,
@@ -2798,13 +2842,13 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
         )
     with n2:
         st.markdown(
-            """
-            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; height: 100%;">
-                <div style="font-size: 0.74rem; font-weight: 700; color: #245ea8; text-transform: uppercase;">Nivel 2: Inscripciones a Materias</div>
-                <div style="font-size: 1.5rem; font-weight: 800; color: #245ea8; margin: 4px 0;">44.289 materias</div>
-                <div style="font-size: 0.82rem; color: #475569; line-height: 1.5;">
-                    Cada estudiante cursa en promedio ~6 materias en su malla curricular (6.978 × ~6.35 materias).<br>
-                    • <strong>29.565 materias fueron respondidas</strong> (<strong>66,7%</strong> de avance a nivel asignatura).<br>
+            f"""
+            <div style="background-color: var(--portal-bg-card, #ffffff); border: 1px solid var(--portal-border-color, #e2e8f0); border-top: 4px solid #245ea8; border-radius: 12px; padding: 20px 18px; height: 100%; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
+                <div style="font-size: 0.78rem; font-weight: 700; color: #245ea8; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px;">Nivel 2: Inscripciones a Materias</div>
+                <div style="font-size: 1.80rem; font-weight: 800; color: #245ea8; margin-bottom: 8px; line-height: 1.2;">{s_mat_esperadas} materias</div>
+                <div style="font-size: 0.82rem; color: #475569; line-height: 1.55;">
+                    Cada estudiante cursa en promedio ~{prom_mat_alumno:.1f} materias en su malla curricular ({s_estudiantes_oficial} × ~{prom_mat_alumno:.2f} materias).<br>
+                    • <strong>{s_mat_respondidas} materias fueron respondidas</strong> (<strong>{pct_mat_respondidas:.1f}%</strong> de avance a nivel asignatura).<br>
                     • Refleja la cobertura curricular sin desglosar comisiones prácticas.
                 </div>
             </div>
@@ -2813,14 +2857,14 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
         )
     with n3:
         st.markdown(
-            """
-            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; height: 100%;">
-                <div style="font-size: 0.74rem; font-weight: 700; color: #17845f; text-transform: uppercase;">Nivel 3: Asignaciones a Docentes (EV1)</div>
-                <div style="font-size: 1.5rem; font-weight: 800; color: #17845f; margin: 4px 0;">61.753 asignaciones</div>
-                <div style="font-size: 0.82rem; color: #475569; line-height: 1.5;">
-                    La encuesta real EV1 evalúa a los profesores de teoría y comisiones prácticas (Laboratorio, MO, MS).<br>
-                    • Un alumno evalúa en promedio a ~8,8 docentes.<br>
-                    • <strong>41.781 evaluaciones fueron respondidas</strong> (<strong>67,7%</strong> de avance total EV1).
+            f"""
+            <div style="background-color: var(--portal-bg-card, #ffffff); border: 1px solid var(--portal-border-color, #e2e8f0); border-top: 4px solid #17845f; border-radius: 12px; padding: 20px 18px; height: 100%; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
+                <div style="font-size: 0.78rem; font-weight: 700; color: #17845f; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px;">Nivel 3: Asignaciones a Docentes (EV1)</div>
+                <div style="font-size: 1.80rem; font-weight: 800; color: #17845f; margin-bottom: 8px; line-height: 1.2;">{s_asig_oficial} asignaciones</div>
+                <div style="font-size: 0.82rem; color: #475569; line-height: 1.55;">
+                    La encuesta real EV1 evalúa de manera individual a los profesores de teoría y a las comisiones de clases prácticas vinculadas a aulas o laboratorios (grupos G1, G2, G3, subgrupos como G1-Sub 01, G2-Sub 02, simulación clínica y laboratorios anatómicos MO y MS).<br>
+                    • Un alumno evalúa en promedio a ~{prom_asig_alumno:.1f} docentes.<br>
+                    • <strong>{s_asig_respondidas} evaluaciones fueron respondidas</strong> (<strong>{pct_asig_respondidas:.1f}%</strong> de avance total EV1).
                 </div>
             </div>
             """,
@@ -2830,21 +2874,27 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
     st.divider()
 
     # --------------------------------------------------------------------------
-    # 3. SEMÁFORO INSTITUCIONAL DE COBERTURA DE OFERTAS (1.289 OFERTAS)
+    # 3. SEMÁFORO INSTITUCIONAL DE COBERTURA DE OFERTAS
     # --------------------------------------------------------------------------
-    st.markdown("#### 3. Semáforo Institucional de Cobertura Académica (1.289 Ofertas)")
+    total_semaforo_str = f"{total_semaforo:,}".replace(",", ".")
+    st.markdown(f"#### 3. Semáforo Institucional de Cobertura Académica ({total_semaforo_str} Ofertas)")
     st.caption("Clasificación de las ofertas académicas (materia · sección · grupo · docente) según su representatividad estadística y tasa de respuesta:")
+
+    s_adecuadas_str = f"{s_adecuadas:,}".replace(",", ".")
+    s_100pct_str = f"{s_100pct:,}".replace(",", ".")
+    s_seguimiento_str = f"{s_seguimiento:,}".replace(",", ".")
+    s_criticas_str = f"{s_criticas:,}".replace(",", ".")
 
     s1, s2, s3 = st.columns(3)
     with s1:
         st.markdown(
-            """
-            <div style="background: #e7f6f0; border: 1px solid #b5e3d0; border-top: 4px solid #17845f; border-radius: 10px; padding: 16px; height: 100%;">
-                <div style="font-size: 0.76rem; font-weight: 700; color: #17845f; text-transform: uppercase;">🟢 Adecuado (≥ 80,0%)</div>
-                <div style="font-size: 1.85rem; font-weight: 800; color: #17845f; margin: 4px 0;">317 ofertas</div>
-                <div style="font-size: 0.80rem; color: #2d5a43; line-height: 1.5;">
-                    <strong>24,6% del universo total.</strong><br>
-                    • Incluye las <strong>18 ofertas</strong> con avance perfecto del 100%.<br>
+            f"""
+            <div style="background-color: var(--portal-bg-card, #ffffff); border: 1px solid var(--portal-border-color, #e2e8f0); border-top: 4px solid #17845f; border-radius: 12px; padding: 20px 18px; height: 100%; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
+                <div style="font-size: 0.78rem; font-weight: 700; color: #17845f; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px;">🟢 Adecuado (≥ 80,0%)</div>
+                <div style="font-size: 1.80rem; font-weight: 800; color: #17845f; margin-bottom: 8px; line-height: 1.2;">{s_adecuadas_str} ofertas</div>
+                <div style="font-size: 0.82rem; color: #475569; line-height: 1.55;">
+                    <strong>{pct_adecuadas:.1f}% del universo total.</strong><br>
+                    • Incluye las <strong>{s_100pct_str} ofertas</strong> con avance perfecto del 100%.<br>
                     • Se consideran plenamente validadas y representativas para la toma de decisiones pedagógicas institucionales.
                 </div>
             </div>
@@ -2853,12 +2903,12 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
         )
     with s2:
         st.markdown(
-            """
-            <div style="background: #fef9e7; border: 1px solid #f6e2a2; border-top: 4px solid #b87908; border-radius: 10px; padding: 16px; height: 100%;">
-                <div style="font-size: 0.76rem; font-weight: 700; color: #b87908; text-transform: uppercase;">🟡 Seguimiento (50,0% - 79,9%)</div>
-                <div style="font-size: 1.85rem; font-weight: 800; color: #b87908; margin: 4px 0;">754 ofertas</div>
-                <div style="font-size: 0.80rem; color: #644a14; line-height: 1.5;">
-                    <strong>58,5% del universo total.</strong><br>
+            f"""
+            <div style="background-color: var(--portal-bg-card, #ffffff); border: 1px solid var(--portal-border-color, #e2e8f0); border-top: 4px solid #b87908; border-radius: 12px; padding: 20px 18px; height: 100%; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
+                <div style="font-size: 0.78rem; font-weight: 700; color: #b87908; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px;">🟡 Seguimiento (50,0% - 79,9%)</div>
+                <div style="font-size: 1.80rem; font-weight: 800; color: #b87908; margin-bottom: 8px; line-height: 1.2;">{s_seguimiento_str} ofertas</div>
+                <div style="font-size: 0.82rem; color: #475569; line-height: 1.55;">
+                    <strong>{pct_seguimiento:.1f}% del universo total.</strong><br>
                     • Ofertas con participación activa y mayoritaria, en proceso de consolidación para alcanzar el estándar óptimo del 80%.
                 </div>
             </div>
@@ -2867,12 +2917,12 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
         )
     with s3:
         st.markdown(
-            """
-            <div style="background: #fdecef; border: 1px solid #f3b9c0; border-top: 4px solid #bd3f4a; border-radius: 10px; padding: 16px; height: 100%;">
-                <div style="font-size: 0.76rem; font-weight: 700; color: #bd3f4a; text-transform: uppercase;">🔴 Crítico (&lt; 50,0%)</div>
-                <div style="font-size: 1.85rem; font-weight: 800; color: #bd3f4a; margin: 4px 0;">218 ofertas</div>
-                <div style="font-size: 0.80rem; color: #6e272d; line-height: 1.5;">
-                    <strong>16,9% del universo total.</strong><br>
+            f"""
+            <div style="background-color: var(--portal-bg-card, #ffffff); border: 1px solid var(--portal-border-color, #e2e8f0); border-top: 4px solid #bd3f4a; border-radius: 12px; padding: 20px 18px; height: 100%; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
+                <div style="font-size: 0.78rem; font-weight: 700; color: #bd3f4a; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px;">🔴 Crítico (&lt; 50,0%)</div>
+                <div style="font-size: 1.80rem; font-weight: 800; color: #bd3f4a; margin-bottom: 8px; line-height: 1.2;">{s_criticas_str} ofertas</div>
+                <div style="font-size: 0.82rem; color: #475569; line-height: 1.55;">
+                    <strong>{pct_criticas:.1f}% del universo total.</strong><br>
                     • Ofertas con baja tasa de respuesta que requieren seguimiento prioritario de las coordinaciones de carrera para estimular la participación estudiantil.
                 </div>
             </div>
@@ -2881,9 +2931,9 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
         )
 
     st.markdown(
-        """
-        <div style="margin-top: 10px; font-size: 0.82rem; color: #475569; text-align: center; font-weight: 500;">
-            <em>Balance matemático exacto: 317 (Adecuadas) + 754 (Seguimiento) + 218 (Críticas) = <strong>1.289 ofertas académicas totales</strong> (100%).</em>
+        f"""
+        <div style="margin-top: 14px; font-size: 0.82rem; color: var(--portal-text-muted, #64748b); text-align: center; font-weight: 500;">
+            <em>Balance matemático exacto: {s_adecuadas_str} (Adecuadas) + {s_seguimiento_str} (Seguimiento) + {s_criticas_str} (Críticas) = <strong>{total_semaforo_str} ofertas académicas totales</strong> (100%).</em>
         </div>
         """,
         unsafe_allow_html=True,
@@ -2892,18 +2942,18 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
     st.divider()
 
     # --------------------------------------------------------------------------
-    # 4. RESOLUCIÓN DE CÁTEDRA COMPARTIDA, REEMPLAZOS CURRICULARES Y CONFIDENCIALIDAD
+    # 4. CÁTEDRA COMPARTIDA, PLANIFICACIÓN NORMAL Y CONFIDENCIALIDAD
     # --------------------------------------------------------------------------
     col_izq_met, col_der_met = st.columns(2)
 
     with col_izq_met:
-        st.markdown("#### 4. Cátedra Compartida y Reemplazos Curriculares")
+        st.markdown("#### 4. Cátedra Compartida y Planificación Normal")
         st.markdown(
             """
             En la carrera de Medicina se presentan dinámicas docentes específicas:
-            - **Cátedra Compartida (Teoría vs. Práctica)**: Un docente dicta la teoría y otros profesores conducen la práctica en laboratorios y aulas prácticas (ej. comisiones de Morgue Orgánica MO y Morgue Seca MS). Cada docente es evaluado independientemente por los alumnos de su comisión.
-            - **Reemplazos Curriculares que Culminan Cátedra (Escenario A)**: Cuando un docente asume la cátedra por relevo o renuncia del titular y dicta las clases hasta finalizar el ciclo lectivo (como la Dra. Romero y la Dra. Bordaberry), se integra formalmente en las **1.174 ofertas rectoras**.
-            - **Cómputo en ERP**: Si el sistema no generó una ficha individual con el nombre del docente reemplazante, las respuestas de los estudiantes se consolidaron técnicamente en la titularidad de la cátedra, garantizando que el esfuerzo y evaluación estudiantil computen al 100%.
+            - **Cátedra Compartida (Teoría vs. Práctica)**: Un docente titular dicta la teoría y otros profesores conducen las comisiones de clases prácticas. Las clases prácticas no se limitan a un único laboratorio: comprenden comisiones en aulas y laboratorios de clases prácticas (**G1, G2, G3**), subgrupos reducidos (**G1-Sub 01, G1-Sub 02, G2-Sub 01**, etc.), estaciones de **Simulación Clínica**, así como laboratorios anatómicos especializados (**MO - Morgue Orgánica** y **MS - Morgue Seca**). Cada docente es evaluado de forma individual e independiente por los estudiantes asignados a su respectiva comisión práctica o teórica dentro del régimen de planificación normal.
+            - **Validación Oficial por Planificación Normal**: En el sistema biométrico y de asistencia se computan exclusivamente las ofertas y clases registradas bajo **`tipo_planificacion = 1` (Normal)**, omitiendo modalidades ajenas al régimen regular.
+            - **Consistencia de Respuestas**: Las evaluaciones de los estudiantes se asocian de manera unívoca a las asignaciones de planificación normal, garantizando que el cómputo de participación refleje con fidelidad la labor lectiva formal.
             """,
             unsafe_allow_html=True,
         )
@@ -2926,81 +2976,85 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
     # 6. GLOSARIO DE TÉRMINOS Y SIGLAS
     # --------------------------------------------------------------------------
     st.markdown("#### 6. Glosario de Indicadores y Siglas Institucionales")
-    with st.expander("Ver Glosario Completo de Términos (EV1, MO, MS, Criterios, Dimensiones)", expanded=False):
+    with st.expander("Ver Glosario Completo de Términos (EV1, Comisiones Prácticas G1/G2/Subgrupos/MO/MS, Criterios, Dimensiones)", expanded=False):
         st.markdown(
-            """
+            f"""
             <div style="overflow-x: auto;">
                 <table style="width: 100%; border-collapse: collapse; font-size: 0.84rem; text-align: left;">
                     <thead>
-                        <tr style="background: #1e3a63; color: #ffffff;">
-                            <th style="padding: 9px 12px; border: 1px solid #cbd5e1; width: 220px;">Término / Sigla</th>
-                            <th style="padding: 9px 12px; border: 1px solid #cbd5e1;">Definición Institucional</th>
+                        <tr style="background: var(--portal-accent, #004080); color: #ffffff;">
+                            <th style="padding: 9px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); width: 220px;">Término / Sigla</th>
+                            <th style="padding: 9px 12px; border: 1px solid var(--portal-border-color, #cbd5e1);">Definición Institucional</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <tr style="background: #ffffff;">
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">EV1</td>
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Encuesta de Valoración Estudiantil a la Docencia (Opinión del Estudiante sobre el desempeño profesoral en escala Likert 1 a 5).</td>
+                        <tr style="background: var(--portal-bg-card, #ffffff); color: var(--portal-text-primary, #1e293b);">
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">EV1</td>
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1);">Encuesta de Valoración Estudiantil a la Docencia (Opinión del Estudiante sobre el desempeño profesoral en escala Likert 1 a 5).</td>
                         </tr>
-                        <tr style="background: #f8fafc;">
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Comisión Académica</td>
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Unidad operativa de dictado de una materia (ej. comisión teórica o comisiones prácticas en aulas y laboratorios de Morgue Orgánica MO y Morgue Seca MS) asignada a un docente con su respectivo subgrupo de alumnos matriculados.</td>
+                        <tr style="background: var(--portal-bg-card-subtle, #f8fafc); color: var(--portal-text-primary, #1e293b);">
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Comisión Académica</td>
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1);">Unidad operativa de dictado de una materia. Comprende la comisión teórica y las diversas comisiones de clases prácticas vinculadas a aulas o laboratorios de práctica (grupos <strong>G1, G2, G3</strong>, subgrupos como <strong>G1-Sub 01, G2-Sub 01</strong>, simulación médica y laboratorios especializados como <strong>MO y MS</strong>), asignadas a un docente con su respectivo grupo de estudiantes matriculados.</td>
                         </tr>
-                        <tr style="background: #ffffff;">
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Oferta Académica</td>
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Unidad mínima de análisis pedagógico compuesta por la tupla única: <em>Materia + Sección + Grupo + Docente</em>. Existen <strong>1.174 ofertas rectoras</strong> en el Escenario A (1.289 en la malla física total con reemplazos temporales).</td>
+                        <tr style="background: var(--portal-bg-card, #ffffff); color: var(--portal-text-primary, #1e293b);">
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Comisiones Prácticas (G1, G2, Subgrupos)</td>
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); line-height: 1.5;">Grupos y subgrupos operativos organizados para el desarrollo de clases prácticas en aulas de destreza, talleres, laboratorios y simulación. Dividen la matrícula en comisiones reducidas (ej. <strong>G1, G2, G3</strong> y subgrupos como <strong>G1-Sub 01, G1-Sub 02, G2-Sub 01</strong>, etc.) vinculadas a aulas o laboratorios de clases prácticas para garantizar una enseñanza participativa y personalizada.</td>
                         </tr>
-                        <tr style="background: #f8fafc;">
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Modelo Rector (Escenario A)</td>
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Universo oficial adoptado por la UCP de <strong>213 docentes</strong> que culminaron cátedra (211 titulares del Día 1 + 2 docentes que asumieron y culminaron la planificación académica completa hasta el 13/06/2026: Dra. Andrea Romero y Dra. María Fernanda Bordaberry).</td>
+                        <tr style="background: var(--portal-bg-card-subtle, #f8fafc); color: var(--portal-text-primary, #1e293b);">
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Oferta Académica</td>
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); line-height: 1.5;">Unidad mínima de análisis pedagógico compuesta por la tupla única: <em>Materia + Sección + Grupo + Docente</em>. Comprende <strong>{n_ofertas_oficial:,} ofertas académicas regulares</strong> en la sede {escape(str(sede))}.</td>
                         </tr>
-                        <tr style="background: #ffffff;">
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Deduplicación Ciega (ETL)</td>
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Proceso algorítmico en <code style="background: #f1f5f9; padding: 2px 5px; border-radius: 4px; font-size: 0.8rem; color: #0f172a;">services/etl/encuestas_etl.py</code> (línea 691) que, al encontrar más de un docente en un mismo grupo para un alumno, retiene por defecto la primera fila física del archivo y descarta las siguientes, sin evaluar horas dictadas ni quién finalizó el ciclo lectivo.</td>
+                        <tr style="background: var(--portal-bg-card, #ffffff); color: var(--portal-text-primary, #1e293b);">
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Universo Docente Normal (Tipo 1)</td>
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); line-height: 1.5;">Población docente oficial filtrada bajo la condición de Tipo de Clase: Normal (<code>tipo_planificacion = 1</code>), abarcando a <strong>{n_docentes_oficial:,} docentes regulares</strong> asignados formalmente a las cátedras de la sede.</td>
                         </tr>
-                        <tr style="background: #f8fafc;">
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Inconsistencias Tipográficas en ERP</td>
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Variaciones de texto en origen que duplicaron registros en <code style="background: #f1f5f9; padding: 2px 5px; border-radius: 4px; font-size: 0.8rem; color: #0f172a;">resultado_por_docente</code>: Bruno José Garay Saldaña (con prefijo <code style="background: #f1f5f9; padding: 2px 5px; border-radius: 4px; font-size: 0.8rem; color: #0f172a;">DOCENTE_</code>, ID 23354) y Deisy Mariela Martínez González (con y sin tildes, ID 23295), generando 216 filas para 214 personas físicas con notas.</td>
+                        <tr style="background: var(--portal-bg-card-subtle, #f8fafc); color: var(--portal-text-primary, #1e293b);">
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Tipo de Planificación (Clase)</td>
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); line-height: 1.5;">Clasificación operativa en el sistema de biometría y asistencia. Para EV1 se procesa y valida exclusivamente el <code>Tipo 1 (Normal)</code>, que corresponde al régimen regular de calendario, omitiendo cualquier otra modalidad no regular.</td>
                         </tr>
-                        <tr style="background: #ffffff;">
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Cátedra Compartida vs. Reemplazo</td>
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">• <strong>Cátedra Compartida:</strong> Docentes que dictan en paralelo distintas partes del programa (un docente la teoría y otros las comisiones prácticas).<br>• <strong>Reemplazo Curricular:</strong> Docente que releva formalmente a otro profesor durante el semestre por renuncia o licencia.</td>
+                        <tr style="background: var(--portal-bg-card, #ffffff); color: var(--portal-text-primary, #1e293b);">
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Planificación Normal vs. Modalidades Especiales</td>
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); line-height: 1.5;">• <strong>Planificación Normal (Tipo 1):</strong> Única modalidad curricular válida para la evaluación estudiantil EV1, que abarca a la totalidad de ofertas, encuestas, alumnos y profesores regulares.<br>• <strong>Modalidades Especiales:</strong> Horarios no regulares (tipos 2, 3 y 4) que se omiten del cómputo oficial.</td>
                         </tr>
-                        <tr style="background: #f8fafc;">
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Grupo MO</td>
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Grupo práctico en aula / laboratorio de <strong>Morgue Orgánica (MO)</strong>, enfocado en prácticas de anatomía y habilidades médicas con piezas y preparados biológicos orgánicos.</td>
+                        <tr style="background: var(--portal-bg-card-subtle, #f8fafc); color: var(--portal-text-primary, #1e293b);">
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Grupo MO (Morgue Orgánica)</td>
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1);">Comisión de clase práctica en laboratorio de <strong>Morgue Orgánica (MO)</strong> (ej. <strong>G1-MO, G2-MO, G3-MO</strong>), enfocada en prácticas de anatomía y habilidades médicas con piezas y preparados biológicos orgánicos.</td>
                         </tr>
-                        <tr style="background: #ffffff;">
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Grupo MS</td>
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Grupo práctico en aula / laboratorio de <strong>Morgue Seca (MS)</strong>, enfocado en prácticas de anatomía y simulación con modelos anatómicos secos, piezas sintéticas y estaciones de destreza.</td>
+                        <tr style="background: var(--portal-bg-card, #ffffff); color: var(--portal-text-primary, #1e293b);">
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Grupo MS (Morgue Seca)</td>
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1);">Comisión de clase práctica en aula / laboratorio de <strong>Morgue Seca (MS)</strong> (ej. <strong>G1-MS, G2-MS, G3-MS</strong>), enfocada en prácticas de anatomía y simulación con modelos anatómicos secos, piezas sintéticas y estaciones de destreza.</td>
                         </tr>
-                        <tr style="background: #f8fafc;">
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Cobertura de Oferta</td>
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Grado de representatividad estadística alcanzado por una comisión: 🟢 <strong>Adecuado</strong> (≥ 80,0%) · 🟡 <strong>Seguimiento</strong> (50,0% a 79,9%) · 🔴 <strong>Crítico</strong> (&lt; 50,0%).</td>
+                        <tr style="background: var(--portal-bg-card-subtle, #f8fafc); color: var(--portal-text-primary, #1e293b);">
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Grupo Simulación Clínica</td>
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1);">Comisión de clase práctica en centros de simulación médica y entrenamiento de habilidades clínicas y quirúrgicas (ej. <strong>G1-SIMULACIÓN, G2-SIMULACIÓN</strong>).</td>
                         </tr>
-                        <tr style="background: #ffffff;">
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Matrícula Convocada vs. Activa</td>
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Total de 6.978 estudiantes habilitados frente a 4.701 que respondieron al menos una evaluación (67,4% de participación) y 4.531 que completaron el 100% (64,9%).</td>
+                        <tr style="background: var(--portal-bg-card-subtle, #f8fafc); color: var(--portal-text-primary, #1e293b);">
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Cobertura de Oferta</td>
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1);">Grado de representatividad estadística alcanzado por una comisión: 🟢 <strong>Adecuado</strong> (≥ 80,0%) · 🟡 <strong>Seguimiento</strong> (50,0% a 79,9%) · 🔴 <strong>Crítico</strong> (&lt; 50,0%).</td>
                         </tr>
-                        <tr style="background: #f8fafc;">
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Criterios (16)</td>
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Preguntas específicas del cuestionario evaluadas en escala Likert del 1 al 5.</td>
+                        <tr style="background: var(--portal-bg-card, #ffffff); color: var(--portal-text-primary, #1e293b);">
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Matrícula Convocada vs. Activa</td>
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); line-height: 1.5;">Total de {n_estudiantes_oficial:,} estudiantes habilitados frente a {n_alu_respondieron:,} que respondieron al menos una evaluación ({pct_alu_respondieron:.1f}% de participación) y {n_alu_todas:,} que completaron el 100% ({pct_alu_todas:.1f}%).</td>
                         </tr>
-                        <tr style="background: #ffffff;">
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Indicadores (10)</td>
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Agrupaciones intermedias de criterios que miden aspectos clave de la práctica docente.</td>
+                        <tr style="background: var(--portal-bg-card-subtle, #f8fafc); color: var(--portal-text-primary, #1e293b);">
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Criterios (16)</td>
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1);">Preguntas específicas del cuestionario evaluadas en escala Likert del 1 al 5.</td>
                         </tr>
-                        <tr style="background: #f8fafc;">
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Dimensiones (5)</td>
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Macro-ejes formativos: <em>Planificación y Organización, Metodología y Recursos, Interacción y Comunicación, Evaluación del Aprendizaje, y Cumplimiento y Responsabilidad</em>.</td>
+                        <tr style="background: var(--portal-bg-card, #ffffff); color: var(--portal-text-primary, #1e293b);">
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Indicadores (10)</td>
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1);">Agrupaciones intermedias de criterios que miden aspectos clave de la práctica docente.</td>
                         </tr>
-                        <tr style="background: #ffffff;">
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Respuestas Favorables</td>
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">Porcentaje de estudiantes que calificaron con 4 o 5 (satisfecho / muy satisfecho).</td>
+                        <tr style="background: var(--portal-bg-card-subtle, #f8fafc); color: var(--portal-text-primary, #1e293b);">
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Dimensiones (5)</td>
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1);">Macro-ejes formativos: <em>Planificación y Organización, Metodología y Recursos, Interacción y Comunicación, Evaluación del Aprendizaje, y Cumplimiento y Responsabilidad</em>.</td>
                         </tr>
-                        <tr style="background: #f8fafc;">
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Escala de Desempeño</td>
-                            <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">🟢 <strong>Fortaleza</strong> (≥ 4,30) · 🔵 <strong>Adecuado</strong> (4,00 a 4,29) · 🟡 <strong>Seguimiento</strong> (3,50 a 3,99) · 🔴 <strong>Oportunidad</strong> (&lt; 3,50).</td>
+                        <tr style="background: var(--portal-bg-card, #ffffff); color: var(--portal-text-primary, #1e293b);">
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Respuestas Favorables</td>
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1);">Porcentaje de estudiantes que calificaron con 4 o 5 (satisfecho / muy satisfecho).</td>
+                        </tr>
+                        <tr style="background: var(--portal-bg-card-subtle, #f8fafc); color: var(--portal-text-primary, #1e293b);">
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Escala de Desempeño</td>
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1);">🟢 <strong>Fortaleza</strong> (≥ 4,30) · 🔵 <strong>Adecuado</strong> (4,00 a 4,29) · 🟡 <strong>Seguimiento</strong> (3,50 a 3,99) · 🔴 <strong>Oportunidad</strong> (&lt; 3,50).</td>
                         </tr>
                     </tbody>
                 </table>
@@ -3009,99 +3063,7 @@ def _render_subvista_explicacion(df_base=None, df_detalle=None, fila_general=Non
             unsafe_allow_html=True,
         )
 
-    st.divider()
 
-    # --------------------------------------------------------------------------
-    # 7. REGISTRO DE CUMPLIMIENTO: 100% DE SUGERENCIAS INSTITUCIONALES UCP
-    # --------------------------------------------------------------------------
-    st.markdown("#### 7. Registro de Cumplimiento: 100% de Sugerencias Institucionales UCP")
-    st.caption("Detalle minucioso de todas las observaciones, ajustes y requerimientos resueltos a partir del documento oficial *Sugerencias - Instrumentos de Evaluación Docente.docx*:")
-
-    with st.expander("Ver Auditoría Completa del 100% de Sugerencias Aplicadas (P01 a P39)", expanded=True):
-        st.markdown(
-            """
-            <div style="overflow-x: auto;">
-                <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem; text-align: left;">
-                    <thead>
-                        <tr style="background: #1e3a63; color: #ffffff;">
-                            <th style="padding: 8px 10px; border: 1px solid #cbd5e1; width: 65px; text-align: center;">Ref.</th>
-                            <th style="padding: 8px 10px; border: 1px solid #cbd5e1; width: 220px;">Sugerencia / Requerimiento</th>
-                            <th style="padding: 8px 10px; border: 1px solid #cbd5e1;">Solución Técnica y Cambio Implementado</th>
-                            <th style="padding: 8px 10px; border: 1px solid #cbd5e1; width: 110px; text-align: center;">Estado</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr style="background: #ffffff;">
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: center; font-weight: 700;">P01</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Menú Lateral de Navegación</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1;">Se renombró la categoría principal en <code>utils/menu_config.py</code> de <em>"Encuestas"</em> a <strong>"Instrumentos de Evaluación Docente"</strong>, preservando los permisos de seguridad y roles.</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: center; color: #17845f; font-weight: 700;">🟢 Aplicado</td>
-                        </tr>
-                        <tr style="background: #f8fafc;">
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: center; font-weight: 700;">P04, P06</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Selector Inicial e Instrucción</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1;">En <code>modules/encuestas.py</code> se actualizó la etiqueta visual a <strong>"Instrumento"</strong>, el placeholder a <em>"Elija un instrumento..."</em> y la instrucción guía a <em>"Seleccione el instrumento que desea visualizar para continuar."</em></td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: center; color: #17845f; font-weight: 700;">🟢 Aplicado</td>
-                        </tr>
-                        <tr style="background: #ffffff;">
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: center; font-weight: 700;">P10</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Identificación Dinámica de Sede</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1;">Se incorporó la sede activa de forma dinámica (<strong>sede Ciudad del Este</strong>) en la tarjeta 3 de asignaciones docentes para eliminar cualquier ambigüedad geográfica.</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: center; color: #17845f; font-weight: 700;">🟢 Aplicado</td>
-                        </tr>
-                        <tr style="background: #f8fafc;">
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: center; font-weight: 700;">P12</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Cuadre de Docentes (213 vs 216)</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1;">Se demostró mediante auditoría en ERP que los 216 registros corresponden a <strong>214 personas físicas únicas</strong> (2 duplicados por inconsistencia tipográfica en origen) y se fijó el <strong>Modelo Rector de 213 titulares que culminaron cátedra</strong>.</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: center; color: #17845f; font-weight: 700;">🟢 Aplicado</td>
-                        </tr>
-                        <tr style="background: #ffffff;">
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: center; font-weight: 700;">P15</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Ancho de Tabla de Detalle</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1;">Se extrajo la tabla de detalle por oferta del layout estrecho de columnas y se colocó a <strong>ancho completo (100%)</strong>, garantizando que todas las columnas sean legibles sin recortes.</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: center; color: #17845f; font-weight: 700;">🟢 Aplicado</td>
-                        </tr>
-                        <tr style="background: #f8fafc;">
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: center; font-weight: 700;">P19</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Visibilidad en Gráfico de Dona</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1;">Se ampliaron los márgenes y se aumentó la altura del gráfico a 290px con <code>textposition="auto"</code>, resolviendo el corte superior de la etiqueta de avance parcial (2,27%).</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: center; color: #17845f; font-weight: 700;">🟢 Aplicado</td>
-                        </tr>
-                        <tr style="background: #ffffff;">
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: center; font-weight: 700;">P22</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Cifra Completa en Gráfico de Barras</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1;">Se aplicó <code>cliponaxis=False</code>, margen derecho de 80px y expansión del eje X al 125%, visualizando con claridad el total de <strong>4.592 alumnos</strong> que completaron todas sus encuestas.</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: center; color: #17845f; font-weight: 700;">🟢 Aplicado</td>
-                        </tr>
-                        <tr style="background: #f8fafc;">
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: center; font-weight: 700;">P24</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Encabezados de Tabla por Materia</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1;">Se renombraron formalmente las columnas a: <strong>Eval. esperadas</strong>, <strong>Eval. completadas</strong> y <strong>Eval. pendientes</strong> en la tabla de cumplimiento estudiantil.</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: center; color: #17845f; font-weight: 700;">🟢 Aplicado</td>
-                        </tr>
-                        <tr style="background: #ffffff;">
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: center; font-weight: 700;">P27</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Sincronización KPI Docentes a 213</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1;">Se unificó el KPI <strong>"Docentes a evaluar"</strong> a exactamente <strong>213 docentes</strong> (Escenario A Rector), excluyendo las 13 comisiones de los 4 docentes interinos cuyas notas computan en los titulares.</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: center; color: #17845f; font-weight: 700;">🟢 Aplicado</td>
-                        </tr>
-                        <tr style="background: #f8fafc;">
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: center; font-weight: 700;">P33, P36, P37, P39</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Árbol Pedagógico por Docente</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1;">Se desarrolló el motor pedagógico institucional UCP con las <strong>5 Dimensiones, 10 Indicadores y 16 Criterios</strong> con puntaje individual, semáforo y descriptores pedagógicos cualitativos, disponible tanto en la sub-vista <em>Por docente</em> como en <em>Análisis pedagógico</em>.</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: center; color: #17845f; font-weight: 700;">🟢 Aplicado</td>
-                        </tr>
-                        <tr style="background: #ffffff;">
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: center; font-weight: 700;">Estilo UCP</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; font-weight: 600; color: #1e3a63;">Depuración Visual y Semáforos</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1;">Se retiraron emojis decorativos informales y se consolidaron semáforos limpios: 🟢 Fortaleza/Adecuado (≥4,30 / ≥80%), 🔵 Adecuado (4,00-4,29), 🟡 Seguimiento (3,50-3,99 / 50-79,9%) y 🔴 Oportunidad (&lt;3,50 / &lt;50%).</td>
-                            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: center; color: #17845f; font-weight: 700;">🟢 Aplicado</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
+# Alias de retrocompatibilidad
+_render_subvista_explicacion = _render_subvista_guia_metodologica
 
