@@ -191,6 +191,27 @@ def main():
             log_exception("Error durante auto-login por cookie", exc)
 
     if st.session_state.user is None:
+        # Ocultar completamente la barra lateral vacía en la pantalla de inicio de sesión
+        st.markdown(
+            """
+            <style>
+            [data-testid="stSidebar"],
+            [data-testid="collapsedControl"] {
+                display: none !important;
+            }
+            .block-container,
+            [data-testid="stMainBlockContainer"],
+            [data-testid="block-container"] {
+                max-width: 100% !important;
+                padding-top: 3.5rem !important;
+                padding-left: 1rem !important;
+                padding-right: 1rem !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
         # Página de Login
         logo_data = get_logo_base64()
         logo_html = (
@@ -199,15 +220,15 @@ def main():
         )
         st.markdown(
             f"""
-            <div style="text-align: center; margin-top: 50px; margin-bottom: 30px;">
+            <div style="text-align: center; margin-top: 30px; margin-bottom: 30px;">
                 {logo_html}
-                <h1 style="color: #003366; font-size: 48px; margin-bottom: 10px;">
+                <h1 style="color: #003366; font-size: 42px; margin-bottom: 10px; font-weight: 700;">
                     Portal de Indicadores Académicos
                 </h1>
             </div>
             """, unsafe_allow_html=True
         )
-        col1, col2, col3 = st.columns([1, 1.5, 1])
+        col1, col2, col3 = st.columns([1.2, 1.4, 1.2])
         with col2:
             with st.form("login_form"):
                 email = st.text_input("Correo Electrónico")
