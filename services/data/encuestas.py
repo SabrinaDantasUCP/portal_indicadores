@@ -25,6 +25,7 @@ INDICADOR_RESULTADO_DIMENSION = "resultado_por_dimension"
 INDICADOR_RESULTADO_INDICADOR = "resultado_por_indicador"
 INDICADOR_RESULTADO_CRITERIO = "resultado_por_criterio"
 INDICADOR_RESULTADO_DOCENTE = "resultado_por_docente"
+INDICADOR_RESPUESTAS_LIBRES = "respuestas_libres"
 
 TIPO_ALUMNOS_DOCENTE = "ENCUESTA ALUMNOS A DOCENTES"
 TIPO_AUTOEVALUACION_DOCENTE = "ENCUESTA AUTOEVALUACIÓN DOCENTE"
@@ -104,8 +105,10 @@ def _construir_registro():
             scope = None
 
         nombre_encuesta = (
-            f"{tipo_label} EV1 {cfg['periodo']}"
+            f"EV1 - {tipo_label} {cfg['periodo']}"
             if tipo_label == TIPO_ALUMNOS_DOCENTE
+            else f"EV2 - {tipo_label} {cfg['periodo']}"
+            if tipo_label == TIPO_AUTOEVALUACION_DOCENTE
             else f"{tipo_label} {cfg['periodo']}"
         )
         (
@@ -217,6 +220,15 @@ COLUMNAS_RESULTADO_DOCENTE = [
     "promedio_dim_5",
     "n_evaluaciones_recibidas",
     "n_respuestas_validas",
+]
+
+COLUMNAS_RESPUESTAS_LIBRES = [
+    "materia",
+    "docente",
+    "docente_id",
+    "grupo",
+    "pregunta",
+    "respuesta",
 ]
 
 
@@ -501,3 +513,31 @@ def load_resultado_docentes(sede, periodo, carrera, tipo):
         sede, periodo, carrera, tipo,
         INDICADOR_RESULTADO_DOCENTE, COLUMNAS_RESULTADO_DOCENTE,
     )
+
+
+def load_respuestas_libres(sede, periodo, carrera, tipo):
+    """Carga las respuestas libres consignadas por los estudiantes.
+    Devuelve DataFrame con columnas: materia, docente, docente_id, grupo, pregunta, respuesta."""
+    df_libres = _load_resultado_detalle(
+        sede, periodo, carrera, tipo,
+        INDICADOR_RESPUESTAS_LIBRES, COLUMNAS_RESPUESTAS_LIBRES,
+    )
+    if not df_libres.empty:
+        return df_libres
+
+    # Soporte alternativo resiliente si estuviera en archivo separado de respuestas libres
+    try:
+        info = _get_encuesta_info(sede, periodo, carrera, tipo)
+        dataset_name = info.get("dataset")
+        if dataset_name:
+            for ext in [".parquet", ".csv"]:
+                alt_path = os.path.join(DATASETS_DIR, f"respuestas_libres_{dataset_name}{ext}")
+                if os.path.exists(alt_path):
+                    df_alt = pd.read_parquet(alt_path) if ext == ".parquet" else pd.read_csv(alt_path)
+                    cols = [c for c in COLUMNAS_RESPUESTAS_LIBRES if c in df_alt.columns]
+                    return df_alt[cols].reset_index(drop=True)
+    except Exception:
+        pass
+
+    return pd.DataFrame(columns=COLUMNAS_RESPUESTAS_LIBRES)
+

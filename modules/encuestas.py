@@ -34,6 +34,7 @@ from services.data.encuestas import (
     load_resultado_docentes,
     load_resultado_general,
     load_resultado_indicadores,
+    load_respuestas_libres,
     resultados_disponibles,
 )
 
@@ -826,7 +827,7 @@ def _agregar_encabezado_y_pie(canvas, doc):
     canvas.drawString(5 * cm, height - 1.5 * cm, "Universidad Central del Paraguay")
     canvas.setFont("Helvetica", 10)
     canvas.setFillColor(colors.black)
-    canvas.drawString(5 * cm, height - 2.1 * cm, "Reporte de Avance de Encuestas")
+    canvas.drawString(5 * cm, height - 2.1 * cm, "Reporte de Análisis de Encuestas")
     canvas.setStrokeColor(colors.HexColor("#1e3a8a"))
     canvas.setLineWidth(1)
     canvas.line(2 * cm, height - 3.0 * cm, width - 2 * cm, height - 3.0 * cm)

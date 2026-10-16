@@ -29,6 +29,7 @@ from services.data.encuestas import (
     load_resultado_indicadores,
     load_resultado_criterios,
     load_resultado_docentes,
+    load_respuestas_libres,
 )
 
 
@@ -517,12 +518,13 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
     )
 
     # --- 4. SUB-PESTAÑAS DE NAVEGACIÓN EV1 ---
-    tab_avance, tab_alumno, tab_materia, tab_resultados, tab_docente, tab_pedagogico, tab_guia_metodologica = st.tabs(
+    tab_avance, tab_alumno, tab_materia, tab_resultados, tab_respuestas_libres, tab_docente, tab_pedagogico, tab_guia_metodologica = st.tabs(
         [
             "Avance general",
             "Participación de alumnos",
             "Materia · sección · grupo",
             "Respuestas EV1",
+            "Respuestas libres",
             "Por docente",
             "Análisis pedagógico",
             "Guía Metodológica",
@@ -582,7 +584,23 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
         )
 
     # --------------------------------------------------------------------------
-    # SUB-PESTAÑA 5: POR DOCENTE
+    # SUB-PESTAÑA 5: RESPUESTAS LIBRES
+    # --------------------------------------------------------------------------
+    with tab_respuestas_libres:
+        _render_subvista_respuestas_libres(
+            sede,
+            periodo,
+            carrera,
+            tipo,
+            df_detalle=df_detalle,
+            filtro_docente_top=sel_docente,
+            filtro_materia_top=sel_materia,
+            filtro_seccion_top=sel_seccion,
+            filtro_grupo_top=sel_grupo,
+        )
+
+    # --------------------------------------------------------------------------
+    # SUB-PESTAÑA 6: POR DOCENTE
     # --------------------------------------------------------------------------
     with tab_docente:
         _render_subvista_por_docente(
@@ -769,7 +787,7 @@ def _render_subvista_avance_general(
         val_tarjeta2 = f"{mat_respondidas:,}"
         span_tarjeta2 = f"/ {mat_esperadas:,} materias"
         desc_tarjeta2 = f"<strong>{pct_mat:.1f}%</strong> de materias respondidas ({n_materias_total} asignaturas de la malla). Cada estudiante cursa en promedio ~6 materias."
-        desc_tarjeta3 = f"<strong>{porcentaje_avance:.1f}%</strong> respondidas. Comprende a docentes de teoría y comisiones de clases prácticas en aulas y laboratorios (G1, G2, subgrupos, MO/MS, simulación) en la sede <strong>{escape(str(sede))}</strong> ({n_doc_total} docentes evaluados bajo planificación normal)."
+        desc_tarjeta3 = f"<strong>{porcentaje_avance:.1f}%</strong> respondidas. Comprende a docentes de teoría y grupos de clases prácticas en aulas y laboratorios (G1, G2, subgrupos, MO/MS, simulación) en la sede <strong>{escape(str(sede))}</strong> ({n_doc_total} docentes evaluados bajo planificación normal)."
     else:
         if not df_filtrado.empty:
             comp_series = (df_filtrado["estado"] == "Completada") if "estado" in df_filtrado.columns else (df_filtrado["respondio"] == True)
@@ -788,7 +806,7 @@ def _render_subvista_avance_general(
         val_tarjeta2 = f"{n_materias_sel:,}".replace(",", ".")
         span_tarjeta2 = "materia(s) en selección"
         desc_tarjeta2 = f"Distribuidas en <strong>{f'{n_ofertas_sel:,}'.replace(',', '.')}</strong> oferta(s) académica(s) según los filtros aplicados en la sede <strong>{escape(str(sede))}</strong>."
-        desc_tarjeta3 = f"<strong>{porcentaje_avance:.1f}%</strong> respondidas para <strong>{n_doc_unicos}</strong> docente(s) (teoría y comisiones prácticas en aulas o laboratorios) bajo los criterios seleccionados."
+        desc_tarjeta3 = f"<strong>{porcentaje_avance:.1f}%</strong> respondidas para <strong>{n_doc_unicos}</strong> docente(s) (teoría y grupos prácticos en aulas o laboratorios) bajo los criterios seleccionados."
 
     s_completadas = f"{completadas:,}".replace(",", ".")
     s_total_esp = f"{total_esperadas:,}".replace(",", ".")
@@ -1046,7 +1064,7 @@ def _render_subvista_avance_general(
                 ),
                 "Grupo": st.column_config.TextColumn(
                     "Grupo",
-                    help="Grupo o comisión académica: Teoría o clases prácticas vinculadas a aulas o laboratorios (G1, G2, G3, G1-Sub 01, G1-MO, G1-MS, simulación, etc.).",
+                    help="Grupo académico: Teoría o clases prácticas vinculadas a aulas o laboratorios (G1, G2, G3, G1-Sub 01, G1-MO, G1-MS, simulación, etc.).",
                 ),
                 "Docente": st.column_config.TextColumn(
                     "Docente",
@@ -1910,7 +1928,175 @@ def _render_subvista_resultados_ev1(
 
 
 # ==============================================================================
-# SUB-VISTA 5: POR DOCENTE
+# SUB-VISTA 5: RESPUESTAS LIBRES
+# ==============================================================================
+
+def _render_subvista_respuestas_libres(
+    sede,
+    periodo,
+    carrera,
+    tipo,
+    df_detalle=None,
+    filtro_docente_top="Todos",
+    filtro_materia_top="Todas",
+    filtro_seccion_top="Todas",
+    filtro_grupo_top="Todos",
+):
+    """Sub-vista para consultar y filtrar las respuestas y opiniones abiertas
+    redactadas libremente por los alumnos en la encuesta EV1."""
+    st.markdown("### Respuestas Libres Consignadas por Estudiantes (EV1)")
+    st.markdown(
+        """
+        <div class="ev1-note">
+            Recopila las observaciones, opiniones cualitativas y sugerencias formuladas por los estudiantes
+            en las preguntas abiertas de la evaluación estudiantil (EV1).
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    df_libres = load_respuestas_libres(sede, periodo, carrera, tipo)
+
+    if df_libres is None or df_libres.empty:
+        st.info("Alumnos no consignaron respuestas en las preguntas libres")
+        return
+
+    # Normalización de columnas mínimas requeridas
+    col_map = {
+        "materia": "MATERIA",
+        "docente": "DOCENTE",
+        "grupo": "GRUPO",
+        "pregunta": "PREGUNTA",
+        "respuesta": "RESPUESTA LIBRE",
+    }
+    for col_orig in col_map.keys():
+        if col_orig not in df_libres.columns:
+            df_libres[col_orig] = "—"
+
+    # Preparar opciones únicas para los 4 filtros superiores
+    opciones_materia = ["Todas"] + sorted(
+        [str(x).strip() for x in df_libres["materia"].dropna().unique() if str(x).strip() and str(x).strip() != "—"]
+    )
+    opciones_docente = ["Todos"] + sorted(
+        [str(x).strip() for x in df_libres["docente"].dropna().unique() if str(x).strip() and str(x).strip() != "—"]
+    )
+    opciones_grupo = ["Todos"] + sorted(
+        [str(x).strip() for x in df_libres["grupo"].dropna().unique() if str(x).strip() and str(x).strip() != "—"]
+    )
+    opciones_pregunta = ["Todas"] + sorted(
+        [str(x).strip() for x in df_libres["pregunta"].dropna().unique() if str(x).strip() and str(x).strip() != "—"]
+    )
+
+    # Índices por defecto respetando los filtros superiores si coinciden
+    idx_mat = opciones_materia.index(filtro_materia_top) if filtro_materia_top in opciones_materia else 0
+    idx_doc = opciones_docente.index(filtro_docente_top) if filtro_docente_top in opciones_docente else 0
+    idx_grp = opciones_grupo.index(filtro_grupo_top) if filtro_grupo_top in opciones_grupo else 0
+
+    # Filtros superiores en 4 columnas
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        sel_materia = st.selectbox("Materia", opciones_materia, index=idx_mat, key="ev1_sub_libres_materia")
+    with c2:
+        sel_docente = st.selectbox("Docente", opciones_docente, index=idx_doc, key="ev1_sub_libres_docente")
+    with c3:
+        sel_grupo = st.selectbox("Grupo", opciones_grupo, index=idx_grp, key="ev1_sub_libres_grupo")
+    with c4:
+        sel_pregunta = st.selectbox("Pregunta", opciones_pregunta, index=0, key="ev1_sub_libres_pregunta")
+
+    # Aplicar filtrado
+    df_filtrado_libres = df_libres.copy()
+    if sel_materia != "Todas":
+        df_filtrado_libres = df_filtrado_libres[df_filtrado_libres["materia"].astype(str).str.strip() == sel_materia]
+    if sel_docente != "Todos":
+        df_filtrado_libres = df_filtrado_libres[df_filtrado_libres["docente"].astype(str).str.strip() == sel_docente]
+    if sel_grupo != "Todos":
+        df_filtrado_libres = df_filtrado_libres[df_filtrado_libres["grupo"].astype(str).str.strip() == sel_grupo]
+    if sel_pregunta != "Todas":
+        df_filtrado_libres = df_filtrado_libres[df_filtrado_libres["pregunta"].astype(str).str.strip() == sel_pregunta]
+
+    if df_filtrado_libres.empty:
+        st.info("Alumnos no consignaron respuestas en las preguntas libres")
+        return
+
+    # Visualización con scroll vertical y tabla estructurada
+    total_respuestas = len(df_filtrado_libres)
+    st.markdown(
+        f"<div style='font-size: 0.88rem; font-weight: 600; color: #1e3a8a; margin: 12px 0 8px 0;'>"
+        f"Se encontraron {total_respuestas:,} respuesta(s) libre(s) según los filtros aplicados:"
+        f"</div>".replace(",", "."),
+        unsafe_allow_html=True,
+    )
+
+    # Preparar DataFrame para presentación
+    df_presentar = df_filtrado_libres[["materia", "docente", "grupo", "pregunta", "respuesta"]].copy()
+    df_presentar.columns = ["MATERIA", "DOCENTE", "GRUPO", "PREGUNTA", "RESPUESTA LIBRE"]
+
+    tab_tarjetas, tab_tabla = st.tabs(["Vista de Tarjetas (Scroll)", "Tabla Estructurada"])
+
+    with tab_tarjetas:
+        tarjetas_libres = []
+        for _, r in df_presentar.iterrows():
+            mat = escape(str(r["MATERIA"]))
+            doc = escape(str(r["DOCENTE"]))
+            grp = escape(str(r["GRUPO"]))
+            prg = escape(str(r["PREGUNTA"]))
+            txt = escape(str(r["RESPUESTA LIBRE"]))
+            tarjeta_item = f"""
+            <div style="background: var(--portal-bg-card, #ffffff); border: 1px solid var(--portal-border-color, #e2e8f0); border-left: 4px solid #004080; border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; font-size: 0.78rem;">
+                    <div>
+                        <strong style="color: #004080; font-size: 0.82rem;">{mat}</strong>
+                        <span style="color: #64748b; margin-left: 8px;">Grupo: <strong>{grp}</strong></span>
+                    </div>
+                    <div style="color: #475569; font-weight: 600;">
+                        Profesor: <strong>{doc}</strong>
+                    </div>
+                </div>
+                <div style="font-weight: 650; font-size: 0.85rem; color: #1e293b; margin-bottom: 8px;">
+                    {prg}
+                </div>
+                <div style="font-size: 0.85rem; color: #1e293b; font-style: italic; background: var(--portal-bg-card-subtle, #f8fafc); border-radius: 6px; padding: 10px 14px; border-left: 3px solid #cbd5e1; line-height: 1.5;">
+                    "{txt}"
+                </div>
+            </div>
+            """
+            tarjetas_libres.append(tarjeta_item)
+
+        scroll_html = f"""
+        <div style="max-height: 600px; overflow-y: auto; padding-right: 8px; margin-bottom: 16px;">
+            {''.join(tarjetas_libres)}
+        </div>
+        """
+        st.markdown(scroll_html, unsafe_allow_html=True)
+
+    with tab_tabla:
+        st.dataframe(
+            df_presentar,
+            hide_index=True,
+            use_container_width=True,
+            height=500,
+            column_config={
+                "MATERIA": st.column_config.TextColumn("MATERIA", width="medium"),
+                "DOCENTE": st.column_config.TextColumn("DOCENTE", width="medium"),
+                "GRUPO": st.column_config.TextColumn("GRUPO", width="small"),
+                "PREGUNTA": st.column_config.TextColumn("PREGUNTA", width="large"),
+                "RESPUESTA LIBRE": st.column_config.TextColumn("RESPUESTA LIBRE", width="large"),
+            },
+        )
+
+    # Botón de descarga de respuestas libres
+    csv_bytes = df_presentar.to_csv(index=False, sep=";").encode("utf-8")
+    st.download_button(
+        label="📥 Descargar Respuestas Libres (CSV)",
+        data=csv_bytes,
+        file_name=f"respuestas_libres_ev1_{sede}_{periodo}.csv",
+        mime="text/csv",
+        key="ev1_btn_descargar_libres",
+    )
+
+
+# ==============================================================================
+# SUB-VISTA 6: POR DOCENTE
 # ==============================================================================
 
 def _render_subvista_por_docente(
@@ -2244,6 +2430,71 @@ def _render_subvista_por_docente(
         key_prefix=f"doc_{docente_elegido}",
     )
 
+    # --------------------------------------------------------------------------
+    # RESPUESTAS LIBRES DEL DOCENTE SELECCIONADO
+    # --------------------------------------------------------------------------
+    st.divider()
+    st.markdown(f"##### Respuestas libres de estudiantes para {escape(str(docente_elegido))}")
+    st.caption("Opiniones, comentarios y sugerencias formuladas por los alumnos en la evaluación estudiantil (EV1).")
+
+    df_libres_doc = load_respuestas_libres(sede, periodo, carrera, tipo)
+    df_doc_libres = pd.DataFrame()
+    if df_libres_doc is not None and not df_libres_doc.empty:
+        # Filtrar por nombre SQL, nombre bio o id numérico del docente
+        cond_nom_sql = df_libres_doc["docente"].astype(str).str.strip().str.upper() == str(docente_elegido).strip().upper()
+        cond_nom_bio = df_libres_doc["docente"].astype(str).str.strip().str.upper() == str(nombre_bio).strip().upper()
+        cond_final = cond_nom_sql | cond_nom_bio
+        if docente_id_elegido is not None and "docente_id" in df_libres_doc.columns:
+            try:
+                cond_id = df_libres_doc["docente_id"].astype(float) == float(docente_id_elegido)
+                cond_final = cond_final | cond_id
+            except Exception:
+                pass
+        df_doc_libres = df_libres_doc[cond_final].copy()
+
+    if df_doc_libres.empty:
+        st.info("Alumnos no consignaron respuestas en las preguntas libres")
+    else:
+        st.markdown(
+            f"<div style='margin-bottom: 10px; font-size: 0.85rem; color: #475569;'>"
+            f"Se registraron <strong>{len(df_doc_libres):,}</strong> respuesta(s) libre(s) para este docente:"
+            f"</div>".replace(",", "."),
+            unsafe_allow_html=True,
+        )
+        tarjetas_doc_html = []
+        for _, fila in df_doc_libres.iterrows():
+            materia_val = escape(str(fila.get("materia", "—")))
+            grupo_val = escape(str(fila.get("grupo", "—")))
+            pregunta_val = escape(str(fila.get("pregunta", "Pregunta de opinión")))
+            resp_val = escape(str(fila.get("respuesta", "")))
+            tarjeta = f"""
+            <div style="background: var(--portal-bg-card, #ffffff); border: 1px solid var(--portal-border-color, #e2e8f0); border-left: 4px solid #004080; border-radius: 8px; padding: 12px 16px; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 0.78rem;">
+                    <div>
+                        <span style="font-weight: 700; color: #004080;">{materia_val}</span>
+                        <span style="color: #64748b; margin-left: 6px;">| Grupo: <strong>{grupo_val}</strong></span>
+                    </div>
+                </div>
+                <div style="font-weight: 600; font-size: 0.84rem; color: #1e293b; margin-bottom: 6px;">
+                    {pregunta_val}
+                </div>
+                <div style="font-size: 0.84rem; color: #334155; font-style: italic; background: var(--portal-bg-card-subtle, #f8fafc); border-radius: 6px; padding: 8px 12px; border-left: 2px solid #cbd5e1; line-height: 1.45;">
+                    "{resp_val}"
+                </div>
+            </div>
+            """
+            tarjetas_doc_html.append(tarjeta)
+
+        contenido_scroll_doc = "".join(tarjetas_doc_html)
+        st.markdown(
+            f"""
+            <div style="max-height: 480px; overflow-y: auto; padding-right: 6px; margin-bottom: 15px;">
+                {contenido_scroll_doc}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
 
 # ==============================================================================
 # FUNCIÓN COMPARTIDA: ÁRBOL PEDAGÓGICO (DIMENSIONES, INDICADORES Y CRITERIOS)
@@ -2406,7 +2657,7 @@ def _render_arbol_pedagogico(
 
 
 # ==============================================================================
-# SUB-VISTA 6: ANÁLISIS PEDAGÓGICO
+# SUB-VISTA 7: ANÁLISIS PEDAGÓGICO
 # ==============================================================================
 
 def _render_subvista_analisis_pedagogico(
@@ -2620,7 +2871,7 @@ def _render_subvista_analisis_pedagogico(
 
 
 # ==============================================================================
-# SUB-PESTAÑA 7: GUÍA METODOLÓGICA DE INDICADORES EV1
+# SUB-PESTAÑA 8: GUÍA METODOLÓGICA DE INDICADORES EV1
 # ==============================================================================
 
 def _render_subvista_guia_metodologica(df_base=None, df_detalle=None, fila_general=None, sede="Ciudad del Este"):
@@ -2849,7 +3100,7 @@ def _render_subvista_guia_metodologica(df_base=None, df_detalle=None, fila_gener
                 <div style="font-size: 0.82rem; color: #475569; line-height: 1.55;">
                     Cada estudiante cursa en promedio ~{prom_mat_alumno:.1f} materias en su malla curricular ({s_estudiantes_oficial} × ~{prom_mat_alumno:.2f} materias).<br>
                     • <strong>{s_mat_respondidas} materias fueron respondidas</strong> (<strong>{pct_mat_respondidas:.1f}%</strong> de avance a nivel asignatura).<br>
-                    • Refleja la cobertura curricular sin desglosar comisiones prácticas.
+                    • Refleja la cobertura curricular sin desglosar grupos prácticos.
                 </div>
             </div>
             """,
@@ -2862,7 +3113,7 @@ def _render_subvista_guia_metodologica(df_base=None, df_detalle=None, fila_gener
                 <div style="font-size: 0.78rem; font-weight: 700; color: #17845f; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px;">Nivel 3: Asignaciones a Docentes (EV1)</div>
                 <div style="font-size: 1.80rem; font-weight: 800; color: #17845f; margin-bottom: 8px; line-height: 1.2;">{s_asig_oficial} asignaciones</div>
                 <div style="font-size: 0.82rem; color: #475569; line-height: 1.55;">
-                    La encuesta real EV1 evalúa de manera individual a los profesores de teoría y a las comisiones de clases prácticas vinculadas a aulas o laboratorios (grupos G1, G2, G3, subgrupos como G1-Sub 01, G2-Sub 02, simulación clínica y laboratorios anatómicos MO y MS).<br>
+                    La encuesta real EV1 evalúa de manera individual a los profesores de teoría y a los grupos de clases prácticas vinculadas a aulas o laboratorios (grupos G1, G2, G3, subgrupos como G1-Sub 01, G2-Sub 02, simulación clínica y laboratorios anatómicos MO y MS).<br>
                     • Un alumno evalúa en promedio a ~{prom_asig_alumno:.1f} docentes.<br>
                     • <strong>{s_asig_respondidas} evaluaciones fueron respondidas</strong> (<strong>{pct_asig_respondidas:.1f}%</strong> de avance total EV1).
                 </div>
@@ -2951,8 +3202,8 @@ def _render_subvista_guia_metodologica(df_base=None, df_detalle=None, fila_gener
         st.markdown(
             """
             En la carrera de Medicina se presentan dinámicas docentes específicas:
-            - **Cátedra Compartida (Teoría vs. Práctica)**: Un docente titular dicta la teoría y otros profesores conducen las comisiones de clases prácticas. Las clases prácticas no se limitan a un único laboratorio: comprenden comisiones en aulas y laboratorios de clases prácticas (**G1, G2, G3**), subgrupos reducidos (**G1-Sub 01, G1-Sub 02, G2-Sub 01**, etc.), estaciones de **Simulación Clínica**, así como laboratorios anatómicos especializados (**MO - Morgue Orgánica** y **MS - Morgue Seca**). Cada docente es evaluado de forma individual e independiente por los estudiantes asignados a su respectiva comisión práctica o teórica dentro del régimen de planificación normal.
-            - **Validación Oficial por Planificación Normal**: En el sistema biométrico y de asistencia se computan exclusivamente las ofertas y clases registradas bajo **`tipo_planificacion = 1` (Normal)**, omitiendo modalidades ajenas al régimen regular.
+            - **Cátedra Compartida (Teoría vs. Práctica)**: Un docente titular dicta la teoría y otros profesores conducen los grupos de clases prácticas. Las clases prácticas no se limitan a un único espacio: comprenden grupos en aulas y laboratorios de clases prácticas (**G1, G2, G3**), subgrupos reducidos (**G1-Sub 01, G1-Sub 02, G2-Sub 01**, etc.), estaciones de **Simulación Clínica**, así como laboratorios anatómicos especializados (**MO - Morgue Orgánica** y **MS - Morgue Seca**). Se toma en cuenta que los grupos pueden ser tanto teóricos como prácticos, mientras que los subgrupos corresponden de forma estricta a aulas prácticas (destrezas, talleres, laboratorios y simulación). Cada docente es evaluado de forma individual e independiente por los estudiantes asignados a su respectivo grupo dentro del régimen de planificación normal.
+            - **Validación Oficial por Planificación Normal**: En el sistema se computan exclusivamente las ofertas y clases registradas bajo **`tipo_planificacion = 1` (Normal)**, omitiendo modalidades ajenas al régimen regular.
             - **Consistencia de Respuestas**: Las evaluaciones de los estudiantes se asocian de manera unívoca a las asignaciones de planificación normal, garantizando que el cómputo de participación refleje con fidelidad la labor lectiva formal.
             """,
             unsafe_allow_html=True,
@@ -2976,7 +3227,7 @@ def _render_subvista_guia_metodologica(df_base=None, df_detalle=None, fila_gener
     # 6. GLOSARIO DE TÉRMINOS Y SIGLAS
     # --------------------------------------------------------------------------
     st.markdown("#### 6. Glosario de Indicadores y Siglas Institucionales")
-    with st.expander("Ver Glosario Completo de Términos (EV1, Comisiones Prácticas G1/G2/Subgrupos/MO/MS, Criterios, Dimensiones)", expanded=False):
+    with st.expander("Ver Glosario Completo de Términos (EV1, Grupos Prácticos G1/G2/Subgrupos/MO/MS, Criterios, Dimensiones)", expanded=False):
         st.markdown(
             f"""
             <div style="overflow-x: auto;">
@@ -2993,12 +3244,12 @@ def _render_subvista_guia_metodologica(df_base=None, df_detalle=None, fila_gener
                             <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1);">Encuesta de Valoración Estudiantil a la Docencia (Opinión del Estudiante sobre el desempeño profesoral en escala Likert 1 a 5).</td>
                         </tr>
                         <tr style="background: var(--portal-bg-card-subtle, #f8fafc); color: var(--portal-text-primary, #1e293b);">
-                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Comisión Académica</td>
-                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1);">Unidad operativa de dictado de una materia. Comprende la comisión teórica y las diversas comisiones de clases prácticas vinculadas a aulas o laboratorios de práctica (grupos <strong>G1, G2, G3</strong>, subgrupos como <strong>G1-Sub 01, G2-Sub 01</strong>, simulación médica y laboratorios especializados como <strong>MO y MS</strong>), asignadas a un docente con su respectivo grupo de estudiantes matriculados.</td>
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Grupo Académico</td>
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1);">Unidad operativa de dictado de una materia. Los grupos pueden ser tanto teóricos como prácticos, asignados a un docente con su respectivo grupo de estudiantes matriculados.</td>
                         </tr>
                         <tr style="background: var(--portal-bg-card, #ffffff); color: var(--portal-text-primary, #1e293b);">
-                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Comisiones Prácticas (G1, G2, Subgrupos)</td>
-                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); line-height: 1.5;">Grupos y subgrupos operativos organizados para el desarrollo de clases prácticas en aulas de destreza, talleres, laboratorios y simulación. Dividen la matrícula en comisiones reducidas (ej. <strong>G1, G2, G3</strong> y subgrupos como <strong>G1-Sub 01, G1-Sub 02, G2-Sub 01</strong>, etc.) vinculadas a aulas o laboratorios de clases prácticas para garantizar una enseñanza participativa y personalizada.</td>
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Grupos y Subgrupos Prácticos (G1, G2, Subgrupos)</td>
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); line-height: 1.5;">Grupos y subgrupos operativos organizados para el desarrollo de clases prácticas en aulas de destreza, talleres, laboratorios y simulación. Mientras los grupos pueden ser teóricos o prácticos, los subgrupos corresponden estrictamente a aulas prácticas, dividiendo la matrícula en grupos reducidos (ej. <strong>G1, G2, G3</strong> y subgrupos como <strong>G1-Sub 01, G1-Sub 02, G2-Sub 01</strong>, etc.) para garantizar una enseñanza participativa y personalizada.</td>
                         </tr>
                         <tr style="background: var(--portal-bg-card-subtle, #f8fafc); color: var(--portal-text-primary, #1e293b);">
                             <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Oferta Académica</td>
@@ -3010,7 +3261,7 @@ def _render_subvista_guia_metodologica(df_base=None, df_detalle=None, fila_gener
                         </tr>
                         <tr style="background: var(--portal-bg-card-subtle, #f8fafc); color: var(--portal-text-primary, #1e293b);">
                             <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Tipo de Planificación (Clase)</td>
-                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); line-height: 1.5;">Clasificación operativa en el sistema de biometría y asistencia. Para EV1 se procesa y valida exclusivamente el <code>Tipo 1 (Normal)</code>, que corresponde al régimen regular de calendario, omitiendo cualquier otra modalidad no regular.</td>
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); line-height: 1.5;">Clasificación operativa de la cátedra. Para EV1 se procesa y valida exclusivamente el <code>Tipo 1 (Normal)</code>, que corresponde al régimen regular de calendario, omitiendo cualquier otra modalidad no regular.</td>
                         </tr>
                         <tr style="background: var(--portal-bg-card, #ffffff); color: var(--portal-text-primary, #1e293b);">
                             <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Planificación Normal vs. Modalidades Especiales</td>
@@ -3018,19 +3269,19 @@ def _render_subvista_guia_metodologica(df_base=None, df_detalle=None, fila_gener
                         </tr>
                         <tr style="background: var(--portal-bg-card-subtle, #f8fafc); color: var(--portal-text-primary, #1e293b);">
                             <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Grupo MO (Morgue Orgánica)</td>
-                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1);">Comisión de clase práctica en laboratorio de <strong>Morgue Orgánica (MO)</strong> (ej. <strong>G1-MO, G2-MO, G3-MO</strong>), enfocada en prácticas de anatomía y habilidades médicas con piezas y preparados biológicos orgánicos.</td>
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1);">Grupo de clase práctica en laboratorio de <strong>Morgue Orgánica (MO)</strong> (ej. <strong>G1-MO, G2-MO, G3-MO</strong>), enfocada en prácticas de anatomía y habilidades médicas con piezas y preparados biológicos orgánicos.</td>
                         </tr>
                         <tr style="background: var(--portal-bg-card, #ffffff); color: var(--portal-text-primary, #1e293b);">
                             <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Grupo MS (Morgue Seca)</td>
-                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1);">Comisión de clase práctica en aula / laboratorio de <strong>Morgue Seca (MS)</strong> (ej. <strong>G1-MS, G2-MS, G3-MS</strong>), enfocada en prácticas de anatomía y simulación con modelos anatómicos secos, piezas sintéticas y estaciones de destreza.</td>
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1);">Grupo de clase práctica en aula / laboratorio de <strong>Morgue Seca (MS)</strong> (ej. <strong>G1-MS, G2-MS, G3-MS</strong>), enfocada en prácticas de anatomía y simulación con modelos anatómicos secos, piezas sintéticas y estaciones de destreza.</td>
                         </tr>
                         <tr style="background: var(--portal-bg-card-subtle, #f8fafc); color: var(--portal-text-primary, #1e293b);">
                             <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Grupo Simulación Clínica</td>
-                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1);">Comisión de clase práctica en centros de simulación médica y entrenamiento de habilidades clínicas y quirúrgicas (ej. <strong>G1-SIMULACIÓN, G2-SIMULACIÓN</strong>).</td>
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1);">Grupo de clase práctica en centros de simulación médica y entrenamiento de habilidades clínicas y quirúrgicas (ej. <strong>G1-SIMULACIÓN, G2-SIMULACIÓN</strong>).</td>
                         </tr>
                         <tr style="background: var(--portal-bg-card-subtle, #f8fafc); color: var(--portal-text-primary, #1e293b);">
                             <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Cobertura de Oferta</td>
-                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1);">Grado de representatividad estadística alcanzado por una comisión: 🟢 <strong>Adecuado</strong> (≥ 80,0%) · 🟡 <strong>Seguimiento</strong> (50,0% a 79,9%) · 🔴 <strong>Crítico</strong> (&lt; 50,0%).</td>
+                            <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1);">Grado de representatividad estadística alcanzado por un grupo u oferta académica: 🟢 <strong>Adecuado</strong> (≥ 80,0%) · 🟡 <strong>Seguimiento</strong> (50,0% a 79,9%) · 🔴 <strong>Crítico</strong> (&lt; 50,0%).</td>
                         </tr>
                         <tr style="background: var(--portal-bg-card, #ffffff); color: var(--portal-text-primary, #1e293b);">
                             <td style="padding: 8px 12px; border: 1px solid var(--portal-border-color, #cbd5e1); font-weight: 600; color: var(--portal-accent, #004080);">Matrícula Convocada vs. Activa</td>
