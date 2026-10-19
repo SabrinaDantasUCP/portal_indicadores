@@ -84,6 +84,7 @@ def _ejecutar_alumno_docente(config: dict) -> int:
         offline_contacto_csv=os.path.join(RAW_OUTPUT_DIR, "contacto_raw.csv"),
         offline_estructura_csv=os.path.join(RAW_OUTPUT_DIR, "estructura_encuesta_raw.csv"),
         offline_escala_csv=os.path.join(RAW_OUTPUT_DIR, "escala_encuesta_raw.csv"),
+        offline_resp_abiertas_csv=os.path.join(RAW_OUTPUT_DIR, "respuestas_abiertas_raw.csv"),
     )
 
     df_v1 = _combinar_exports(exports)
@@ -101,9 +102,20 @@ def _ejecutar_alumno_docente(config: dict) -> int:
                 config["periodo"], dataset_name,
             )
     if ids_activos:
-        exports_v2 = dict(exports)
-        exports_v2["avance_por_alumno"] = etl.filtrar_avance_por_alumno_activos(
-            exports["avance_por_alumno"], ids_activos
+        exports_v2 = etl.generar_indicadores(
+            id_encuesta=config["id_encuesta_externa"],
+            anho=anho,
+            semestre=semestre_bio,
+            subperiodo=subperiodo,
+            output_dir=RAW_OUTPUT_DIR,
+            offline_plan_csv=os.path.join(RAW_OUTPUT_DIR, "planificacion_raw.csv"),
+            offline_resp_csv=os.path.join(RAW_OUTPUT_DIR, "respuestas_raw.csv"),
+            offline_encuesta_csv=os.path.join(RAW_OUTPUT_DIR, "encuesta_raw.csv"),
+            offline_contacto_csv=os.path.join(RAW_OUTPUT_DIR, "contacto_raw.csv"),
+            offline_estructura_csv=os.path.join(RAW_OUTPUT_DIR, "estructura_encuesta_raw.csv"),
+            offline_escala_csv=os.path.join(RAW_OUTPUT_DIR, "escala_encuesta_raw.csv"),
+            offline_resp_abiertas_csv=os.path.join(RAW_OUTPUT_DIR, "respuestas_abiertas_raw.csv"),
+            ids_activos_filtro=ids_activos,
         )
         df_v2 = _combinar_exports(exports_v2)
         _escribir_dataset(f"{dataset_name}_v2", df_v2)

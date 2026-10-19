@@ -17,6 +17,7 @@ código limpio y preservación inquebrantable de funcionalidades existentes.
 """
 
 from html import escape
+import io
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -449,8 +450,15 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
         df_base = pd.DataFrame(ASIGNACIONES_REFERENCIA)
 
     # --- 3. FILTROS DINÁMICOS SUPERIORES (CONFIDENCIALIDAD: SIN BÚSQUEDA POR ALUMNO) ---
+    df_libres_global = load_respuestas_libres(sede, periodo, carrera, tipo)
+    lista_preguntas_libres = ["Todas"]
+    if df_libres_global is not None and not df_libres_global.empty and "pregunta" in df_libres_global.columns:
+        lista_preguntas_libres += sorted(
+            [str(p).strip() for p in df_libres_global["pregunta"].dropna().unique() if str(p).strip() and str(p).strip() != "—"]
+        )
+
     with st.expander("Filtros del Dashboard EV1", expanded=True):
-        col_filtro1, col_filtro2, col_filtro3, col_filtro4, col_filtro5 = st.columns(5)
+        col_filtro1, col_filtro2, col_filtro3, col_filtro4, col_filtro5, col_filtro6 = st.columns(6)
 
         # Opciones únicas ordenadas
         lista_materias = ["Todas"] + sorted([str(m) for m in df_base["materia"].dropna().unique() if str(m).strip()])
@@ -469,6 +477,8 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
             sel_docente = st.selectbox("Docente", options=lista_docentes, key="ev1_filtro_docente")
         with col_filtro5:
             sel_estado = st.selectbox("Estado", options=lista_estados, key="ev1_filtro_estado")
+        with col_filtro6:
+            sel_pregunta = st.selectbox("Pregunta (Libres)", options=lista_preguntas_libres, key="ev1_filtro_pregunta")
 
     sel_alumno = "Todos"
 
@@ -515,6 +525,7 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
         or sel_seccion != "Todas"
         or sel_grupo != "Todos"
         or sel_estado != "Todos"
+        or sel_pregunta != "Todas"
     )
 
     # --- 4. SUB-PESTAÑAS DE NAVEGACIÓN EV1 ---
@@ -597,6 +608,7 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
             filtro_materia_top=sel_materia,
             filtro_seccion_top=sel_seccion,
             filtro_grupo_top=sel_grupo,
+            filtro_pregunta_top=sel_pregunta,
         )
 
     # --------------------------------------------------------------------------
@@ -1931,6 +1943,152 @@ def _render_subvista_resultados_ev1(
 # SUB-VISTA 5: RESPUESTAS LIBRES
 # ==============================================================================
 
+@st.cache_data(show_spinner=False)
+def _generar_excel_respuestas_libres(df_exportar: pd.DataFrame, sede: str, periodo: str) -> bytes:
+    """Genera un archivo Excel (.xlsx) estilizado con:
+    - Encabezado institucional coloreado con autofiltro en cada columna
+    - Filas alternadas en diseño cebra (blanco / azul hielo suave)
+    - Ancho de columna autoajustado al contenido y ajuste de texto (text_wrap)
+    """
+    import xlsxwriter
+
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+        nombre_hoja = "Respuestas Libres EV1"
+        df_exportar.to_excel(writer, index=False, sheet_name=nombre_hoja, startrow=2)
+
+        workbook = writer.book
+        worksheet = writer.sheets[nombre_hoja]
+
+        # Formatos institucionales
+        fmt_titulo = workbook.add_format({
+            "bold": True,
+            "font_size": 13,
+            "font_color": "#002B5B",
+            "bg_color": "#EEF4FB",
+            "align": "left",
+            "valign": "vcenter",
+            "border": 1,
+            "border_color": "#CBD5E1",
+        })
+        fmt_encabezado = workbook.add_format({
+            "bold": True,
+            "font_size": 10,
+            "font_color": "#FFFFFF",
+            "bg_color": "#004080",
+            "align": "center",
+            "valign": "vcenter",
+            "border": 1,
+            "border_color": "#002B5B",
+            "text_wrap": True,
+        })
+        fmt_fila_par = workbook.add_format({
+            "font_size": 10,
+            "font_color": "#1E293B",
+            "bg_color": "#FFFFFF",
+            "valign": "top",
+            "text_wrap": True,
+            "border": 1,
+            "border_color": "#E2E8F0",
+        })
+        fmt_fila_impar = workbook.add_format({
+            "font_size": 10,
+            "font_color": "#1E293B",
+            "bg_color": "#F1F5F9",
+            "valign": "top",
+            "text_wrap": True,
+            "border": 1,
+            "border_color": "#CBD5E1",
+        })
+        fmt_fila_par_centro = workbook.add_format({
+            "font_size": 10,
+            "font_color": "#1E293B",
+            "bg_color": "#FFFFFF",
+            "align": "center",
+            "valign": "top",
+            "text_wrap": True,
+            "border": 1,
+            "border_color": "#E2E8F0",
+        })
+        fmt_fila_impar_centro = workbook.add_format({
+            "font_size": 10,
+            "font_color": "#1E293B",
+            "bg_color": "#F1F5F9",
+            "align": "center",
+            "valign": "top",
+            "text_wrap": True,
+            "border": 1,
+            "border_color": "#CBD5E1",
+        })
+
+        n_filas, n_cols = df_exportar.shape
+
+        # Título superior combinado
+        titulo_texto = (
+            f"UCP · Respuestas Libres Consignadas por Estudiantes (EV1) — "
+            f"Sede: {sede} | Período: {periodo} | Total registros: {n_filas:,}".replace(",", ".")
+        )
+        worksheet.merge_range(0, 0, 0, max(0, n_cols - 1), titulo_texto, fmt_titulo)
+        worksheet.set_row(0, 26)
+        worksheet.set_row(1, 8)
+        worksheet.set_row(2, 26)
+
+        # Escribir encabezados con estilo
+        for col_idx, col_nom in enumerate(df_exportar.columns):
+            worksheet.write(2, col_idx, col_nom, fmt_encabezado)
+
+        # Activar autofiltro en todos los encabezados y congelar paneles
+        if n_filas > 0 and n_cols > 0:
+            worksheet.autofilter(2, 0, 2 + n_filas, n_cols - 1)
+        worksheet.freeze_panes(3, 0)
+
+        # Aplicar formato cebra fila por fila y autoajustar altura según longitud del texto
+        cols_centradas = {"SECCIÓN", "GRUPO"}
+        anchos_maximos = [len(str(c)) + 4 for c in df_exportar.columns]
+
+        for row_idx, (_, fila) in enumerate(df_exportar.iterrows()):
+            excel_row = 3 + row_idx
+            es_impar = (row_idx % 2 == 1)
+            max_lineas_fila = 1
+
+            for col_idx, col_nom in enumerate(df_exportar.columns):
+                valor = "" if pd.isna(fila.iloc[col_idx]) else str(fila.iloc[col_idx])
+                largo_val = len(valor)
+                if largo_val + 3 > anchos_maximos[col_idx]:
+                    anchos_maximos[col_idx] = largo_val + 3
+
+                if col_nom in cols_centradas:
+                    fmt_usar = fmt_fila_impar_centro if es_impar else fmt_fila_par_centro
+                else:
+                    fmt_usar = fmt_fila_impar if es_impar else fmt_fila_par
+
+                worksheet.write(excel_row, col_idx, valor, fmt_usar)
+
+                # Estimar cantidad de líneas para ajustar alto de fila automáticamente
+                ancho_ref = 55 if col_nom in ("PREGUNTA", "RESPUESTA LIBRE") else 28
+                lineas_saltos = valor.count("\n") + 1
+                lineas_wrap = max(1, (largo_val // ancho_ref) + 1)
+                max_lineas_fila = max(max_lineas_fila, lineas_saltos, lineas_wrap)
+
+            worksheet.set_row(excel_row, max(20, min(120, max_lineas_fila * 16)))
+
+        # Autoajuste de ancho de cada columna con topes estéticos legibles
+        limites_col = {
+            "MATERIA": (22, 38),
+            "DOCENTE": (24, 40),
+            "SECCIÓN": (11, 16),
+            "GRUPO": (12, 18),
+            "PREGUNTA": (35, 55),
+            "RESPUESTA LIBRE": (45, 75),
+        }
+        for col_idx, col_nom in enumerate(df_exportar.columns):
+            min_w, max_w = limites_col.get(col_nom, (14, 45))
+            ancho_final = max(min_w, min(max_w, anchos_maximos[col_idx]))
+            worksheet.set_column(col_idx, col_idx, ancho_final)
+
+    return buffer.getvalue()
+
+
 def _render_subvista_respuestas_libres(
     sede,
     periodo,
@@ -1941,6 +2099,7 @@ def _render_subvista_respuestas_libres(
     filtro_materia_top="Todas",
     filtro_seccion_top="Todas",
     filtro_grupo_top="Todos",
+    filtro_pregunta_top="Todas",
 ):
     """Sub-vista para consultar y filtrar las respuestas y opiniones abiertas
     redactadas libremente por los alumnos en la encuesta EV1."""
@@ -1949,7 +2108,8 @@ def _render_subvista_respuestas_libres(
         """
         <div class="ev1-note">
             Recopila las observaciones, opiniones cualitativas y sugerencias formuladas por los estudiantes
-            en las preguntas abiertas de la evaluación estudiantil (EV1).
+            en las preguntas abiertas de la evaluación estudiantil (EV1). Utilice los <strong>Filtros del Dashboard EV1</strong>
+            en la parte superior para segmentar por Materia, Sección, Grupo, Docente o Pregunta.
         </div>
         """,
         unsafe_allow_html=True,
@@ -1962,112 +2122,192 @@ def _render_subvista_respuestas_libres(
         return
 
     # Normalización de columnas mínimas requeridas
-    col_map = {
-        "materia": "MATERIA",
-        "docente": "DOCENTE",
-        "grupo": "GRUPO",
-        "pregunta": "PREGUNTA",
-        "respuesta": "RESPUESTA LIBRE",
-    }
-    for col_orig in col_map.keys():
+    for col_orig in ("materia", "docente", "seccion", "grupo", "pregunta", "respuesta"):
         if col_orig not in df_libres.columns:
             df_libres[col_orig] = "—"
 
-    # Preparar opciones únicas para los 4 filtros superiores
-    opciones_materia = ["Todas"] + sorted(
-        [str(x).strip() for x in df_libres["materia"].dropna().unique() if str(x).strip() and str(x).strip() != "—"]
-    )
-    opciones_docente = ["Todos"] + sorted(
-        [str(x).strip() for x in df_libres["docente"].dropna().unique() if str(x).strip() and str(x).strip() != "—"]
-    )
-    opciones_grupo = ["Todos"] + sorted(
-        [str(x).strip() for x in df_libres["grupo"].dropna().unique() if str(x).strip() and str(x).strip() != "—"]
-    )
-    opciones_pregunta = ["Todas"] + sorted(
-        [str(x).strip() for x in df_libres["pregunta"].dropna().unique() if str(x).strip() and str(x).strip() != "—"]
-    )
-
-    # Índices por defecto respetando los filtros superiores si coinciden
-    idx_mat = opciones_materia.index(filtro_materia_top) if filtro_materia_top in opciones_materia else 0
-    idx_doc = opciones_docente.index(filtro_docente_top) if filtro_docente_top in opciones_docente else 0
-    idx_grp = opciones_grupo.index(filtro_grupo_top) if filtro_grupo_top in opciones_grupo else 0
-
-    # Filtros superiores en 4 columnas
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        sel_materia = st.selectbox("Materia", opciones_materia, index=idx_mat, key="ev1_sub_libres_materia")
-    with c2:
-        sel_docente = st.selectbox("Docente", opciones_docente, index=idx_doc, key="ev1_sub_libres_docente")
-    with c3:
-        sel_grupo = st.selectbox("Grupo", opciones_grupo, index=idx_grp, key="ev1_sub_libres_grupo")
-    with c4:
-        sel_pregunta = st.selectbox("Pregunta", opciones_pregunta, index=0, key="ev1_sub_libres_pregunta")
-
-    # Aplicar filtrado
+    # Aplicar filtrado directamente desde los filtros superiores del Dashboard EV1
     df_filtrado_libres = df_libres.copy()
-    if sel_materia != "Todas":
-        df_filtrado_libres = df_filtrado_libres[df_filtrado_libres["materia"].astype(str).str.strip() == sel_materia]
-    if sel_docente != "Todos":
-        df_filtrado_libres = df_filtrado_libres[df_filtrado_libres["docente"].astype(str).str.strip() == sel_docente]
-    if sel_grupo != "Todos":
-        df_filtrado_libres = df_filtrado_libres[df_filtrado_libres["grupo"].astype(str).str.strip() == sel_grupo]
-    if sel_pregunta != "Todas":
-        df_filtrado_libres = df_filtrado_libres[df_filtrado_libres["pregunta"].astype(str).str.strip() == sel_pregunta]
+    if filtro_materia_top != "Todas":
+        df_filtrado_libres = df_filtrado_libres[
+            df_filtrado_libres["materia"].astype(str).str.strip().str.upper() == str(filtro_materia_top).strip().upper()
+        ]
+    if filtro_seccion_top != "Todas" and "seccion" in df_filtrado_libres.columns:
+        df_filtrado_libres = df_filtrado_libres[
+            df_filtrado_libres["seccion"].astype(str).str.strip().str.upper() == str(filtro_seccion_top).strip().upper()
+        ]
+    if filtro_grupo_top != "Todos":
+        df_filtrado_libres = df_filtrado_libres[
+            df_filtrado_libres["grupo"].astype(str).str.strip().str.upper() == str(filtro_grupo_top).strip().upper()
+        ]
+    if filtro_docente_top != "Todos":
+        nom_top_norm = str(filtro_docente_top).strip().upper()
+        tokens_top = set(nom_top_norm.replace(",", " ").split())
+        serie_doc = df_filtrado_libres["docente"].fillna("").astype(str).str.strip().str.upper()
+        mask_exacto = (serie_doc == nom_top_norm)
+        if mask_exacto.any():
+            df_filtrado_libres = df_filtrado_libres[mask_exacto]
+        else:
+            mask_tokens = serie_doc.apply(
+                lambda v: bool(
+                    tokens_top
+                    and set(v.replace(",", " ").split())
+                    and (tokens_top <= set(v.replace(",", " ").split()) or set(v.replace(",", " ").split()) <= tokens_top)
+                )
+            )
+            df_filtrado_libres = df_filtrado_libres[mask_tokens]
+    if filtro_pregunta_top != "Todas":
+        df_filtrado_libres = df_filtrado_libres[
+            df_filtrado_libres["pregunta"].astype(str).str.strip() == str(filtro_pregunta_top).strip()
+        ]
 
     if df_filtrado_libres.empty:
-        st.info("Alumnos no consignaron respuestas en las preguntas libres")
+        st.info("Alumnos no consignaron respuestas en las preguntas libres para los filtros seleccionados.")
         return
 
-    # Visualización con scroll vertical y tabla estructurada
+    # --------------------------------------------------------------------------
+    # FILA DE TARJETAS KPI DE RESPUESTAS LIBRES
+    # --------------------------------------------------------------------------
     total_respuestas = len(df_filtrado_libres)
+    n_docentes_comentados = int(
+        df_filtrado_libres["docente"].replace("—", pd.NA).dropna().nunique()
+    )
+    n_materias_comentadas = int(
+        df_filtrado_libres["materia"].replace("—", pd.NA).dropna().nunique()
+    )
+    n_grupos_comentados = int(
+        df_filtrado_libres["grupo"].replace("—", pd.NA).dropna().nunique()
+    )
+    n_preguntas_activas = int(
+        df_filtrado_libres["pregunta"].replace("—", pd.NA).dropna().nunique()
+    )
+
+    terminos_neutros = {
+        "NINGUNO", "NINGUNA", "NENHUM", "NENHUMA", "NADA", "SIN COMENTARIOS",
+        "SEM COMENTARIOS", "SEM COMENTÁRIOS", "NO", "N/A", "NA", "-", ".", "OK", "BIEN",
+    }
+    resp_limpias = df_filtrado_libres["respuesta"].astype(str).str.strip().str.upper()
+    n_sustantivas = int((~resp_limpias.isin(terminos_neutros) & (resp_limpias.str.len() > 3)).sum())
+    pct_sustantivas = round(n_sustantivas / total_respuestas * 100, 1) if total_respuestas > 0 else 0.0
+
+    k1, k2, k3, k4 = st.columns(4)
+    with k1:
+        _render_kpi_card_ev1(
+            "Total Respuestas Libres",
+            f"{total_respuestas:,}".replace(",", "."),
+            ayuda="Total de respuestas abiertas registradas por los estudiantes según los filtros activos.",
+            detalle=f"En {n_preguntas_activas} pregunta(s) abierta(s) EV1",
+            color_acento="#004080",
+        )
+    with k2:
+        _render_kpi_card_ev1(
+            "Comentarios con Contenido",
+            f"{n_sustantivas:,}".replace(",", "."),
+            ayuda="Respuestas que contienen observaciones o sugerencias redactadas (excluyendo 'Ninguno', 'Nenhum', 'Nada', etc.).",
+            detalle=f"{_formatear_porcentaje(pct_sustantivas)} con opinión redactada",
+            color_acento="#15803d",
+            porcentaje_progreso=pct_sustantivas,
+        )
+    with k3:
+        _render_kpi_card_ev1(
+            "Materias con Opiniones",
+            f"{n_materias_comentadas:,}".replace(",", "."),
+            ayuda="Cantidad de asignaturas con participación en las preguntas abiertas bajo el filtro actual.",
+            detalle="Asignaturas con respuestas libres",
+            color_acento="#0284c7",
+        )
+    with k4:
+        _render_kpi_card_ev1(
+            "Grupos con Opiniones",
+            f"{n_grupos_comentados:,}".replace(",", "."),
+            ayuda="Cantidad de grupos con participación en las preguntas abiertas bajo el filtro actual.",
+            detalle="Grupos con respuestas libres",
+            color_acento="#4f46e5",
+        )
+
+    st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
+
+    # Preparar DataFrame para presentación y exportación
+    df_presentar = df_filtrado_libres[["materia", "docente", "seccion", "grupo", "pregunta", "respuesta"]].copy()
+    df_presentar.columns = ["MATERIA", "DOCENTE", "SECCIÓN", "GRUPO", "PREGUNTA", "RESPUESTA LIBRE"]
+
     st.markdown(
-        f"<div style='font-size: 0.88rem; font-weight: 600; color: #1e3a8a; margin: 12px 0 8px 0;'>"
+        f"<div style='font-size: 0.90rem; font-weight: 600; color: #1e3a8a; margin: 6px 0 8px 0;'>"
         f"Se encontraron {total_respuestas:,} respuesta(s) libre(s) según los filtros aplicados:"
         f"</div>".replace(",", "."),
         unsafe_allow_html=True,
     )
 
-    # Preparar DataFrame para presentación
-    df_presentar = df_filtrado_libres[["materia", "docente", "grupo", "pregunta", "respuesta"]].copy()
-    df_presentar.columns = ["MATERIA", "DOCENTE", "GRUPO", "PREGUNTA", "RESPUESTA LIBRE"]
-
-    tab_tarjetas, tab_tabla = st.tabs(["Vista de Tarjetas (Scroll)", "Tabla Estructurada"])
+    tab_tarjetas, tab_tabla = st.tabs(["Vista de Tarjetas", "Tabla Estructurada"])
 
     with tab_tarjetas:
+        tam_pagina = 100
+        total_paginas = max(1, (total_respuestas + tam_pagina - 1) // tam_pagina)
+        pagina_actual = st.session_state.get("ev1_pag_tarjetas_libres", 1)
+        if pagina_actual < 1 or pagina_actual > total_paginas:
+            pagina_actual = 1
+
+        inicio_idx = (pagina_actual - 1) * tam_pagina
+        fin_idx = min(inicio_idx + tam_pagina, total_respuestas)
+        df_tarjetas_pag = df_presentar.iloc[inicio_idx:fin_idx] if total_paginas > 1 else df_presentar
+
         tarjetas_libres = []
-        for _, r in df_presentar.iterrows():
+        for _, r in df_tarjetas_pag.iterrows():
             mat = escape(str(r["MATERIA"]))
             doc = escape(str(r["DOCENTE"]))
+            sec = escape(str(r["SECCIÓN"]))
             grp = escape(str(r["GRUPO"]))
             prg = escape(str(r["PREGUNTA"]))
-            txt = escape(str(r["RESPUESTA LIBRE"]))
-            tarjeta_item = f"""
-            <div style="background: var(--portal-bg-card, #ffffff); border: 1px solid var(--portal-border-color, #e2e8f0); border-left: 4px solid #004080; border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
-                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; font-size: 0.78rem;">
-                    <div>
-                        <strong style="color: #004080; font-size: 0.82rem;">{mat}</strong>
-                        <span style="color: #64748b; margin-left: 8px;">Grupo: <strong>{grp}</strong></span>
-                    </div>
-                    <div style="color: #475569; font-weight: 600;">
-                        Profesor: <strong>{doc}</strong>
-                    </div>
-                </div>
-                <div style="font-weight: 650; font-size: 0.85rem; color: #1e293b; margin-bottom: 8px;">
-                    {prg}
-                </div>
-                <div style="font-size: 0.85rem; color: #1e293b; font-style: italic; background: var(--portal-bg-card-subtle, #f8fafc); border-radius: 6px; padding: 10px 14px; border-left: 3px solid #cbd5e1; line-height: 1.5;">
-                    "{txt}"
-                </div>
-            </div>
-            """
+            txt = escape(str(r["RESPUESTA LIBRE"])).replace("\n", "<br>")
+            tarjeta_item = (
+                f'<div style="background: var(--portal-bg-card, #ffffff); border: 1px solid var(--portal-border-color, #e2e8f0); '
+                f'border-left: 4px solid #004080; border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; '
+                f'box-shadow: 0 1px 3px rgba(0,0,0,0.04);">'
+                f'<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; '
+                f'margin-bottom: 6px; font-size: 0.78rem;">'
+                f'<div>'
+                f'<strong style="color: #004080; font-size: 0.84rem;">{mat}</strong>'
+                f'<span style="color: #64748b; margin-left: 8px;">Sección: <strong>{sec}</strong> · Grupo: <strong>{grp}</strong></span>'
+                f'</div>'
+                f'<div style="color: #475569; font-weight: 600;">'
+                f'Docente: <strong style="color: #0f172a;">{doc}</strong>'
+                f'</div>'
+                f'</div>'
+                f'<div style="font-weight: 650; font-size: 0.85rem; color: #1e293b; margin-bottom: 8px;">'
+                f'{prg}'
+                f'</div>'
+                f'<div style="font-size: 0.85rem; color: #1e293b; font-style: italic; '
+                f'background: var(--portal-bg-card-subtle, #f8fafc); border-radius: 6px; padding: 10px 14px; '
+                f'border-left: 3px solid #cbd5e1; line-height: 1.5;">'
+                f'"{txt}"'
+                f'</div>'
+                f'</div>'
+            )
             tarjetas_libres.append(tarjeta_item)
 
-        scroll_html = f"""
-        <div style="max-height: 600px; overflow-y: auto; padding-right: 8px; margin-bottom: 16px;">
-            {''.join(tarjetas_libres)}
-        </div>
-        """
+        scroll_html = (
+            f'<div style="max-height: 600px; overflow-y: auto; padding-right: 8px; margin-bottom: 12px;">'
+            f'{"".join(tarjetas_libres)}'
+            f'</div>'
+        )
         st.markdown(scroll_html, unsafe_allow_html=True)
+
+        if total_paginas > 1:
+            col_pag_info, col_pag_sel = st.columns([3, 1])
+            with col_pag_sel:
+                st.number_input(
+                    f"Página (1 a {total_paginas})",
+                    min_value=1,
+                    max_value=total_paginas,
+                    value=pagina_actual,
+                    step=1,
+                    key="ev1_pag_tarjetas_libres",
+                )
+            with col_pag_info:
+                st.caption(
+                    f"Mostrando respuestas {inicio_idx + 1:,} a {fin_idx:,} de {total_respuestas:,} en vista de tarjetas "
+                    f"(la Tabla Estructurada y las descargas Excel/CSV incluyen los {total_respuestas:,} registros).".replace(",", ".")
+                )
 
     with tab_tabla:
         st.dataframe(
@@ -2078,21 +2318,36 @@ def _render_subvista_respuestas_libres(
             column_config={
                 "MATERIA": st.column_config.TextColumn("MATERIA", width="medium"),
                 "DOCENTE": st.column_config.TextColumn("DOCENTE", width="medium"),
+                "SECCIÓN": st.column_config.TextColumn("SECCIÓN", width="small"),
                 "GRUPO": st.column_config.TextColumn("GRUPO", width="small"),
                 "PREGUNTA": st.column_config.TextColumn("PREGUNTA", width="large"),
                 "RESPUESTA LIBRE": st.column_config.TextColumn("RESPUESTA LIBRE", width="large"),
             },
         )
 
-    # Botón de descarga de respuestas libres
-    csv_bytes = df_presentar.to_csv(index=False, sep=";").encode("utf-8")
-    st.download_button(
-        label="📥 Descargar Respuestas Libres (CSV)",
-        data=csv_bytes,
-        file_name=f"respuestas_libres_ev1_{sede}_{periodo}.csv",
-        mime="text/csv",
-        key="ev1_btn_descargar_libres",
-    )
+    # Botones de descarga al final (Excel estilizado + CSV)
+    st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
+    col_btn_xlsx, col_btn_csv, _ = st.columns([1.4, 1.4, 2.2])
+    with col_btn_xlsx:
+        excel_bytes = _generar_excel_respuestas_libres(df_presentar, str(sede), str(periodo))
+        st.download_button(
+            label="📊 Descargar Excel (.xlsx)",
+            data=excel_bytes,
+            file_name=f"respuestas_libres_ev1_{sede}_{periodo}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            key="ev1_btn_descargar_libres_xlsx",
+        )
+    with col_btn_csv:
+        csv_bytes = df_presentar.to_csv(index=False, sep=";").encode("utf-8-sig")
+        st.download_button(
+            label="📥 Descargar CSV (.csv)",
+            data=csv_bytes,
+            file_name=f"respuestas_libres_ev1_{sede}_{periodo}.csv",
+            mime="text/csv",
+            use_container_width=True,
+            key="ev1_btn_descargar_libres_csv",
+        )
 
 
 # ==============================================================================
@@ -2455,45 +2710,109 @@ def _render_subvista_por_docente(
     if df_doc_libres.empty:
         st.info("Alumnos no consignaron respuestas en las preguntas libres")
     else:
+        total_doc_libres = len(df_doc_libres)
         st.markdown(
-            f"<div style='margin-bottom: 10px; font-size: 0.85rem; color: #475569;'>"
-            f"Se registraron <strong>{len(df_doc_libres):,}</strong> respuesta(s) libre(s) para este docente:"
+            f"<div style='margin-bottom: 10px; font-size: 0.85rem; color: #475569; padding-top: 6px;'>"
+            f"Se registraron <strong>{total_doc_libres:,}</strong> respuesta(s) libre(s) para este docente:"
             f"</div>".replace(",", "."),
             unsafe_allow_html=True,
         )
+
+        tam_pag_doc = 100
+        total_pag_doc = max(1, (total_doc_libres + tam_pag_doc - 1) // tam_pag_doc)
+        key_pag_doc = f"ev1_pag_doc_libres_{docente_elegido}"
+        pag_doc = st.session_state.get(key_pag_doc, 1)
+        if pag_doc < 1 or pag_doc > total_pag_doc:
+            pag_doc = 1
+
+        ini_d = (pag_doc - 1) * tam_pag_doc
+        fin_d = min(ini_d + tam_pag_doc, total_doc_libres)
+        df_doc_pag = df_doc_libres.iloc[ini_d:fin_d] if total_pag_doc > 1 else df_doc_libres
+
         tarjetas_doc_html = []
-        for _, fila in df_doc_libres.iterrows():
+        for _, fila in df_doc_pag.iterrows():
             materia_val = escape(str(fila.get("materia", "—")))
+            seccion_val = escape(str(fila.get("seccion", "—")))
             grupo_val = escape(str(fila.get("grupo", "—")))
             pregunta_val = escape(str(fila.get("pregunta", "Pregunta de opinión")))
-            resp_val = escape(str(fila.get("respuesta", "")))
-            tarjeta = f"""
-            <div style="background: var(--portal-bg-card, #ffffff); border: 1px solid var(--portal-border-color, #e2e8f0); border-left: 4px solid #004080; border-radius: 8px; padding: 12px 16px; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
-                <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 0.78rem;">
-                    <div>
-                        <span style="font-weight: 700; color: #004080;">{materia_val}</span>
-                        <span style="color: #64748b; margin-left: 6px;">| Grupo: <strong>{grupo_val}</strong></span>
-                    </div>
-                </div>
-                <div style="font-weight: 600; font-size: 0.84rem; color: #1e293b; margin-bottom: 6px;">
-                    {pregunta_val}
-                </div>
-                <div style="font-size: 0.84rem; color: #334155; font-style: italic; background: var(--portal-bg-card-subtle, #f8fafc); border-radius: 6px; padding: 8px 12px; border-left: 2px solid #cbd5e1; line-height: 1.45;">
-                    "{resp_val}"
-                </div>
-            </div>
-            """
+            resp_val = escape(str(fila.get("respuesta", ""))).replace("\n", "<br>")
+            tarjeta = (
+                f'<div style="background: var(--portal-bg-card, #ffffff); border: 1px solid var(--portal-border-color, #e2e8f0); '
+                f'border-left: 4px solid #004080; border-radius: 8px; padding: 12px 16px; margin-bottom: 10px; '
+                f'box-shadow: 0 1px 3px rgba(0,0,0,0.04);">'
+                f'<div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; '
+                f'margin-bottom: 6px; font-size: 0.78rem;">'
+                f'<div>'
+                f'<span style="font-weight: 700; color: #004080;">{materia_val}</span>'
+                f'<span style="color: #64748b; margin-left: 6px;">| Sección: <strong>{seccion_val}</strong> · Grupo: <strong>{grupo_val}</strong></span>'
+                f'</div>'
+                f'</div>'
+                f'<div style="font-weight: 600; font-size: 0.84rem; color: #1e293b; margin-bottom: 6px;">'
+                f'{pregunta_val}'
+                f'</div>'
+                f'<div style="font-size: 0.84rem; color: #334155; font-style: italic; '
+                f'background: var(--portal-bg-card-subtle, #f8fafc); border-radius: 6px; padding: 8px 12px; '
+                f'border-left: 2px solid #cbd5e1; line-height: 1.45;">'
+                f'"{resp_val}"'
+                f'</div>'
+                f'</div>'
+            )
             tarjetas_doc_html.append(tarjeta)
 
         contenido_scroll_doc = "".join(tarjetas_doc_html)
         st.markdown(
-            f"""
-            <div style="max-height: 480px; overflow-y: auto; padding-right: 6px; margin-bottom: 15px;">
-                {contenido_scroll_doc}
-            </div>
-            """,
+            f'<div style="max-height: 480px; overflow-y: auto; padding-right: 6px; margin-bottom: 12px;">'
+            f'{contenido_scroll_doc}'
+            f'</div>',
             unsafe_allow_html=True,
         )
+
+        if total_pag_doc > 1:
+            col_d_info, col_d_sel = st.columns([3, 1])
+            with col_d_sel:
+                st.number_input(
+                    f"Página (1 a {total_pag_doc})",
+                    min_value=1,
+                    max_value=total_pag_doc,
+                    value=pag_doc,
+                    step=1,
+                    key=key_pag_doc,
+                )
+            with col_d_info:
+                st.caption(f"Mostrando respuestas {ini_d + 1:,} a {fin_d:,} de {total_doc_libres:,}.".replace(",", "."))
+
+        cols_exp_doc = [c for c in ["materia", "docente", "seccion", "grupo", "pregunta", "respuesta"] if c in df_doc_libres.columns]
+        df_exp_doc = df_doc_libres[cols_exp_doc].copy()
+        mapa_ren_doc = {
+            "materia": "MATERIA",
+            "docente": "DOCENTE",
+            "seccion": "SECCIÓN",
+            "grupo": "GRUPO",
+            "pregunta": "PREGUNTA",
+            "respuesta": "RESPUESTA LIBRE",
+        }
+        df_exp_doc.columns = [mapa_ren_doc.get(c, c.upper()) for c in cols_exp_doc]
+        col_doc_xlsx, col_doc_csv, _ = st.columns([1.4, 1.4, 2.2])
+        with col_doc_xlsx:
+            xlsx_doc_bytes = _generar_excel_respuestas_libres(df_exp_doc, str(sede), str(periodo))
+            st.download_button(
+                label="📊 Descargar Excel (.xlsx)",
+                data=xlsx_doc_bytes,
+                file_name=f"respuestas_libres_{str(docente_elegido).replace(',', '').replace(' ', '_')}_{periodo}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                key=f"ev1_btn_xlsx_doc_{docente_elegido}",
+            )
+        with col_doc_csv:
+            csv_doc_bytes = df_exp_doc.to_csv(index=False, sep=";").encode("utf-8-sig")
+            st.download_button(
+                label="📥 Descargar CSV (.csv)",
+                data=csv_doc_bytes,
+                file_name=f"respuestas_libres_{str(docente_elegido).replace(',', '').replace(' ', '_')}_{periodo}.csv",
+                mime="text/csv",
+                use_container_width=True,
+                key=f"ev1_btn_csv_doc_{docente_elegido}",
+            )
 
 
 # ==============================================================================
