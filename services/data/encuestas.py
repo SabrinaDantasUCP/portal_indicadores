@@ -25,6 +25,7 @@ INDICADOR_RESULTADO_DIMENSION = "resultado_por_dimension"
 INDICADOR_RESULTADO_INDICADOR = "resultado_por_indicador"
 INDICADOR_RESULTADO_CRITERIO = "resultado_por_criterio"
 INDICADOR_RESULTADO_DOCENTE = "resultado_por_docente"
+INDICADOR_RESPUESTAS_LIBRES = "respuestas_libres"
 
 TIPO_ALUMNOS_DOCENTE = "ENCUESTA ALUMNOS A DOCENTES"
 TIPO_AUTOEVALUACION_DOCENTE = "ENCUESTA AUTOEVALUACIÓN DOCENTE"
@@ -55,30 +56,13 @@ def _dataset_parquet_path(dataset_name):
 
 
 @st.cache_data(ttl=30, show_spinner=False)
-def _construir_registro():
-    """Arma sede -> periodo -> carrera -> tipo -> {dataset, nombre, scope} a
-    partir de pia_encuesta_etl_config (antes era un dict ENCUESTAS_DATASETS
-    hardcodeado acá; ahora se cadastra en Administración > Encuestas - ETL).
-
-    De paso, sincroniza utils.data_config.DATASETS (en memoria, no se toca el
-    archivo) con el path de cada dataset ya generado, para que
-    utils.data_loader.get_data_path/data_file_mtime (usados también por
-    app.py para el pie de "última actualización") sigan funcionando sin
-    ningún cambio.
-
-    Una config solo aparece acá si ya tiene al menos un parquet generado
-    (v1 o v2, según el tipo) — pausar una config (activo=False) no la saca de
-    acá; solo deja de recibir actualizaciones automáticas.
-
-    Para scope_mode=GLOBAL hay un único archivo ({dataset_name}.parquet).
-    Para SEGUE_VERSION (ALUMNO_DOCENTE) hay dos archivos separados
-    ({dataset_name}_v1 / _v2) — v2 es la variante filtrada por los ids
-    activos subidos en la pantalla de admin "Alumnos Activos" (ver
-    services/etl/activos_ids.py y services/etl/encuesta_runner.py).
-    Si todavía no existe el v2 (por ej. no se subió ningún archivo de ids
-    activos), la config igual aparece acá con solo v1 disponible.
-    """
+def _construir_registro_cached():
+    """Construye y cachea el diccionario de configuración de encuestas y las rutas de parquets."""
     registro = {}
+    rutas_global = {}
+    rutas_v1 = {}
+    rutas_v2 = {}
+
     for cfg in db_pia.get_encuesta_etl_configs():
         tipo_label = _TIPO_CODE_TO_LABEL.get(cfg["tipo_encuesta"])
         if tipo_label is None:
@@ -90,7 +74,7 @@ def _construir_registro():
             dataset_path = _dataset_parquet_path(dataset_name)
             if not os.path.exists(dataset_path):
                 continue
-            data_config.DATASETS.setdefault("global", {})[dataset_name] = dataset_path
+            rutas_global[dataset_name] = dataset_path
             scope = "global"
         else:
             path_v1 = _dataset_parquet_path(f"{dataset_name}_v1")
@@ -98,14 +82,16 @@ def _construir_registro():
             if not os.path.exists(path_v1) and not os.path.exists(path_v2):
                 continue
             if os.path.exists(path_v1):
-                data_config.DATASETS.setdefault("indicadores_v1", {})[dataset_name] = path_v1
+                rutas_v1[dataset_name] = path_v1
             if os.path.exists(path_v2):
-                data_config.DATASETS.setdefault("indicadores_v2", {})[dataset_name] = path_v2
+                rutas_v2[dataset_name] = path_v2
             scope = None
 
         nombre_encuesta = (
-            f"{tipo_label} EV1 {cfg['periodo']}"
+            f"EV1 - {tipo_label} {cfg['periodo']}"
             if tipo_label == TIPO_ALUMNOS_DOCENTE
+            else f"EV2 - {tipo_label} {cfg['periodo']}"
+            if tipo_label == TIPO_AUTOEVALUACION_DOCENTE
             else f"{tipo_label} {cfg['periodo']}"
         )
         (
@@ -118,6 +104,20 @@ def _construir_registro():
             "nombre": nombre_encuesta,
             "scope": scope,
         }
+    return registro, rutas_global, rutas_v1, rutas_v2
+
+
+def _construir_registro():
+    """Arma sede -> periodo -> carrera -> tipo -> {dataset, nombre, scope} a
+    partir de pia_encuesta_etl_config y sincroniza siempre utils.data_config.DATASETS
+    en memoria incluso cuando el registro proviene de la caché de Streamlit."""
+    registro, rutas_global, rutas_v1, rutas_v2 = _construir_registro_cached()
+    for ds_name, ds_path in rutas_global.items():
+        data_config.DATASETS.setdefault("global", {})[ds_name] = ds_path
+    for ds_name, ds_path in rutas_v1.items():
+        data_config.DATASETS.setdefault("indicadores_v1", {})[ds_name] = ds_path
+    for ds_name, ds_path in rutas_v2.items():
+        data_config.DATASETS.setdefault("indicadores_v2", {})[ds_name] = ds_path
     return registro
 
 
@@ -152,6 +152,8 @@ COLUMNAS_DOCENTE_DETALLE = [
     "docente_id",
     "planificacion_id",
     "respondio",
+    "criterios_respondidos",
+    "estado_ev2",
 ]
 
 # Orden de columnas para las tablas de RESULTADOS. Los loaders intersectan
@@ -217,6 +219,16 @@ COLUMNAS_RESULTADO_DOCENTE = [
     "promedio_dim_5",
     "n_evaluaciones_recibidas",
     "n_respuestas_validas",
+]
+
+COLUMNAS_RESPUESTAS_LIBRES = [
+    "materia",
+    "docente",
+    "docente_id",
+    "seccion",
+    "grupo",
+    "pregunta",
+    "respuesta",
 ]
 
 
@@ -404,10 +416,36 @@ def load_encuestas_alumnos(sede, periodo, carrera, tipo):
     return df_alu[cols].reset_index(drop=True)
 
 
+def _cargar_parquet_directo_ev2(sede, periodo, carrera, tipo) -> pd.DataFrame:
+    """Lee directamente el archivo parquet de EV2 en assets/data/encuestas/ si el cargador
+    general devolvió un conjunto vacío o desactualizado."""
+    try:
+        info = _get_encuesta_info(sede, periodo, carrera, tipo)
+        ds_name = info.get("dataset")
+        if ds_name:
+            ruta = _dataset_parquet_path(ds_name)
+            if os.path.exists(ruta):
+                return pd.read_parquet(ruta)
+    except Exception:
+        pass
+    ruta_def = _dataset_parquet_path("encuestas_docente_autoeval_20261")
+    if os.path.exists(ruta_def):
+        try:
+            return pd.read_parquet(ruta_def)
+        except Exception:
+            pass
+    return pd.DataFrame()
+
+
 def load_autoeval_docente_general(sede, periodo, carrera, tipo):
     """Fila única con los totales generales de avance de la autoevaluación
     docente (docentes únicos esperados / que respondieron), o None."""
     df = load_encuestas_raw(sede, periodo, carrera, tipo)
+    df_det_test = df[df["indicador"] == INDICADOR_DOCENTE_DETALLE] if not df.empty and "indicador" in df.columns else pd.DataFrame()
+    if df.empty or (not df_det_test.empty and "respondio" in df_det_test.columns and not df_det_test["respondio"].any()):
+        df_dir = _cargar_parquet_directo_ev2(sede, periodo, carrera, tipo)
+        if not df_dir.empty:
+            df = df_dir
     if df.empty:
         return None
     df_gen = df[df["indicador"] == INDICADOR_GENERAL_DOCENTE]
@@ -419,9 +457,13 @@ def load_autoeval_docente_detalle(sede, periodo, carrera, tipo):
     sección/grupo que dicta, con si respondió o no su autoevaluación para
     ese grupo."""
     df = load_encuestas_raw(sede, periodo, carrera, tipo)
-    if df.empty:
+    df_det = df[df["indicador"] == INDICADOR_DOCENTE_DETALLE] if not df.empty and "indicador" in df.columns else pd.DataFrame()
+    if df_det.empty or ("respondio" in df_det.columns and not df_det["respondio"].any()):
+        df_dir = _cargar_parquet_directo_ev2(sede, periodo, carrera, tipo)
+        if not df_dir.empty and "indicador" in df_dir.columns:
+            df_det = df_dir[df_dir["indicador"] == INDICADOR_DOCENTE_DETALLE]
+    if df_det.empty:
         return pd.DataFrame(columns=COLUMNAS_DOCENTE_DETALLE)
-    df_det = df[df["indicador"] == INDICADOR_DOCENTE_DETALLE]
     cols = [c for c in COLUMNAS_DOCENTE_DETALLE if c in df_det.columns]
     return df_det[cols].reset_index(drop=True)
 
@@ -501,3 +543,84 @@ def load_resultado_docentes(sede, periodo, carrera, tipo):
         sede, periodo, carrera, tipo,
         INDICADOR_RESULTADO_DOCENTE, COLUMNAS_RESULTADO_DOCENTE,
     )
+
+
+def load_respuestas_libres(sede, periodo, carrera, tipo):
+    """Carga las respuestas libres consignadas por los estudiantes.
+    Devuelve DataFrame con columnas: materia, docente, docente_id, grupo, pregunta, respuesta."""
+    df_libres = _load_resultado_detalle(
+        sede, periodo, carrera, tipo,
+        INDICADOR_RESPUESTAS_LIBRES, COLUMNAS_RESPUESTAS_LIBRES,
+    )
+    if not df_libres.empty:
+        return df_libres
+
+    # Soporte alternativo resiliente si estuviera en archivo separado de respuestas libres
+    try:
+        info = _get_encuesta_info(sede, periodo, carrera, tipo)
+        dataset_name = info.get("dataset")
+        if dataset_name:
+            for ext in [".parquet", ".csv"]:
+                alt_path = os.path.join(DATASETS_DIR, f"respuestas_libres_{dataset_name}{ext}")
+                if os.path.exists(alt_path):
+                    df_alt = pd.read_parquet(alt_path) if ext == ".parquet" else pd.read_csv(alt_path)
+                    cols = [c for c in COLUMNAS_RESPUESTAS_LIBRES if c in df_alt.columns]
+                    return df_alt[cols].reset_index(drop=True)
+    except Exception:
+        pass
+
+    return pd.DataFrame(columns=COLUMNAS_RESPUESTAS_LIBRES)
+
+
+@st.cache_data(show_spinner=False, ttl=600)
+def load_datos_ev1_para_ev2(sede, periodo, carrera):
+    """Carga de forma resiliente los datos de EV1 (Opinión del Estudiante) correspondientes
+    a la misma sede, periodo y carrera para permitir el cruce comparativo EV1 vs. EV2."""
+    df_det_ev1 = pd.DataFrame(columns=COLUMNAS_DETALLE)
+    df_doc_ev1 = pd.DataFrame(columns=COLUMNAS_RESULTADO_DOCENTE)
+    fila_gen_ev1 = None
+    df_dim_ev1 = pd.DataFrame(columns=COLUMNAS_RESULTADO_DIMENSION)
+
+    try:
+        df_det_ev1 = load_encuestas_detalle(sede, periodo, carrera, TIPO_ALUMNOS_DOCENTE)
+        df_doc_ev1 = load_resultado_docentes(sede, periodo, carrera, TIPO_ALUMNOS_DOCENTE)
+        fila_gen_ev1 = load_resultado_general(sede, periodo, carrera, TIPO_ALUMNOS_DOCENTE)
+        df_dim_ev1 = load_resultado_dimensiones(sede, periodo, carrera, TIPO_ALUMNOS_DOCENTE)
+    except Exception:
+        pass
+
+    # Respaldo directo desde assets/data/encuestas/ si el dataset en caché era el antiguo sin resultados
+    if df_doc_ev1.empty or df_det_ev1.empty:
+        ver_actual = get_current_version()
+        sufijo = "_v2" if ver_actual == "indicadores_v2" else "_v1"
+        for candidato in [
+            _dataset_parquet_path(f"encuestas_alumnos_al_docente_20261{sufijo}"),
+            _dataset_parquet_path("encuestas_alumnos_al_docente_20261_v1"),
+        ]:
+            if os.path.exists(candidato):
+                try:
+                    df_raw = pd.read_parquet(candidato)
+                    if df_det_ev1.empty and "indicador" in df_raw.columns:
+                        sub_det = df_raw[df_raw["indicador"] == INDICADOR_DETALLE]
+                        cols_d = [c for c in COLUMNAS_DETALLE if c in sub_det.columns]
+                        df_det_ev1 = sub_det[cols_d].reset_index(drop=True)
+                    if df_doc_ev1.empty and "indicador" in df_raw.columns:
+                        sub_doc = df_raw[df_raw["indicador"] == INDICADOR_RESULTADO_DOCENTE]
+                        cols_r = [c for c in COLUMNAS_RESULTADO_DOCENTE if c in sub_doc.columns]
+                        df_doc_ev1 = sub_doc[cols_r].reset_index(drop=True)
+                    if fila_gen_ev1 is None and "indicador" in df_raw.columns:
+                        sub_gen = df_raw[df_raw["indicador"] == INDICADOR_RESULTADO_GENERAL]
+                        if not sub_gen.empty:
+                            fila_gen_ev1 = sub_gen.iloc[0]
+                    if not df_doc_ev1.empty and not df_det_ev1.empty:
+                        break
+                except Exception:
+                    pass
+
+    return {
+        "df_detalle_ev1": df_det_ev1,
+        "df_docentes_ev1": df_doc_ev1,
+        "fila_general_ev1": fila_gen_ev1,
+        "df_dimensiones_ev1": df_dim_ev1,
+    }
+

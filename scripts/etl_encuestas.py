@@ -104,6 +104,12 @@ def main():
         default=None,
         help="CSV ya exportado con la escala IdRespuesta->puntaje (base de los indicadores de resultados)",
     )
+    parser.add_argument(
+        "--offline-resp-abiertas-csv",
+        type=str,
+        default=None,
+        help="CSV ya exportado con las respuestas abiertas de Academico.RespuestaAbiertaUsuario",
+    )
     args = parser.parse_args()
 
     generar_indicadores(
@@ -119,6 +125,7 @@ def main():
         offline_contacto_csv=args.offline_contacto_csv,
         offline_estructura_csv=args.offline_estructura_csv,
         offline_escala_csv=args.offline_escala_csv,
+        offline_resp_abiertas_csv=args.offline_resp_abiertas_csv,
     )
 
 
@@ -165,6 +172,7 @@ exports = generar_indicadores(
     offline_resp_csv="./output/respuestas_raw.csv",
     offline_estructura_csv="./output/estructura_encuesta_raw.csv",
     offline_escala_csv="./output/escala_encuesta_raw.csv",
+    offline_resp_abiertas_csv="./output/respuestas_abiertas_raw.csv",
     output_dir="./output",
 )
 

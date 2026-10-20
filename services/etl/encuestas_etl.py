@@ -213,8 +213,7 @@ JOIN attendee a3 ON p.attendee_id = a3.id
 JOIN planificacion_attendee pa
     ON p2.planificacion_id = pa.planificacion_id
    AND p.attendee_id = pa.attendee_id
-WHERE pa.active = true
-  AND p2.tipo_planificacion = 1 
+WHERE p2.tipo_planificacion = 1 
   AND p2.referida_id is null
   AND p3.anho = :anho
   AND p3.semestre_id = :semestre
@@ -250,39 +249,38 @@ WHERE ru.IdEncuesta = :id_encuesta
 #   dbo.Contacto.IdExternoUsuario  <- valor que queremos (aliased como
 #   IdAlumnoExterno pra manter o resto do pipeline sem precisar mudar nada)
 #
-# Além disso, QUERY_CONTACTO também traz id_syseduca: é essa coluna que
-# define o universo de "quem deveria responder" (ver
-# filtrar_planificacion_por_contacto), já que ela só traz alumnos com
-# matrícula ativa no periodo/subperiodo/semestre configurados abaixo.
-
-# QUERY_CONTACTO = """
-# SELECT
-#     s.Id AS IdUsuario,
-#     c.IdExternoUsuario AS IdAlumnoExterno
-# FROM Sistema.Usuario s
-# JOIN dbo.Contacto c ON c.IdUser = s.Id
-# WHERE s.DeletedAt is null AND c.DeletedAt is null
-# """
-
-
+# Além disso, QUERY_CONTACTO usa LEFT JOIN com PeriodoLectivoSyseduca e
+# UsuariosSyseduca: isso garante que TODOS os usuários tenham seu
+# IdAlumnoExterno mapeado (para que nenhum aluno que respondeu a enquete
+# seja descartado por mudança de status), enquanto id_syseduca identifica
+# os alunos com matrícula ativa nos semestres 1 a 10.
 QUERY_CONTACTO = """
-SELECT
+SELECT DISTINCT
     s.Id AS IdUsuario,
     c.IdExternoUsuario AS IdAlumnoExterno,
-    us.id_syseduca
+    CASE
+        WHEN pl.id_syseduca IS NOT NULL
+         AND pl.status_inscripcion = 'Activo'
+         AND pl.semestre IN (1,2,3,4,5,6,7,8,9,10)
+         AND us.id_syseduca IS NOT NULL
+         AND us.status_matricula = 'Activo'
+        THEN us.id_syseduca
+        ELSE NULL
+    END AS id_syseduca,
+    LTRIM(RTRIM(CONCAT(ISNULL(us.nombre_alumno, ''), ' ', ISNULL(us.apellidos_alumno, '')))) AS AlumnoNombre
 FROM Sistema.Usuario s
 JOIN dbo.Contacto c ON c.IdUser = s.Id
-JOIN dbo.PeriodoLectivoSyseduca pl on pl.id_syseduca = c.IdExternoUsuario
-JOIN dbo.UsuariosSyseduca us on us.id_syseduca = pl.id_syseduca
-WHERE
-s.DeletedAt is null AND c.DeletedAt is null
-and pl.periodo = :anho
-and pl.subperiodo = :subperiodo
-and pl.status_inscripcion = 'Activo'
-and pl.semestre IN (1,2,3,4,5,6,7,8,9,10)
-and us.status_matricula = 'Activo'
-AND (us.nombre_alumno NOT LIKE '%Test%' AND us.nombre_alumno NOT LIKE '%Prueba%')
-AND (us.apellidos_alumno NOT LIKE '%Test%' AND us.apellidos_alumno NOT LIKE '%Prueba%');
+LEFT JOIN dbo.PeriodoLectivoSyseduca pl
+    ON pl.id_syseduca = c.IdExternoUsuario
+   AND pl.periodo = :anho
+   AND pl.subperiodo = :subperiodo
+LEFT JOIN dbo.UsuariosSyseduca us
+    ON us.id_syseduca = c.IdExternoUsuario
+WHERE s.DeletedAt IS NULL
+  AND c.DeletedAt IS NULL
+  AND c.IdExternoUsuario IS NOT NULL
+  AND (us.nombre_alumno IS NULL OR (us.nombre_alumno NOT LIKE '%Test%' AND us.nombre_alumno NOT LIKE '%Prueba%'))
+  AND (us.apellidos_alumno IS NULL OR (us.apellidos_alumno NOT LIKE '%Test%' AND us.apellidos_alumno NOT LIKE '%Prueba%'));
 """
 
 # Metadados da encuesta (nome, vigencia, sede, semestres habilitados) que
@@ -355,6 +353,35 @@ JOIN [Parametrizacion].[TipoRespuestaEncuesta] tre
 WHERE er.IdEncuesta = :id_encuesta
 """
 
+# Consulta de respuestas libres / abiertas de los estudiantes (Preguntas 17, 18 y 19 de EV1)
+QUERY_RESPUESTAS_ABIERTAS = """
+SELECT
+    rau.Id,
+    rau.IdEncuesta,
+    rau.IdPreguntaAbierta,
+    pae.Pregunta,
+    rau.IdUsuario,
+    rau.IdAlumnoExterno,
+    rau.IdDocenteExterno,
+    rau.DocenteNombre,
+    rau.IdAsignaturaExterno,
+    rau.AsignaturaNombre,
+    rau.IdSeccionExterno,
+    rau.SeccionNombre,
+    rau.IdGrupoExterno,
+    rau.GrupoNombre,
+    rau.PlanificacionId,
+    rau.IdInscripcion,
+    rau.Respuesta,
+    rau.CreatedAt
+FROM [Academico].[RespuestaAbiertaUsuario] rau
+LEFT JOIN [Academico].[PreguntaAbiertaEncuesta] pae
+    ON pae.Id = rau.IdPreguntaAbierta AND pae.DeletedAt IS NULL
+WHERE rau.IdEncuesta = :id_encuesta
+  AND rau.DeletedAt IS NULL
+  AND LTRIM(RTRIM(ISNULL(rau.Respuesta, ''))) <> ''
+"""
+
 
 # --------------------------------------------------------------------------
 # EXTRACAO
@@ -387,6 +414,19 @@ def fetch_respuestas(id_encuesta: int) -> pd.DataFrame:
             text(QUERY_RESPUESTAS), conn, params={"id_encuesta": id_encuesta}
         )
     log.info("Respuestas: %s linhas", len(df))
+    return df
+
+
+def fetch_respuestas_abiertas(id_encuesta: int) -> pd.DataFrame:
+    """Obtiene las respuestas libres (preguntas abiertas) registradas en
+    Academico.RespuestaAbiertaUsuario + Academico.PreguntaAbiertaEncuesta."""
+    log.info("Buscando respuestas abiertas (Academico) para IdEncuesta=%s", id_encuesta)
+    engine = get_mssql_engine()
+    with engine.connect() as conn:
+        df = pd.read_sql(
+            text(QUERY_RESPUESTAS_ABIERTAS), conn, params={"id_encuesta": id_encuesta}
+        )
+    log.info("Respuestas abiertas: %s linhas", len(df))
     return df
 
 
@@ -563,24 +603,138 @@ def enriquecer_respuestas_con_alumno_externo(
 
 
 def filtrar_planificacion_por_contacto(
-    df_plan: pd.DataFrame, df_contacto: pd.DataFrame
+    df_plan: pd.DataFrame,
+    df_contacto: pd.DataFrame,
+    df_resp: pd.DataFrame = None,
+    df_resp_abiertas: pd.DataFrame = None,
 ) -> pd.DataFrame:
-    """Restringe df_plan (planificación/bio) apenas aos alumnos que também
-    aparecem em QUERY_CONTACTO — ou seja, com matrícula ativa no
-    periodo/subperiodo/semestre configurados ali. Liga por
-    id_syseduca (Academico, QUERY_CONTACTO) == system_id (bio, df_plan).
-
-    Esse é o universo real de "quem deveria responder": não é mais todo
-    mundo que aparece na planificación, e sim só quem também está ativo
-    segundo QUERY_CONTACTO. Deve ser aplicado ANTES de calcular qualquer
-    indicador (avance_por_materia_seccion_grupo, avance_general,
-    avance_por_alumno)."""
+    """Restringe df_plan (planificación/bio) a los alumnos que:
+      1) Aparecen activos en QUERY_CONTACTO (id_syseduca == system_id), O
+      2) Poseen respuestas registradas en la encuesta (df_resp o df_resp_abiertas),
+         para garantizar que todo alumno que haya respondido aparezca siempre en
+         las métricas independientemente de cambios posteriores de estado.
+    Además, si un alumno con respuestas en df_resp tiene pares (IdAlumnoExterno,
+    PlanificacionId) que no figuraban en df_plan, incorpora dichas asignaciones
+    para que queden contabilizadas en el avance."""
     df_contacto = _normalizar_columnas(df_contacto, ["id_syseduca"])
     ids_contacto = set(df_contacto["id_syseduca"].dropna().astype("int64"))
 
+    ids_con_respuestas = set()
+    if df_resp is not None and not df_resp.empty and "IdAlumnoExterno" in df_resp.columns:
+        ids_con_respuestas |= set(
+            pd.to_numeric(df_resp["IdAlumnoExterno"], errors="coerce").dropna().astype("int64")
+        )
+    if (
+        df_resp_abiertas is not None
+        and not df_resp_abiertas.empty
+        and "IdAlumnoExterno" in df_resp_abiertas.columns
+    ):
+        ids_con_respuestas |= set(
+            pd.to_numeric(df_resp_abiertas["IdAlumnoExterno"], errors="coerce").dropna().astype("int64")
+        )
+
+    ids_permitidos = ids_contacto | ids_con_respuestas
+
     df = df_plan.copy()
     df["system_id"] = df["system_id"].astype("int64")
-    return df[df["system_id"].isin(ids_contacto)].reset_index(drop=True)
+    df["planificacion_id"] = df["planificacion_id"].astype("int64")
+    df_filtrado = df[df["system_id"].isin(ids_permitidos)].copy()
+
+    # Garantizar que todo alumno con respuestas cerradas en df_resp figure en df_plan
+    if df_resp is not None and not df_resp.empty and "IdAlumnoExterno" in df_resp.columns:
+        r_val = df_resp.dropna(subset=["IdAlumnoExterno", "PlanificacionId"]).copy()
+        if not r_val.empty:
+            r_val["system_id"] = r_val["IdAlumnoExterno"].astype("int64")
+            r_val["planificacion_id"] = r_val["PlanificacionId"].astype("int64")
+            pares_existentes = set(zip(df_filtrado["system_id"], df_filtrado["planificacion_id"]))
+            mask_faltantes = [
+                (sid, pid) not in pares_existentes
+                for sid, pid in zip(r_val["system_id"], r_val["planificacion_id"])
+            ]
+            r_falt = r_val[mask_faltantes].drop_duplicates(
+                subset=["system_id", "planificacion_id", "GrupoNombre", "DocenteNombre"]
+            )
+            if not r_falt.empty:
+                mapa_nombres = {}
+                if "alumno" in df.columns:
+                    mapa_nombres.update(
+                        df.dropna(subset=["system_id", "alumno"])
+                        .drop_duplicates("system_id")
+                        .set_index("system_id")["alumno"]
+                        .to_dict()
+                    )
+                if "AlumnoNombre" in df_contacto.columns and "IdAlumnoExterno" in df_contacto.columns:
+                    c_nom = df_contacto.dropna(subset=["IdAlumnoExterno", "AlumnoNombre"]).copy()
+                    c_nom["IdAlumnoExterno"] = pd.to_numeric(c_nom["IdAlumnoExterno"], errors="coerce")
+                    c_nom = c_nom.dropna(subset=["IdAlumnoExterno"])
+                    c_nom["IdAlumnoExterno"] = c_nom["IdAlumnoExterno"].astype("int64")
+                    c_nom = c_nom[c_nom["AlumnoNombre"].astype(str).str.strip() != ""]
+                    for sid_c, nom_c in zip(c_nom["IdAlumnoExterno"], c_nom["AlumnoNombre"]):
+                        if sid_c not in mapa_nombres:
+                            mapa_nombres[sid_c] = str(nom_c).strip()
+
+                anho_val = df["anho"].iloc[0] if not df.empty and "anho" in df.columns else 2026
+                periodo_val = df["periodo"].iloc[0] if not df.empty and "periodo" in df.columns else "2026-1"
+
+                # Mapas canónicos de Biometría para evitar duplicar nombres con coma del ERP (ej. 230 vs 217)
+                mapa_doc_bio = (
+                    df.dropna(subset=["docente_id", "docente"])
+                    .drop_duplicates("docente_id")
+                    .set_index("docente_id")["docente"]
+                    .to_dict()
+                )
+                mapa_asig_bio = (
+                    df.dropna(subset=["course_id", "asignatura"])
+                    .drop_duplicates("course_id")
+                    .set_index("course_id")["asignatura"]
+                    .to_dict()
+                )
+                mapa_sec_bio = (
+                    df.dropna(subset=["seccion_id_bio", "seccion"])
+                    .drop_duplicates("seccion_id_bio")
+                    .set_index("seccion_id_bio")["seccion"]
+                    .to_dict()
+                )
+                mapa_grp_bio = (
+                    df.dropna(subset=["grupo_id", "grupo"])
+                    .drop_duplicates("grupo_id")
+                    .set_index("grupo_id")["grupo"]
+                    .to_dict()
+                )
+
+                ids_doc_falt = pd.to_numeric(r_falt.get("IdDocenteExterno"), errors="coerce").fillna(-1).astype(int).values
+                noms_doc_erp = r_falt.get("DocenteNombre", pd.Series(dtype=str)).fillna("(sin nombre)").astype(str).values
+                ids_asig_falt = pd.to_numeric(r_falt.get("IdAsignaturaExterno"), errors="coerce").fillna(-1).astype(int).values
+                noms_asig_erp = r_falt.get("AsignaturaNombre", pd.Series(dtype=str)).fillna("—").astype(str).values
+                ids_sec_falt = pd.to_numeric(r_falt.get("IdSeccionExterno"), errors="coerce").fillna(-1).astype(int).values
+                noms_sec_erp = r_falt.get("SeccionNombre", pd.Series(dtype=str)).fillna("—").astype(str).values
+                ids_grp_falt = pd.to_numeric(r_falt.get("IdGrupoExterno"), errors="coerce").fillna(-1).astype(int).values
+                noms_grp_erp = r_falt.get("GrupoNombre", pd.Series(dtype=str)).fillna("—").astype(str).values
+
+                filas_extra = pd.DataFrame(
+                    {
+                        "attendee_id": -1,
+                        "system_id": r_falt["system_id"].values,
+                        "alumno": [
+                            mapa_nombres.get(sid, f"Alumno {sid}") for sid in r_falt["system_id"].values
+                        ],
+                        "grupo_id": ids_grp_falt,
+                        "grupo": [mapa_grp_bio.get(gid, gnom) for gid, gnom in zip(ids_grp_falt, noms_grp_erp)],
+                        "docente": [mapa_doc_bio.get(did, dnom) for did, dnom in zip(ids_doc_falt, noms_doc_erp)],
+                        "docente_id": ids_doc_falt,
+                        "anho": anho_val,
+                        "periodo": periodo_val,
+                        "asignatura": [mapa_asig_bio.get(cid, anom) for cid, anom in zip(ids_asig_falt, noms_asig_erp)],
+                        "course_id": ids_asig_falt,
+                        "seccion": [mapa_sec_bio.get(sid_b, snom) for sid_b, snom in zip(ids_sec_falt, noms_sec_erp)],
+                        "seccion_id_bio": ids_sec_falt,
+                        "semestre_id_bio": 2,
+                        "planificacion_id": r_falt["planificacion_id"].values,
+                    }
+                )
+                df_filtrado = pd.concat([df_filtrado, filas_extra], ignore_index=True)
+
+    return df_filtrado.reset_index(drop=True)
 
 
 # --------------------------------------------------------------------------
@@ -640,11 +794,11 @@ def indicador_avance_por_materia_seccion_grupo(
 ) -> pd.DataFrame:
     """% de encuestas completadas respecto al total esperado, quebrado por
     materia + sección + grupo + docente (docente incluído porque cada
-    grupo tem um professor responsável). No dashboard, se quiser "por
-    materia" ou "por materia + sección" isolado, basta re-agrupar este
-    mesmo CSV."""
+    grupo tem um professor responsável). Incluye docente_id en la deduplicación
+    para preservar los 217 docentes consolidados (incluyendo co-docencia en el mismo grupo)."""
 
     plan = _marcar_respondio(df_plan, df_resp, join_key)
+    plan = plan.drop_duplicates(subset=["system_id", "planificacion_id", "grupo", "docente_id"])
 
     group_cols = ["asignatura", "seccion", "grupo", "docente", "docente_id"]
     esperado = (
@@ -812,36 +966,39 @@ def indicador_avance_general(
 #     planificación) — ver _resolver_docente_truncado.
 
 def _normalizar_texto(series: pd.Series) -> pd.Series:
-    """Normaliza texto pra matching cross-banco (bio x Academico): maiúsculas,
-    sem acento, variantes de traço (– — -) unificadas, espaços colapsados."""
+    """Normaliza texto para cruce entre bases (bio x Académico): mayúsculas,
+    sin tildes, sin comas, variantes de guion (– — -) unificadas y espacios colapsados."""
     s = series.astype(str).str.strip().str.upper()
     s = s.apply(
         lambda x: "".join(
             c for c in unicodedata.normalize("NFD", x) if unicodedata.category(c) != "Mn"
         )
     )
+    s = s.str.replace(",", " ", regex=False)
     s = s.str.replace(r"[‐-―]", "-", regex=True)
     s = s.str.replace(r"\s*-\s*", "-", regex=True)
-    s = s.str.replace(r"\s+", " ", regex=True)
+    s = s.str.replace(r"\s+", " ", regex=True).str.strip()
     return s
 
 
 def _resolver_docente_truncado(nombres_resp: pd.Series, nombres_plan: pd.Series) -> dict:
-    """RespuestaUsuario.DocenteNombre às vezes vem truncado (ex: "GUSTAVO
-    JAVIER BENITEZ" em vez de "GUSTAVO JAVIER BENITEZ ALCARAZ" na
-    planificación). Resolve por superset de tokens: se os tokens do nome
-    truncado são subconjunto exato dos tokens de UM único nome completo na
-    planificación, mapeia pra esse nome completo. Ambíguo (0 ou >1
-    candidatos) fica sem match — mais seguro que casar errado (ex: um typo
-    real tipo "POMAROLA" vs "PALMEROLA" fica intencionalmente sem match)."""
-    plan_unicos = [(p, set(p.split())) for p in nombres_plan.dropna().unique()]
+    """Resuelve diferencias de formato o truncamiento entre RespuestaUsuario.DocenteNombre
+    (ej. 'APELLIDOS, NOMBRES' o nombre truncado) y el nombre en planificación ('NOMBRES APELLIDOS')
+    mediante comparación de conjuntos de tokens."""
+    plan_unicos = [(p, set(p.replace(",", " ").split())) for p in nombres_plan.dropna().unique()]
     plan_set = set(nombres_plan.dropna().unique())
     mapa = {}
     for nombre in nombres_resp.dropna().unique():
         if nombre in plan_set:
             continue
-        toks = set(nombre.split())
-        candidatos = [p for p, ptoks in plan_unicos if toks <= ptoks]
+        toks = set(nombre.replace(",", " ").split())
+        if not toks:
+            continue
+        exactos = [p for p, ptoks in plan_unicos if toks == ptoks]
+        if len(exactos) == 1:
+            mapa[nombre] = exactos[0]
+            continue
+        candidatos = [p for p, ptoks in plan_unicos if toks <= ptoks or ptoks <= toks]
         if len(candidatos) == 1:
             mapa[nombre] = candidatos[0]
     return mapa
@@ -850,7 +1007,7 @@ def _resolver_docente_truncado(nombres_resp: pd.Series, nombres_plan: pd.Series)
 def _completado_pairs_docente(df_resp: pd.DataFrame, mapa_docente: dict) -> pd.DataFrame:
     """Pares únicos (docente, materia, sección, grupo — nomes normalizados)
     que já têm ao menos uma resposta registrada (autoevaluación do
-    docente).
+    docente), incluyendo la cantidad de criterios respondidos (sobre 13).
 
     Grupo entra na chave porque um mesmo docente/materia/sección é
     compartilhado entre a Teórica e os grupos prácticos — sem o grupo na
@@ -862,7 +1019,21 @@ def _completado_pairs_docente(df_resp: pd.DataFrame, mapa_docente: dict) -> pd.D
     df["seccion_n"] = _normalizar_texto(df["SeccionNombre"])
     df["grupo_n"] = _normalizar_texto(df["GrupoNombre"])
     cols = ["docente_n", "asignatura_n", "seccion_n", "grupo_n"]
-    return df.dropna(subset=cols)[cols].drop_duplicates()
+    df_val = df.dropna(subset=cols).copy()
+    if df_val.empty:
+        out = pd.DataFrame(columns=cols + ["criterios_respondidos"])
+        return out
+    if "IdPregunta" in df_val.columns:
+        out = (
+            df_val.groupby(cols, as_index=False)["IdPregunta"]
+            .nunique()
+            .rename(columns={"IdPregunta": "criterios_respondidos"})
+        )
+        out["criterios_respondidos"] = out["criterios_respondidos"].clip(lower=1, upper=13).astype(int)
+    else:
+        out = df_val[cols].drop_duplicates().copy()
+        out["criterios_respondidos"] = 13
+    return out
 
 
 def _marcar_respondio_docente(df_plan: pd.DataFrame, df_resp: pd.DataFrame) -> pd.DataFrame:
@@ -883,17 +1054,24 @@ def _marcar_respondio_docente(df_plan: pd.DataFrame, df_resp: pd.DataFrame) -> p
 
     merge_cols = ["docente_n", "asignatura_n", "seccion_n", "grupo_n"]
     merged = plan.merge(pares, on=merge_cols, how="left", indicator=True)
+    criterios = merged["criterios_respondidos"].fillna(0).astype(int)
+    plan["criterios_respondidos"] = criterios.values
     plan["respondio"] = (merged["_merge"] == "both").values
+    plan["estado_ev2"] = [
+        "Completada" if c >= 13 else ("En proceso" if c > 0 else "Pendiente")
+        for c in plan["criterios_respondidos"]
+    ]
     return plan
 
 
 def indicador_avance_por_docente(df_plan: pd.DataFrame, df_resp: pd.DataFrame) -> pd.DataFrame:
     """Grano de docente individual (autoevaluación): 1 línea por (docente x
     materia/sección/grupo, es decir, por planificación x grupo), con el
-    booleano `respondio`. Dedup por (docente_id, planificacion_id, grupo)
-    pelo mesmo motivo de indicador_avance_por_alumno: um planificacion_id é
-    compartilhado entre grupos teóricos e prácticos, e um docente pode
-    estar alocado em mais de um desses grupos."""
+    booleano `respondio`, `criterios_respondidos` (sobre 13) y `estado_ev2`.
+    Dedup por (docente_id, planificacion_id, grupo) pelo mesmo motivo de
+    indicador_avance_por_alumno: um planificacion_id é compartilhado entre
+    grupos teóricos e prácticos, e um docente pode estar alocado em mais de
+    um desses grupos."""
 
     plan = _marcar_respondio_docente(df_plan, df_resp)
 
@@ -907,6 +1085,8 @@ def indicador_avance_por_docente(df_plan: pd.DataFrame, df_resp: pd.DataFrame) -
                 "grupo",
                 "planificacion_id",
                 "respondio",
+                "criterios_respondidos",
+                "estado_ev2",
             ]
         ]
         .rename(columns={"asignatura": "materia"})
@@ -931,7 +1111,9 @@ def indicador_avance_general_docente(df_plan: pd.DataFrame, df_resp: pd.DataFram
     pares = plan.drop_duplicates(subset=["docente_id", "planificacion_id", "grupo"])
 
     encuestas_esperadas = len(pares)
-    encuestas_respondidas = int(pares["respondio"].sum())
+    encuestas_respondidas = int((pares["estado_ev2"] == "Completada").sum()) if "estado_ev2" in pares.columns else int(pares["respondio"].sum())
+    encuestas_en_proceso = int((pares["estado_ev2"] == "En proceso").sum()) if "estado_ev2" in pares.columns else 0
+    encuestas_pendientes = max(encuestas_esperadas - encuestas_respondidas - encuestas_en_proceso, 0)
 
     docentes_unicos_esperados = pares["docente_id"].nunique()
     docentes_unicos_que_respondieron = pares.loc[pares["respondio"], "docente_id"].nunique()
@@ -960,7 +1142,8 @@ def indicador_avance_general_docente(df_plan: pd.DataFrame, df_resp: pd.DataFram
             {
                 "encuestas_esperadas": encuestas_esperadas,
                 "encuestas_respondidas": encuestas_respondidas,
-                "encuestas_pendientes": encuestas_esperadas - encuestas_respondidas,
+                "encuestas_en_proceso": encuestas_en_proceso,
+                "encuestas_pendientes": encuestas_pendientes,
                 "porcentaje_avance_encuestas": porcentaje,
                 "docentes_unicos_esperados": docentes_unicos_esperados,
                 "docentes_unicos_que_respondieron_al_menos_una": docentes_unicos_que_respondieron,
@@ -1002,6 +1185,7 @@ INDICADOR_RESULTADO_DIMENSION = "resultado_por_dimension"
 INDICADOR_RESULTADO_INDICADOR = "resultado_por_indicador"
 INDICADOR_RESULTADO_CRITERIO = "resultado_por_criterio"
 INDICADOR_RESULTADO_DOCENTE = "resultado_por_docente"
+INDICADOR_RESPUESTAS_LIBRES = "respuestas_libres"
 
 _RE_ORDEN = re.compile(r"\d+")
 
@@ -1239,6 +1423,51 @@ def indicador_resultado_por_docente(df_enr: pd.DataFrame) -> pd.DataFrame:
     return out.sort_values("docente").reset_index(drop=True)
 
 
+def indicador_respuestas_libres(
+    df_resp_abiertas: pd.DataFrame, ids_alumnos: set = None
+) -> pd.DataFrame:
+    """Transforma las filas de Academico.RespuestaAbiertaUsuario en el indicador
+    `respuestas_libres` con las columnas esperadas por el portal (materia,
+    docente, docente_id, seccion, grupo, pregunta, respuesta).
+    Si se indica `ids_alumnos`, filtra previamente por IdAlumnoExterno sin
+    exponer jamás el identificador del estudiante en las columnas de salida."""
+    columnas_salida = [
+        "materia",
+        "docente",
+        "docente_id",
+        "seccion",
+        "grupo",
+        "pregunta",
+        "respuesta",
+    ]
+    if df_resp_abiertas is None or df_resp_abiertas.empty:
+        return pd.DataFrame(columns=columnas_salida)
+
+    d = df_resp_abiertas.copy()
+    if ids_alumnos is not None and "IdAlumnoExterno" in d.columns:
+        ids_num = pd.to_numeric(d["IdAlumnoExterno"], errors="coerce")
+        d = d[ids_num.isin(ids_alumnos)].copy()
+        if d.empty:
+            return pd.DataFrame(columns=columnas_salida)
+
+    d["materia"] = d.get("AsignaturaNombre", pd.Series(dtype=str)).fillna("—").astype(str).str.strip()
+    d["docente"] = d.get("DocenteNombre", pd.Series(dtype=str)).fillna("(sin nombre)").astype(str).str.strip()
+    d["docente_id"] = pd.to_numeric(d.get("IdDocenteExterno"), errors="coerce").fillna(-1).astype(int)
+    d["seccion"] = d.get("SeccionNombre", pd.Series(dtype=str)).fillna("—").astype(str).str.strip()
+    d["grupo"] = d.get("GrupoNombre", pd.Series(dtype=str)).fillna("—").astype(str).str.strip()
+    d["pregunta"] = d.get("Pregunta", pd.Series(dtype=str)).fillna("Pregunta abierta").astype(str).str.strip()
+    d["respuesta"] = d.get("Respuesta", pd.Series(dtype=str)).fillna("").astype(str).str.strip()
+
+    # Conservar únicamente respuestas no vacías
+    d = d[d["respuesta"] != ""].copy()
+    if d.empty:
+        return pd.DataFrame(columns=columnas_salida)
+
+    d["_orden_pregunta"] = d["pregunta"].map(_parse_orden)
+    d = d.sort_values(["materia", "docente", "grupo", "_orden_pregunta"]).reset_index(drop=True)
+    return d[columnas_salida]
+
+
 def generar_indicadores_resultados(
     df_resp: pd.DataFrame, df_estructura: pd.DataFrame, df_escala: pd.DataFrame
 ) -> dict:
@@ -1397,6 +1626,16 @@ def exportar_respuestas(id_encuesta: int, anho: int, subperiodo: int, output_dir
     df_escala.to_csv(path_escala, index=False, encoding="utf-8-sig")
     log.info("Escala da encuesta exportada: %s (%s linhas)", path_escala, len(df_escala))
 
+    # Respuestas abiertas / libres de los estudiantes (Academico.RespuestaAbiertaUsuario)
+    try:
+        df_resp_abiertas = fetch_respuestas_abiertas(id_encuesta)
+        df_resp_abiertas = enriquecer_respuestas_con_alumno_externo(df_resp_abiertas, df_contacto)
+        path_abiertas = os.path.join(output_dir, "respuestas_abiertas_raw.csv")
+        df_resp_abiertas.to_csv(path_abiertas, index=False, encoding="utf-8-sig")
+        log.info("Respuestas abiertas exportadas: %s (%s linhas)", path_abiertas, len(df_resp_abiertas))
+    except Exception as exc:
+        log.warning("No fue posible exportar respuestas abiertas para IdEncuesta=%s: %s", id_encuesta, exc)
+
     return path
 
 
@@ -1446,6 +1685,8 @@ def generar_indicadores(
     offline_contacto_csv: str = None,
     offline_estructura_csv: str = None,
     offline_escala_csv: str = None,
+    offline_resp_abiertas_csv: str = None,
+    ids_activos_filtro: set = None,
 ) -> dict:
     """Función principal, pensada para ser llamada tanto desde la línea de
     comando (via main()) como directamente desde un notebook/Jupyter:
@@ -1459,30 +1700,9 @@ def generar_indicadores(
             offline_contacto_csv="./output/contacto_raw.csv",
         )
 
-    subperiodo:
-        Va de la mano de "anho" para filtrar QUERY_CONTACTO (pl.periodo,
-        pl.subperiodo) — ver derivar_parametros_periodo. No confundir con
-        "semestre", que es el semestre_id que espera bio (con su propio
-        offset respecto al subperiodo).
-
-    carrera:
-        É o único metadado que não existe em nenhum dos dois bancos, então
-        precisa ser informado manualmente (default: "Medicina", já que por
-        enquanto é sempre isso). sede / nombre_encuesta / vigencia vêm de
-        Academico.Encuesta + Parametrizacion.Sede (offline_encuesta_csv, ou
-        busca ao vivo se não for passado). periodo vem da planificación
-        (bio) e é inferido automaticamente.
-
-    offline_contacto_csv:
-        CSV já exportado de QUERY_CONTACTO (ver exportar_respuestas). Usado
-        para restringir df_plan apenas aos alumnos ativos (ver
-        filtrar_planificacion_por_contacto) ANTES de calcular qualquer
-        indicador. Se não for passado, busca ao vivo via fetch_contacto()
-        (precisa da VPN do SQL Server/ERP mesmo com offline_resp_csv).
-
-    Retorna un dict {nombre_indicador: DataFrame} (cada uno ya con las
-    columnas de metadados) y además escribe UN ÚNICO CSV combinado en
-    output_dir.
+    Si se proporciona `ids_activos_filtro` (Versión 2), restringe el universo
+    de alumnos y de respuestas (cerradas y libres) a dicho conjunto de IDs,
+    recalculando todos los indicadores para Versión 2.
     """
     output_dir = output_dir or CONFIG["OUTPUT_DIR"]
     os.makedirs(output_dir, exist_ok=True)
@@ -1504,6 +1724,7 @@ def generar_indicadores(
             df_contacto = pd.read_csv(offline_contacto_csv)
         else:
             df_contacto = fetch_contacto(anho, subperiodo)
+        df_resp = enriquecer_respuestas_con_alumno_externo(df_resp, df_contacto)
     else:
         df_resp = fetch_respuestas(id_encuesta)
         df_contacto = fetch_contacto(anho, subperiodo)
@@ -1520,6 +1741,7 @@ def generar_indicadores(
     # avance continua saindo normal.
     df_estructura = pd.DataFrame()
     df_escala = pd.DataFrame()
+    df_resp_abiertas = pd.DataFrame()
     if offline_resp_csv:
         if offline_estructura_csv and os.path.exists(offline_estructura_csv):
             log.info("Usando CSV offline de estrutura da encuesta: %s", offline_estructura_csv)
@@ -1527,9 +1749,19 @@ def generar_indicadores(
         if offline_escala_csv and os.path.exists(offline_escala_csv):
             log.info("Usando CSV offline de escala da encuesta: %s", offline_escala_csv)
             df_escala = pd.read_csv(offline_escala_csv)
+        ruta_abiertas = offline_resp_abiertas_csv or os.path.join(output_dir, "respuestas_abiertas_raw.csv")
+        if ruta_abiertas and os.path.exists(ruta_abiertas):
+            log.info("Usando CSV offline de respuestas abiertas: %s", ruta_abiertas)
+            df_resp_abiertas = pd.read_csv(ruta_abiertas)
+            df_resp_abiertas = enriquecer_respuestas_con_alumno_externo(df_resp_abiertas, df_contacto)
     else:
         df_estructura = fetch_estructura_encuesta(id_encuesta)
         df_escala = fetch_escala_encuesta(id_encuesta)
+        try:
+            df_resp_abiertas = fetch_respuestas_abiertas(id_encuesta)
+            df_resp_abiertas = enriquecer_respuestas_con_alumno_externo(df_resp_abiertas, df_contacto)
+        except Exception as exc:
+            log.warning("No fue posible consultar respuestas abiertas para IdEncuesta=%s: %s", id_encuesta, exc)
 
     if df_plan.empty:
         log.warning("La planificación llegó vacía. Revisar anho/semestre o la conexión al bio.")
@@ -1537,15 +1769,26 @@ def generar_indicadores(
         log.warning("Las respuestas llegaron vacías. Revisar IdEncuesta o la conexión a Academico.")
 
     # Restringe o universo esperado aos alumnos ativos segundo QUERY_CONTACTO
-    # (ver filtrar_planificacion_por_contacto). Aplicado antes de qualquer
-    # indicador, então avance_por_materia_seccion_grupo, avance_general e
-    # avance_por_alumno já saem todos filtrados.
+    # ou aos alumnos que já possuem respostas (ver filtrar_planificacion_por_contacto).
     filas_plan_antes = len(df_plan)
-    df_plan = filtrar_planificacion_por_contacto(df_plan, df_contacto)
+    df_plan = filtrar_planificacion_por_contacto(df_plan, df_contacto, df_resp, df_resp_abiertas)
     log.info(
-        "Planificación filtrada por QUERY_CONTACTO: %s -> %s linhas",
+        "Planificación filtrada por QUERY_CONTACTO + respuestas: %s -> %s linhas",
         filas_plan_antes, len(df_plan),
     )
+
+    # Si se solicita filtro por población de activos V2 (ids_activos_filtro),
+    # restringir df_plan y las respuestas a dicho universo de alumnos.
+    if ids_activos_filtro is not None:
+        ids_activos_int = {int(x) for x in ids_activos_filtro}
+        df_plan = df_plan[df_plan["system_id"].astype("int64").isin(ids_activos_int)].reset_index(drop=True)
+        if not df_resp.empty and "IdAlumnoExterno" in df_resp.columns:
+            ids_r = pd.to_numeric(df_resp["IdAlumnoExterno"], errors="coerce")
+            df_resp = df_resp[ids_r.isin(ids_activos_int)].reset_index(drop=True)
+
+    ids_universo_actual = set(df_plan["system_id"].dropna().astype("int64"))
+    if ids_activos_filtro is not None:
+        ids_universo_actual |= {int(x) for x in ids_activos_filtro}
 
     # -------------------- Cálculo de indicadores --------------------
     avance_materia_seccion_grupo = indicador_avance_por_materia_seccion_grupo(
@@ -1567,6 +1810,12 @@ def generar_indicadores(
     # caso el CSV combinado sale sólo con los indicadores de avance.
     exports.update(generar_indicadores_resultados(df_resp, df_estructura, df_escala))
 
+    # Respuestas libres consignadas en preguntas abiertas (Academico.RespuestaAbiertaUsuario),
+    # filtradas por el universo de alumnos de la versión actual (V1 o V2) sin exponer su ID.
+    df_libres = indicador_respuestas_libres(df_resp_abiertas, ids_alumnos=ids_universo_actual)
+    if not df_libres.empty:
+        exports[INDICADOR_RESPUESTAS_LIBRES] = df_libres
+
     # -------------------- Carimba metadados + combina em 1 único CSV --------------------
     # sede/nombre_encuesta/vigencia vêm de Academico.Encuesta + Parametrizacion.Sede.
     # periodo vem da planificación (bio). carrera é o único manual.
@@ -1587,7 +1836,8 @@ def generar_indicadores(
     df_combinado = pd.concat(combinados, ignore_index=True, sort=False)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path_combinado = os.path.join(output_dir, f"indicadores_encuestas_{timestamp}.csv")
+    sufijo_ver = "_v2" if ids_activos_filtro is not None else ""
+    path_combinado = os.path.join(output_dir, f"indicadores_encuestas{sufijo_ver}_{timestamp}.csv")
     df_combinado.to_csv(path_combinado, index=False, encoding="utf-8-sig")
     log.info("Exportado (único CSV): %s (%s linhas)", path_combinado, len(df_combinado))
 

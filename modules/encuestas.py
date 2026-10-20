@@ -15,6 +15,7 @@ from utils import db_pia
 from utils.system_logging import log_exception
 from utils.ui import render_kpi_card
 from modules.encuestas_ev1 import render_ev1_opinion_estudiante
+from modules.encuestas_ev2 import render_ev2_autoevaluacion_docente
 from services.data.encuestas import (
     TIPO_ALUMNOS_DOCENTE,
     TIPO_AUTOEVALUACION_DOCENTE,
@@ -34,6 +35,7 @@ from services.data.encuestas import (
     load_resultado_docentes,
     load_resultado_general,
     load_resultado_indicadores,
+    load_respuestas_libres,
     resultados_disponibles,
 )
 
@@ -263,27 +265,27 @@ def render_autoeval_docente(sede, periodo, carrera, tipo):
         st.warning(f"No hay datos disponibles para la Encuesta {periodo} — {tipo}.")
         return
 
-    nombre = get_encuesta_nombre(sede, periodo, carrera, tipo)
-    vigencia, semestres_habilitados = load_encuestas_metadata(sede, periodo, carrera, tipo)
-    _render_encabezado_encuesta(nombre, vigencia, semestres_habilitados, sede, carrera)
-
-    tab_general, tab_detalle = st.tabs(["Visión General", "Detalle por Materia / Sección / Grupo / Docente"])
-
-    with tab_general:
-        render_vision_general(
-            fila_general,
-            entidad="Docentes",
-            columnas={
-                "esperados": "docentes_unicos_esperados",
-                "respondieron_todas": "docentes_unicos_que_respondieron_todas",
-                "pct_todas": "porcentaje_avance_docentes_todas",
-                "respondieron_al_menos_una": "docentes_unicos_que_respondieron_al_menos_una",
-                "pct_al_menos_una": "porcentaje_avance_docentes",
-            },
-        )
-
-    with tab_detalle:
-        render_detalle_autoeval_docente(df_detalle_docente, periodo, tipo)
+    # Se delega la visualización integral al módulo especializado EV2 (Autoevaluación Docente),
+    # preservando comentada la vista anterior por estabilidad y no eliminación de código útil.
+    # nombre = get_encuesta_nombre(sede, periodo, carrera, tipo)
+    # vigencia, semestres_habilitados = load_encuestas_metadata(sede, periodo, carrera, tipo)
+    # _render_encabezado_encuesta(nombre, vigencia, semestres_habilitados, sede, carrera)
+    # tab_general, tab_detalle = st.tabs(["Visión General", "Detalle por Materia / Sección / Grupo / Docente"])
+    # with tab_general:
+    #     render_vision_general(...)
+    # with tab_detalle:
+    #     render_detalle_autoeval_docente(df_detalle_docente, periodo, tipo)
+    import importlib
+    import modules.encuestas_ev2 as _mod_ev2
+    importlib.reload(_mod_ev2)
+    _mod_ev2.render_ev2_autoevaluacion_docente(
+        sede=sede,
+        periodo=periodo,
+        carrera=carrera,
+        tipo=tipo,
+        fila_general=fila_general,
+        df_detalle_docente=df_detalle_docente,
+    )
 
 
 def _valor_valido(valor):
@@ -826,7 +828,7 @@ def _agregar_encabezado_y_pie(canvas, doc):
     canvas.drawString(5 * cm, height - 1.5 * cm, "Universidad Central del Paraguay")
     canvas.setFont("Helvetica", 10)
     canvas.setFillColor(colors.black)
-    canvas.drawString(5 * cm, height - 2.1 * cm, "Reporte de Avance de Encuestas")
+    canvas.drawString(5 * cm, height - 2.1 * cm, "Reporte de Análisis de Encuestas")
     canvas.setStrokeColor(colors.HexColor("#1e3a8a"))
     canvas.setLineWidth(1)
     canvas.line(2 * cm, height - 3.0 * cm, width - 2 * cm, height - 3.0 * cm)
