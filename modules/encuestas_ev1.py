@@ -349,16 +349,8 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
     st.markdown(
         """
         <style>
-        .block-container,
-        [data-testid="stMainBlockContainer"],
-        [data-testid="block-container"] {
-            padding-top: 1.5rem !important;
-            padding-bottom: 2.5rem !important;
-        }
-        header[data-testid="stHeader"] {
-            height: 2rem !important;
-            background: transparent !important;
-        }
+        /* El espaciado y el encabezado global los controla app.py. No se
+           redefinen aquí para evitar superponer el header sobre el contenido. */
         .ev1-kpi-card:hover {
             transform: translateY(-2px);
             box-shadow: 0 6px 14px rgba(0,0,0,0.08) !important;
@@ -457,7 +449,7 @@ def render_ev1_opinion_estudiante(sede, periodo, carrera, tipo, fila_general, df
             [str(p).strip() for p in df_libres_global["pregunta"].dropna().unique() if str(p).strip() and str(p).strip() != "—"]
         )
 
-    with st.expander("Filtros del Dashboard EV1", expanded=True):
+    with st.expander("Filtros del Panel EV1", expanded=True):
         col_filtro1, col_filtro2, col_filtro3, col_filtro4, col_filtro5, col_filtro6 = st.columns(6)
 
         # Opciones únicas ordenadas
@@ -1955,10 +1947,10 @@ def _generar_excel_respuestas_libres(df_exportar: pd.DataFrame, sede: str, perio
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
         nombre_hoja = "Respuestas Libres EV1"
-        df_exportar.to_excel(writer, index=False, sheet_name=nombre_hoja, startrow=2)
-
         workbook = writer.book
-        worksheet = writer.sheets[nombre_hoja]
+        # La hoja se crea directamente: antes se escribía el DataFrame completo
+        # con to_excel y luego se sobrescribía celda por celda (doble trabajo).
+        worksheet = workbook.add_worksheet(nombre_hoja)
 
         # Formatos institucionales
         fmt_titulo = workbook.add_format({
@@ -2021,6 +2013,7 @@ def _generar_excel_respuestas_libres(df_exportar: pd.DataFrame, sede: str, perio
             "border_color": "#CBD5E1",
         })
 
+        columnas = list(df_exportar.columns)
         n_filas, n_cols = df_exportar.shape
 
         # Título superior combinado
@@ -2034,7 +2027,7 @@ def _generar_excel_respuestas_libres(df_exportar: pd.DataFrame, sede: str, perio
         worksheet.set_row(2, 26)
 
         # Escribir encabezados con estilo
-        for col_idx, col_nom in enumerate(df_exportar.columns):
+        for col_idx, col_nom in enumerate(columnas):
             worksheet.write(2, col_idx, col_nom, fmt_encabezado)
 
         # Activar autofiltro en todos los encabezados y congelar paneles
@@ -2042,35 +2035,49 @@ def _generar_excel_respuestas_libres(df_exportar: pd.DataFrame, sede: str, perio
             worksheet.autofilter(2, 0, 2 + n_filas, n_cols - 1)
         worksheet.freeze_panes(3, 0)
 
-        # Aplicar formato cebra fila por fila y autoajustar altura según longitud del texto
+        # Aplicar formato cebra por fila. El formato de fila se aplica a todas
+        # las celdas sin formato propio; solo las columnas centradas reciben un
+        # formato de celda adicional. Esto evita ~766.000 escrituras con estilo.
         cols_centradas = {"SECCIÓN", "GRUPO"}
-        anchos_maximos = [len(str(c)) + 4 for c in df_exportar.columns]
+        indices_centrados = [
+            i for i, col_nom in enumerate(columnas) if col_nom in cols_centradas
+        ]
+        anchos_maximos = [len(str(c)) + 4 for c in columnas]
 
-        for row_idx, (_, fila) in enumerate(df_exportar.iterrows()):
+        for row_idx, fila in enumerate(df_exportar.itertuples(index=False, name=None)):
             excel_row = 3 + row_idx
             es_impar = (row_idx % 2 == 1)
             max_lineas_fila = 1
 
-            for col_idx, col_nom in enumerate(df_exportar.columns):
-                valor = "" if pd.isna(fila.iloc[col_idx]) else str(fila.iloc[col_idx])
+            valores = []
+            for col_idx, valor_crudo in enumerate(fila):
+                valor = "" if pd.isna(valor_crudo) else str(valor_crudo)
+                valores.append(valor)
+
                 largo_val = len(valor)
                 if largo_val + 3 > anchos_maximos[col_idx]:
                     anchos_maximos[col_idx] = largo_val + 3
 
-                if col_nom in cols_centradas:
-                    fmt_usar = fmt_fila_impar_centro if es_impar else fmt_fila_par_centro
-                else:
-                    fmt_usar = fmt_fila_impar if es_impar else fmt_fila_par
-
-                worksheet.write(excel_row, col_idx, valor, fmt_usar)
-
-                # Estimar cantidad de líneas para ajustar alto de fila automáticamente
+                # Estimar cantidad de líneas para ajustar el alto de la fila.
+                col_nom = columnas[col_idx]
                 ancho_ref = 55 if col_nom in ("PREGUNTA", "RESPUESTA LIBRE") else 28
                 lineas_saltos = valor.count("\n") + 1
                 lineas_wrap = max(1, (largo_val // ancho_ref) + 1)
                 max_lineas_fila = max(max_lineas_fila, lineas_saltos, lineas_wrap)
 
-            worksheet.set_row(excel_row, max(20, min(120, max_lineas_fila * 16)))
+            fmt_fila = fmt_fila_impar if es_impar else fmt_fila_par
+            worksheet.set_row(
+                excel_row,
+                max(20, min(120, max_lineas_fila * 16)),
+                fmt_fila,
+            )
+            worksheet.write_row(excel_row, 0, valores)
+
+            # Solo las columnas centradas necesitan formato de celda propio.
+            if indices_centrados:
+                fmt_centro = fmt_fila_impar_centro if es_impar else fmt_fila_par_centro
+                for col_idx in indices_centrados:
+                    worksheet.write(excel_row, col_idx, valores[col_idx], fmt_centro)
 
         # Autoajuste de ancho de cada columna con topes estéticos legibles
         limites_col = {
@@ -2081,7 +2088,7 @@ def _generar_excel_respuestas_libres(df_exportar: pd.DataFrame, sede: str, perio
             "PREGUNTA": (35, 55),
             "RESPUESTA LIBRE": (45, 75),
         }
-        for col_idx, col_nom in enumerate(df_exportar.columns):
+        for col_idx, col_nom in enumerate(columnas):
             min_w, max_w = limites_col.get(col_nom, (14, 45))
             ancho_final = max(min_w, min(max_w, anchos_maximos[col_idx]))
             worksheet.set_column(col_idx, col_idx, ancho_final)
@@ -2108,7 +2115,7 @@ def _render_subvista_respuestas_libres(
         """
         <div class="ev1-note">
             Recopila las observaciones, opiniones cualitativas y sugerencias formuladas por los estudiantes
-            en las preguntas abiertas de la evaluación estudiantil (EV1). Utilice los <strong>Filtros del Dashboard EV1</strong>
+            en las preguntas abiertas de la evaluación estudiantil (EV1). Utilice los <strong>Filtros del Panel EV1</strong>
             en la parte superior para segmentar por Materia, Sección, Grupo, Docente o Pregunta.
         </div>
         """,

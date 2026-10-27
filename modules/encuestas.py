@@ -74,16 +74,9 @@ def render_common_setup():
     st.markdown(
         """
         <style>
-        .block-container,
-        [data-testid="stMainBlockContainer"],
-        [data-testid="block-container"] {
-            padding-top: 1.5rem !important;
-            padding-bottom: 2.5rem !important;
-        }
-        header[data-testid="stHeader"] {
-            height: 2rem !important;
-            background: transparent !important;
-        }
+        /* El espaciado superior y la franja del encabezado los controla app.py
+           de forma global. No se redefine aquí para no superponer el header
+           sobre el contenido de las encuestas. */
         [data-testid="stElementToolbar"] { display: none; }
         div[data-testid="stDownloadButton"] button {
             min-height: 50px !important;
@@ -526,7 +519,7 @@ def render_resultados_generales(sede, periodo, carrera, tipo):
 
     fila = load_resultado_general(sede, periodo, carrera, tipo)
     if fila is None:
-        st.warning("No se encontró la fila `resultado_general` en el dataset.")
+        st.warning("No se encontró la fila `resultado_general` en el conjunto de datos.")
         return
 
     df_dim = load_resultado_dimensiones(sede, periodo, carrera, tipo)
