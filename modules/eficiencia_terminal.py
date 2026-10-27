@@ -297,11 +297,11 @@ def render():
         with c1:
             st.download_button("Descargar Reporte (PDF)", data=pdf_bytes_all, file_name="Reporte_ET_Comparativo.pdf", mime="application/pdf", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia Terminal - Comparativo", "PDF"))
         with c2:
-            st.download_button("Descargar Datos (Excel)", data=excel_bytes_all, file_name="Dados_ET_Comparativo.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia Terminal - Comparativo", "Excel"))
+            st.download_button("Descargar Datos (Excel)", data=excel_bytes_all, file_name="Datos_ET_Comparativo.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia Terminal - Comparativo", "Excel"))
 
     if vista == 'Detalle por Cohorte':
         cohortes_list = opciones_cohorte(resumen_et[COL_COHORTE].unique())
-        cohorte_sel = st.selectbox("Seleccione una Cohorte (Ciclo Completo)", cohortes_list, index=None)
+        cohorte_sel = st.selectbox("Seleccione una Cohorte (Ciclo Completo)", cohortes_list, index=None, placeholder="Seleccione una cohorte")
 
         if cohorte_sel:
             # Filtrar dados para a coorte selecionada
@@ -392,7 +392,7 @@ def render():
             with c3:
                 st.download_button("Descargar Reporte (PDF)", data=pdf_bytes_sel, file_name=f"Reporte_ET_{cohorte_sel}.pdf", mime="application/pdf", icon=":material/download:", width="stretch", key="pdf_sel", on_click=db_pia.log_export_callback, args=("Eficiencia Terminal", "PDF"))
             with c4:
-                st.download_button("Descargar Datos (Excel)", data=excel_bytes_sel, file_name=f"Dados_ET_{cohorte_sel}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", key="excel_sel", on_click=db_pia.log_export_callback, args=("Eficiencia Terminal", "Excel"))
+                st.download_button("Descargar Datos (Excel)", data=excel_bytes_sel, file_name=f"Datos_ET_{cohorte_sel}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", key="excel_sel", on_click=db_pia.log_export_callback, args=("Eficiencia Terminal", "Excel"))
 
     # Explicação Final
     st.divider()

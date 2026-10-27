@@ -157,7 +157,7 @@ def render():
         st.divider()
 
     if vista == 'Detalle por Cohorte':
-        cohorte_sel = st.selectbox("Seleccione una Cohorte", opciones_cohorte(resumen_tdg_full[COL_COHORTE].unique()), index=None)
+        cohorte_sel = st.selectbox("Seleccione una Cohorte", opciones_cohorte(resumen_tdg_full[COL_COHORTE].unique()), index=None, placeholder="Seleccione una cohorte")
         if cohorte_sel:
             row = resumen_tdg_full[resumen_tdg_full[COL_COHORTE] == cohorte_sel].iloc[0]
             render_tarjetas_kpi([

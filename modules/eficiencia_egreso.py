@@ -232,7 +232,7 @@ def render():
         c2.download_button("Descargar Datos (Excel)", data=buf_ex.getvalue(), file_name="Datos_EE_Global.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia de Egreso - Global", "Excel"))
 
     if vista == 'Detalle por Cohorte':
-        cohorte_sel = st.selectbox("Seleccione una Cohorte", opciones_cohorte(df_ee["cohorte"]), index=None)
+        cohorte_sel = st.selectbox("Seleccione una Cohorte", opciones_cohorte(df_ee["cohorte"]), index=None, placeholder="Seleccione una cohorte")
         if cohorte_sel:
             row = df_ee[df_ee["cohorte"] == cohorte_sel].iloc[0]
             t_final = row['periodo_final']
@@ -264,7 +264,7 @@ def render():
                 
                 # --- Filtro por Tipo de Egreso ---
                 tipos_disp = sorted(lista_full["Tipo"].unique().tolist())
-                tipos_sel = st.multiselect("Filtrar por Tipo de Egreso (Opcional)", options=tipos_disp, help="Si se deja vacío, se mostrarán todos los tipos.")
+                tipos_sel = st.multiselect("Filtrar por Tipo de Egreso (Opcional)", options=tipos_disp, help="Si se deja vacío, se mostrarán todos los tipos.", placeholder="Todos")
                 
                 # Aplicar filtro (opcional) y ordenar por Nombre
                 mask = pd.Series(True, index=lista_full.index)

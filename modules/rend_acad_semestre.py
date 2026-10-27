@@ -80,7 +80,7 @@ def render():
     # Lógica de Bloqueio
     if not cohorte_sel:
         st.info("Seleccione una **Cohorte** para visualizar los datos.")
-        col2.multiselect("Semestre", [], disabled=True)
+        col2.multiselect("Semestre", [], disabled=True, placeholder="Todos")
         return
 
     df_filtrado = df[df[COL_COHORTE] == cohorte_sel]
@@ -90,7 +90,8 @@ def render():
     semestre_sel = col2.multiselect(
         "Semestre", 
         semestre_opts,
-        format_func=lambda x: f"{x}º Semestre"
+        format_func=lambda x: f"{x}º Semestre",
+        placeholder="Todos",
     )
     
     if semestre_sel:

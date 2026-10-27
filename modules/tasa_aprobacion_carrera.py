@@ -317,6 +317,7 @@ def render():
             index=None,
             key="sel_cohorte_tab2",
             label_visibility="collapsed",
+            placeholder="Seleccione una cohorte",
         )
 
         if not cohorte_sel:

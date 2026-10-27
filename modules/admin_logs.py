@@ -9,7 +9,7 @@ def render():
         st.error("Acceso Denegado. Solo administradores pueden ver esta pantalla.", icon=":material/lock:")
         return
 
-    st.subheader("Logs y Auditoría")
+    st.subheader("Registros y Auditoría")
     st.markdown("Visualiza exportaciones y eventos administrativos del sistema.")
 
     tab_descargas, tab_auditoria = st.tabs(["Descargas", "Auditoría"])
@@ -128,15 +128,15 @@ def render_audit_logs():
         + " "
         + df["actor_apellido"].fillna("")
         + " ("
-        + df["actor_email"].fillna("sin email")
+        + df["actor_email"].fillna("sin correo")
         + ")"
     ).str.strip()
     df["Usuario afectado"] = (
-        df["target_nombre"].fillna("N/A")
+        df["target_nombre"].fillna("No disponible")
         + " "
         + df["target_apellido"].fillna("")
         + " ("
-        + df["target_email"].fillna("N/A")
+        + df["target_email"].fillna("No disponible")
         + ")"
     ).str.strip()
     df["Detalle"] = df["detalle"].apply(format_detail)

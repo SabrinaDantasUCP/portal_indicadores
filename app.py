@@ -77,7 +77,7 @@ def render_page(module):
     else:
         # Se for um Placeholder, ele tem .render(), então cai no if acima.
         # Se for um módulo real mas sem função render, cai aqui.
-        st.warning(f"O módulo '{module.__name__}' foi carregado, mas não possui a função 'render()'.")
+        st.warning(f"El módulo '{module.__name__}' se cargó, pero no tiene la función 'render()'.")
 
 
 @st.cache_data
@@ -107,12 +107,104 @@ def page_home():
         unsafe_allow_html=True
     )
 
+
+# -------------------------------
+# 2.1 PÁGINA DE INICIO DE SESIÓN (ruta /login)
+# -------------------------------
+# Cookie manager para persistencia de sesión. Se instancia a nivel de módulo
+# porque lo usan tanto el login como la barra lateral.
+cookie_manager = etc.CookieManager()
+
+
+def page_login():
+    """Pantalla de inicio de sesión.
+
+    Es una página real de `st.navigation` (ruta /login) para que la URL refleje
+    el estado de la sesión y se pueda enlazar directamente. Mientras no haya
+    sesión, el router de `main()` redirige cualquier otra ruta hacia acá.
+    """
+    # Oculta completamente la barra lateral vacía en la pantalla de inicio de sesión
+    st.markdown(
+        """
+        <style>
+        [data-testid="stSidebar"],
+        [data-testid="collapsedControl"] {
+            display: none !important;
+        }
+        .block-container,
+        [data-testid="stMainBlockContainer"],
+        [data-testid="block-container"] {
+            max-width: 100% !important;
+            padding-top: 3.5rem !important;
+            padding-left: 1rem !important;
+            padding-right: 1rem !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Encabezado con logo institucional
+    logo_data = get_logo_base64()
+    logo_html = (
+        f'<img src="data:image/png;base64,{logo_data}" width="220" style="margin-bottom: 20px;">'
+        if logo_data else ""
+    )
+    st.markdown(
+        f"""
+        <div style="text-align: center; margin-top: 30px; margin-bottom: 30px;">
+            {logo_html}
+            <h1 style="color: #003366; font-size: 42px; margin-bottom: 10px; font-weight: 700;">
+                Portal de Indicadores Académicos
+            </h1>
+        </div>
+        """, unsafe_allow_html=True
+    )
+    col1, col2, col3 = st.columns([1.2, 1.4, 1.2])
+    with col2:
+        with st.form("login_form"):
+            email = st.text_input("Correo Electrónico")
+            password = st.text_input("Contraseña", type="password")
+            submitted = st.form_submit_button("Entrar", use_container_width=True)
+            if submitted:
+                user_data = db_pia.authenticate_user(email, password)
+                if user_data:
+                    db_pia.log_audit_event(
+                        "login_success",
+                        target_usuario_id=user_data["id"],
+                        actor_usuario_id=user_data["id"],
+                        detalle={"email": email},
+                    )
+                    st.session_state.user = user_data
+                    st.session_state.rol = user_data['rol']
+                    st.session_state.user_id = user_data['id']
+                    st.session_state.permisos = db_pia.get_user_permissions(user_data['id'])
+
+                    # Guardar cookie para persistencia (expira en 3 horas)
+                    try:
+                        cookie_manager.set("pia_uid", str(user_data['id']), key="set_cookie_login", expires_at=datetime.now() + timedelta(hours=3))
+                    except Exception as exc:
+                        log_exception("No se pudo guardar la cookie de login", exc)
+
+                    st.switch_page(p_home)
+                else:
+                    db_pia.log_audit_event(
+                        "login_failed",
+                        detalle={"email": email},
+                        actor_usuario_id=None,
+                    )
+                    st.error("Credenciales incorrectas o cuenta inactiva.")
+
+
 # -------------------------------
 # 3. DEFINIÇÃO DAS PÁGINAS (st.Page)
 # -------------------------------
 
 # Início
-p_home = st.Page(page_home, title="Início", url_path="inicio", default=True)
+p_home = st.Page(page_home, title="Inicio", url_path="inicio", default=True)
+
+# Inicio de sesión: página real con su propia ruta (/login).
+p_login = st.Page(page_login, title="Iniciar sesión", url_path="login")
 
 # Dicionário Geral de Páginas para NAVEGAÇÃO
 # Chave = "Categoria:Botão" -> Valor = st.Page(...)
@@ -155,8 +247,9 @@ INDICATOR_TARGET_CATEGORIES = {indicator["target_category"] for indicator in IND
 # -------------------------------
 # 4. NAVEGAÇÃO "OCULTA" (st.navigation)
 # -------------------------------
-# Lista plana de todas as páginas para o st.navigation
-all_pages_list = [p_home] + list(ALL_PAGES.values())
+# Lista plana de todas as páginas para o st.navigation.
+# p_login también se registra para que exista la ruta /login.
+all_pages_list = [p_home, p_login] + list(ALL_PAGES.values())
 
 pg = st.navigation(all_pages_list, position="hidden")
 
@@ -166,10 +259,9 @@ pg = st.navigation(all_pages_list, position="hidden")
 def main():
     # Inicializar Base de Datos (Seguro llamarlo siempre)
     db_pia.init_db()
-    
-    # Cookie Manager para persistencia (F5)
-    cookie_manager = etc.CookieManager()
-    
+
+    # El CookieManager se instancia a nivel de módulo (lo comparten el login y el menú).
+
     if "user" not in st.session_state:
         st.session_state.user = None
 
@@ -190,79 +282,21 @@ def main():
         except Exception as exc:
             log_exception("Error durante auto-login por cookie", exc)
 
-    if st.session_state.user is None:
-        # Ocultar completamente la barra lateral vacía en la pantalla de inicio de sesión
-        st.markdown(
-            """
-            <style>
-            [data-testid="stSidebar"],
-            [data-testid="collapsedControl"] {
-                display: none !important;
-            }
-            .block-container,
-            [data-testid="stMainBlockContainer"],
-            [data-testid="block-container"] {
-                max-width: 100% !important;
-                padding-top: 3.5rem !important;
-                padding-left: 1rem !important;
-                padding-right: 1rem !important;
-            }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
+    # --- Control de rutas según la sesión ---
+    # El login es una página real (st.Page con url_path='login').
+    ruta_actual = getattr(pg, "url_path", "")
+    en_login = (ruta_actual == "login")
 
-        # Página de Login
-        logo_data = get_logo_base64()
-        logo_html = (
-            f'<img src="data:image/png;base64,{logo_data}" width="220" style="margin-bottom: 20px;">'
-            if logo_data else ""
-        )
-        st.markdown(
-            f"""
-            <div style="text-align: center; margin-top: 30px; margin-bottom: 30px;">
-                {logo_html}
-                <h1 style="color: #003366; font-size: 42px; margin-bottom: 10px; font-weight: 700;">
-                    Portal de Indicadores Académicos
-                </h1>
-            </div>
-            """, unsafe_allow_html=True
-        )
-        col1, col2, col3 = st.columns([1.2, 1.4, 1.2])
-        with col2:
-            with st.form("login_form"):
-                email = st.text_input("Correo Electrónico")
-                password = st.text_input("Contraseña", type="password")
-                submitted = st.form_submit_button("Entrar", use_container_width=True)
-                if submitted:
-                    user_data = db_pia.authenticate_user(email, password)
-                    if user_data:
-                        db_pia.log_audit_event(
-                            "login_success",
-                            target_usuario_id=user_data["id"],
-                            actor_usuario_id=user_data["id"],
-                            detalle={"email": email},
-                        )
-                        st.session_state.user = user_data
-                        st.session_state.rol = user_data['rol']
-                        st.session_state.user_id = user_data['id']
-                        st.session_state.permisos = db_pia.get_user_permissions(user_data['id'])
-                        
-                        # Guardar cookie para persistencia (expira en 3 horas)
-                        try:
-                            cookie_manager.set("pia_uid", str(user_data['id']), key="set_cookie_login", expires_at=datetime.now() + timedelta(hours=3))
-                        except Exception as exc:
-                            log_exception("No se pudo guardar la cookie de login", exc)
-                            
-                        st.switch_page(p_home)
-                    else:
-                        db_pia.log_audit_event(
-                            "login_failed",
-                            detalle={"email": email},
-                            actor_usuario_id=None,
-                        )
-                        st.error("Credenciales incorrectas o cuenta inactiva.")
+    if st.session_state.user is None:
+        # Sin sesión solo se permite la pantalla de login.
+        if not en_login:
+            st.switch_page(p_login)
+        page_login()
         return  # Bloquear la carga de la app real
+
+    # Con sesión activa, /login ya no tiene sentido: se vuelve al inicio.
+    if en_login:
+        st.switch_page(p_home)
 
     # -------------------------------
     # BARRA LATERAL (MENU) PARA USUARIO LOGUEADO
@@ -274,15 +308,54 @@ def main():
         st.markdown(
             """
             <style>
+            /* Sin franja superior vacía: el encabezado de Streamlit se reduce a 0
+               y el contenido principal arranca casi desde el borde superior. */
+            header[data-testid="stHeader"] {
+                height: 0 !important;
+                min-height: 0 !important;
+                padding: 0 !important;
+                background: transparent !important;
+                overflow: visible !important;
+            }
             .block-container,
             [data-testid="stMainBlockContainer"],
             [data-testid="block-container"] {
-                padding-top: 1.5rem !important;
+                padding-top: 1rem !important;
                 padding-bottom: 2.5rem !important;
             }
-            header[data-testid="stHeader"] {
-                height: 2rem !important;
-                background: transparent !important;
+            /* El encabezado interno de la barra lateral tampoco reserva altura;
+               así el logo sube hasta el borde superior del menú. */
+            [data-testid="stSidebarHeader"] {
+                height: 0 !important;
+                min-height: 0 !important;
+                padding: 0 !important;
+            }
+            [data-testid="stLogoSpacer"] { display: none !important; }
+            [data-testid="stSidebarUserContent"] { padding-top: 0.35rem !important; }
+            /* Botón para ocultar el menú: dentro de la barra lateral, arriba a la derecha. */
+            [data-testid="stSidebarCollapseButton"] {
+                position: absolute !important;
+                top: 6px !important;
+                right: 4px !important;
+                left: auto !important;
+                z-index: 10 !important;
+            }
+            /* Botón para volver a mostrar el menú cuando está oculto. */
+            [data-testid="stExpandSidebarButton"] {
+                position: fixed !important;
+                top: 8px !important;
+                left: 8px !important;
+                z-index: 1000000 !important;
+                background-color: #F5F7FA !important;
+                border-radius: 8px !important;
+            }
+            [data-testid="stExpandSidebarButton"]:hover {
+                background-color: #ffffff !important;
+            }
+            /* Con el menú oculto se deja aire arriba para que el botón de abrir
+               no se superponga con el primer elemento de la página. */
+            section[data-testid="stSidebar"][aria-expanded="false"] ~ div [data-testid="stMain"] .block-container {
+                padding-top: 3.2rem !important;
             }
             section[data-testid="stSidebar"] { background-color: #F5F7FA; }
             section[data-testid="stSidebar"] p,

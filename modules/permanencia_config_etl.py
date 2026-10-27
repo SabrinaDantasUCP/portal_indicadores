@@ -211,7 +211,7 @@ def _guardar_fechas_inicio_clases(periodo, nuevas):
 def modal_crear_config():
     periodo = st.text_input("Periodo *", value="", help="Formato 'AAAA.S', ej. '2026.2'.")
     fecha_corte = st.date_input("Fecha de corte *", value=date.today(), format="DD/MM/YYYY")
-    activo = st.toggle("Actualización automática (cron 03:30)", value=True)
+    activo = st.toggle("Actualización automática (diaria 03:30)", value=True)
 
     st.markdown("##### Inicio de clases")
     st.caption(
@@ -253,7 +253,7 @@ def modal_editar_config(cfg):
     periodo = cfg["periodo"]
     st.caption(f"Periodo: **{periodo}** (no editable)")
     fecha_corte = st.date_input("Fecha de corte *", value=cfg["fecha_corte"], format="DD/MM/YYYY")
-    activo = st.toggle("Actualización automática (cron 03:30)", value=bool(cfg["activo"]))
+    activo = st.toggle("Actualización automática (diaria 03:30)", value=bool(cfg["activo"]))
 
     if cfg["corte_generado"]:
         st.warning(
@@ -300,8 +300,8 @@ def modal_editar_config(cfg):
 
 def _render_permanencia_config():
     st.markdown(
-        "Configure, por periodo: la fecha de corte, las fechas de inicio de clases y si el cron "
-        "nocturno (**03:30**) está activo. El cron recalcula la **visión general** todos los días "
+        "Configure, por periodo: la fecha de corte, las fechas de inicio de clases y si la "
+        "actualización automática nocturna (**03:30**) está activa. La actualización recalcula la **visión general** todos los días "
         "para los periodos activos, y congela el snapshot de **Fecha de Corte** la primera vez que "
         "la ejecución ocurre en o después de esa fecha (nunca más se sobrescribe después de eso)."
     )
@@ -372,7 +372,7 @@ def _render_permanencia_config():
             with c3:
                 activo_actual = bool(cfg["activo"])
                 nuevo_estado = st.toggle(
-                    "Actualización automática (cron 03:30)",
+                    "Actualización automática (diaria 03:30)",
                     value=activo_actual,
                     key=f"perm_activo_{periodo}",
                 )

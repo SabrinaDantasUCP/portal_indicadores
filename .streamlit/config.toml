@@ -8,6 +8,13 @@ textColor = "#31333F"
 [browser]
 gatherUsageStats = false
 
+# Oculta la barra superior de Streamlit (botón "Deploy" y menú "Rerun / Settings /
+# Print / Record a screencast / Developer options / Clear cache"). Esos textos son
+# del framework y no se pueden traducir al español; con "minimal" dejan de mostrarse.
+# Para recuperar el menú de desarrollo en local: STREAMLIT_CLIENT_TOOLBAR_MODE=developer
+[client]
+toolbarMode = "minimal"
+
 [server]
 port = 8501
 headless = false

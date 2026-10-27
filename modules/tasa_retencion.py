@@ -109,7 +109,7 @@ def render():
                 c_data = df_resumen[df_resumen[COL_COHORTE] == c]
                 s1 = c_data[c_data[COL_SEMESTRE_ALUMNO] == 1]["TR (%)"].values[0] if 1 in c_data[COL_SEMESTRE_ALUMNO].values else 0
                 s12 = c_data[c_data[COL_SEMESTRE_ALUMNO] == 12]["TR (%)"].values[0] if 12 in c_data[COL_SEMESTRE_ALUMNO].values else None
-                res_list.append([str(c), f"{s1:.2f}%", f"{s12:.2f}%" if s12 is not None else "N/A"])
+                res_list.append([str(c), f"{s1:.2f}%", f"{s12:.2f}%" if s12 is not None else "No disponible"])
             
             data_rows = [["COHORTE", "Retención S1", "Retención S12"]] + res_list
             t = Table(data_rows, repeatRows=1, colWidths=[6*cm]*3)
@@ -251,7 +251,7 @@ def render():
         c2.download_button("Descargar Datos (Excel)", data=excel_data, file_name="Datos_TR_Global.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", key="btn_ex_global", on_click=db_pia.log_export_callback, args=("Tasa de Retención - Global", "Excel"))
 
     if vista == 'Evolución por Cohorte':
-        cohorte_sel = st.selectbox("Seleccione una Cohorte", todas_cohortes, index=None)
+        cohorte_sel = st.selectbox("Seleccione una Cohorte", todas_cohortes, index=None, placeholder="Seleccione una cohorte")
         if cohorte_sel:
             data_c = retencion_df[retencion_df[COL_COHORTE] == cohorte_sel].sort_values(COL_SEMESTRE_ALUMNO)
             

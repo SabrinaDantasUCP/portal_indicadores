@@ -323,7 +323,7 @@ def render():
 
         # 3. Filtro: Semestre de la Asignatura
         semestres_disponibles = sorted(df_temp[COL_ASIS_SEMESTRE_DISCIPLINA].unique())
-        semestre_sel = c3.multiselect("Semestre de la Asignatura", semestres_disponibles, format_func=lambda x: f"{x}º Semestre")
+        semestre_sel = c3.multiselect("Semestre de la Asignatura", semestres_disponibles, format_func=lambda x: f"{x}º Semestre", placeholder="Todos")
 
         # Filtrado progresivo para Asignatura
         if semestre_sel:
@@ -331,7 +331,7 @@ def render():
 
         # 4. Filtro: Asignatura
         asignaturas_disponibles = sorted(df_temp[COL_ASIS_DISCIPLINA].astype(str).unique())
-        asignatura_sel = c4.multiselect("Asignatura", asignaturas_disponibles)
+        asignatura_sel = c4.multiselect("Asignatura", asignaturas_disponibles, placeholder="Todas")
 
         # Filtrado progresivo para Docente
         if asignatura_sel:
@@ -339,7 +339,7 @@ def render():
 
         # 5. Filtro: Docente
         docentes_disponibles = sorted(df_temp[COL_ASIS_DOCENTE].astype(str).unique())
-        docente_sel = c5.multiselect("Docente", docentes_disponibles)
+        docente_sel = c5.multiselect("Docente", docentes_disponibles, placeholder="Todos")
 
         # Filtrado progresivo para Sección
         if docente_sel:
@@ -347,7 +347,7 @@ def render():
 
         # 6. Filtro: Sección
         secciones_disponibles = sorted(df_temp[COL_ASIS_SECCION].astype(str).unique())
-        seccion_sel = c6.multiselect("Sección", secciones_disponibles)
+        seccion_sel = c6.multiselect("Sección", secciones_disponibles, placeholder="Todas")
 
         # Filtrado progresivo para Tipo de Clase
         if seccion_sel:
@@ -355,7 +355,7 @@ def render():
 
         # 7. Filtro: Tipo de Clase
         tipos_clase_disponibles = sorted(df_temp[COL_ASIS_TIPO_CLASE].astype(str).unique())
-        tipo_clase_sel = c7.multiselect("Tipo de Clase", tipos_clase_disponibles)
+        tipo_clase_sel = c7.multiselect("Tipo de Clase", tipos_clase_disponibles, placeholder="Todos")
 
     # ---------------------------------------------------------------------
     # Aplicar Filtros al Dataframe Principal

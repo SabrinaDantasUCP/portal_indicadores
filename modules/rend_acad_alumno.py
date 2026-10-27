@@ -197,7 +197,7 @@ def render_alumno_details(df_estudiante, df_completo):
         else:
             bg_color_sem, border_color, text_color = "#FFEBEE", "#8E0000", "#C62828"
 
-        filial = df_grupo[COL_FILIAL].iloc[0] if not df_grupo[COL_FILIAL].empty else "N/A"
+        filial = df_grupo[COL_FILIAL].iloc[0] if not df_grupo[COL_FILIAL].empty else "No disponible"
 
         st.markdown(f"""
         <div style="display:flex; justify-content:space-between; align-items:center; gap:20px; flex-wrap:wrap; margin-top:25px; margin-bottom:20px;">
@@ -416,16 +416,17 @@ def render():
     c3, c4, c5 = st.columns(3)
 
     # Nota: O Streamlit usa o 'key' para vincular ao st.session_state automaticamente
-    anos_sel_ui = c3.multiselect("Año", anos_opts, key="f_ano")
+    anos_sel_ui = c3.multiselect("Año", anos_opts, key="f_ano", placeholder="Todos")
     periodos_sel_ui = c4.multiselect("Período", periodos_opts, key="f_periodo",
-                                     format_func=lambda x: f"{int(x)}" if float(x).is_integer() else str(x))
+                                     format_func=lambda x: f"{int(x)}" if float(x).is_integer() else str(x), placeholder="Todos")
     
     # FORMAT_FUNC aplicado aqui para exibição visual apenas
     semestres_sel_ui = c5.multiselect(
         "Semestre", 
         semestres_opts, 
         key="f_semestre",
-        format_func=lambda x: f"{x}º Semestre"
+        format_func=lambda x: f"{x}º Semestre",
+        placeholder="Todos",
     )
 
     # 2.4 aplica filtros finais conforme seleções (interseção)
@@ -763,7 +764,7 @@ def render():
         st.download_button(
             label="Descargar Datos (Excel)",
             data=dados_excel,
-            file_name=f"Dados_{catraca_num}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            file_name=f"Datos_{catraca_num}_{datetime.now().strftime('%Y%m%d')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             icon=":material/download:",
             width="stretch",

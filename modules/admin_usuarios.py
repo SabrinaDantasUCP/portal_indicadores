@@ -12,6 +12,9 @@ from utils.menu_config import (
     version_permission_key,
 )
 
+# Etiquetas visibles para los roles internos (la base sigue guardando LEITURA/ADMIN).
+ETIQUETAS_ROL = {"LEITURA": "Lectura", "ADMIN": "Administrador"}
+
 
 def render_permission_inputs(prefix, current_perms=None):
     current_perms = set(current_perms or [])
@@ -85,9 +88,9 @@ def modal_crear_usuario(areas_disp):
     f_nom = st.text_input("Nombre *")
     f_ape = st.text_input("Apellido *")
     f_doc = st.text_input("Documento *")
-    f_eml = st.text_input("Email (Login) *")
+    f_eml = st.text_input("Correo (Usuario) *")
     f_area = st.selectbox("Área *", options=areas_disp, format_func=lambda x: x['nombre']) if areas_disp else None
-    f_rol = st.selectbox("Rol", ["LEITURA", "ADMIN"])
+    f_rol = st.selectbox("Rol", ["LEITURA", "ADMIN"], format_func=lambda rol: ETIQUETAS_ROL.get(rol, rol))
     f_mods = render_permission_inputs("crear_perms") if f_rol == "LEITURA" else []
     
     if st.button("Registrar Usuario", type="primary", use_container_width=True):
@@ -105,7 +108,7 @@ def modal_crear_usuario(areas_disp):
                 st.rerun()
             except Exception as e:
                 log_exception("Error al crear usuario desde administración", e)
-                st.error("Error al registrar: Probablemente ya exista el Email o Documento en la base de datos.")
+                st.error("Error al registrar: Probablemente ya exista el correo o el documento en la base de datos.")
         else:
             st.warning("Debe completar todos los campos obligatorios (*).")
 
@@ -114,7 +117,7 @@ def modal_editar_usuario(us_sel, areas_d, curr_perms):
     e_nom = st.text_input("Nombre", value=us_sel['nombre'])
     e_ape = st.text_input("Apellido", value=us_sel['apellido'])
     e_doc = st.text_input("Documento", value=us_sel['documento'])
-    e_eml = st.text_input("Email", value=us_sel['email'])
+    e_eml = st.text_input("Correo electrónico", value=us_sel['email'])
     
     idx_area = 0
     if areas_d and us_sel.get('area'):
@@ -124,7 +127,7 @@ def modal_editar_usuario(us_sel, areas_d, curr_perms):
                 break
                 
     e_area = st.selectbox("Área", options=areas_d, format_func=lambda x: x['nombre'], index=idx_area) if areas_d else None
-    e_rol = st.selectbox("Rol", ["LEITURA", "ADMIN"], index=0 if us_sel['rol'] == 'LEITURA' else 1)
+    e_rol = st.selectbox("Rol", ["LEITURA", "ADMIN"], index=0 if us_sel['rol'] == 'LEITURA' else 1, format_func=lambda rol: ETIQUETAS_ROL.get(rol, rol))
     e_mods = render_permission_inputs(f"editar_perms_{us_sel['id']}", curr_perms) if e_rol == "LEITURA" else []
     
     if st.button("Guardar Cambios", type="primary", use_container_width=True):
@@ -200,46 +203,87 @@ def render():
     # Encabezados
     st.markdown("""
     <div style='background-color: #003366; color: white; padding: 10px; border-radius: 5px; display: flex; width: 100%; margin-bottom: 10px;'>
-        <div style='flex: 1.5; text-align: center; font-weight: bold;'>Nombre y Email</div>
+        <div style='flex: 1.6; text-align: center; font-weight: bold;'>Nombre y Correo</div>
         <div style='flex: 1; text-align: center; font-weight: bold;'>Rol</div>
         <div style='flex: 1; text-align: center; font-weight: bold;'>Estado</div>
-        <div style='flex: 1.2; text-align: center; font-weight: bold;'>Acciones</div>
+        <div style='flex: 1.86; text-align: center; font-weight: bold;'>Acciones</div>
     </div>
     """, unsafe_allow_html=True)
 
-    for u in usuarios:
-        with st.container():
-            c1, c2, c3, c4, c5, c6 = st.columns([1.5, 1, 1, 0.4, 0.4, 0.4])
-            with c1:
-                st.markdown(f"<div style='text-align: center; padding-top: 5px;'><b>{u['nombre']} {u['apellido']}</b><br><span style='color: gray; font-size: 0.8em;'>{u['email']}</span></div>", unsafe_allow_html=True)
-            with c2:
-                st.markdown(f"<div style='text-align: center; padding-top: 15px;'>{u['rol']}</div>", unsafe_allow_html=True)
-            with c3:
-                lbl_est = "Activo" if u['activo'] else "Inactivo"
-                st.markdown(f"<div style='text-align: center; padding-top: 15px;'>{lbl_est}</div>", unsafe_allow_html=True)
-            with c4:
-                if st.button("Editar", icon=":material/edit:", key=f"ed_{u['id']}", help="Editar Usuario"):
-                    curr_perms = db_pia.get_user_permissions(u['id'])
-                    modal_editar_usuario(u, db_pia.get_all_areas(), curr_perms)
-            with c5:
-                if st.button("Clave", icon=":material/key:", key=f"pw_{u['id']}", help="Restablecer Contraseña"):
-                    modal_cambiar_pass(u)
-            with c6:
-                ico_btn = ":material/block:" if u['activo'] else ":material/check_circle:"
-                btn_txt = "Desactivar" if u['activo'] else "Activar"
-                hlp_t = "Desactivar Acceso" if u['activo'] else "Reactivar Acceso"
-                if st.button(btn_txt, icon=ico_btn, key=f"tg_{u['id']}", help=hlp_t):
-                    areas_d = db_pia.get_all_areas()
-                    aid = None
-                    if areas_d and u.get('area'):
-                        for a in areas_d:
-                            if a['nombre'] == u['area']: aid = a['id']
-                    new_active = not bool(u['activo'])
-                    db_pia.update_user(u['id'], u['nombre'], u['apellido'], u['documento'], u['email'], aid, u['rol'], new_active)
-                    db_pia.log_audit_event(
-                        "user_status_changed",
-                        target_usuario_id=u["id"],
-                        detalle={"activo": new_active},
-                    )
-                    st.rerun()
-        st.markdown("<hr style='margin: 5px 0px; border-top: 1px solid #f0f0f0;'>", unsafe_allow_html=True)
+    # Estilos de la tabla: los botones de acciones no deben partir el texto
+    # y necesitan un poco más de aire dentro de su columna.
+    st.markdown(
+        """
+        <style>
+        .st-key-tabla_usuarios [data-testid="stButton"] button {
+            min-height: 2.2rem;
+            padding: 0.28rem 0.3rem !important;
+        }
+        .st-key-tabla_usuarios [data-testid="stButton"] button p {
+            font-size: 0.75rem !important;
+            white-space: nowrap;
+        }
+        .st-key-tabla_usuarios [data-testid="stButton"] button [data-testid="stIconMaterial"] {
+            font-size: 0.9rem !important;
+        }
+        /* En pantallas angostas se muestra solo el icono (con su tooltip) para
+           que las tres acciones entren sin recortes. El texto queda oculto de
+           forma visual, pero sigue disponible para lectores de pantalla. */
+        @media (max-width: 1240px) {
+            .st-key-tabla_usuarios [data-testid="stButton"] button p {
+                position: absolute !important;
+                width: 1px !important;
+                height: 1px !important;
+                padding: 0 !important;
+                margin: -1px !important;
+                overflow: hidden !important;
+                clip: rect(0, 0, 0, 0) !important;
+                white-space: nowrap !important;
+                border: 0 !important;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Contenedor con clave para que los estilos afecten solo a esta tabla.
+    with st.container(key="tabla_usuarios"):
+        for u in usuarios:
+            with st.container():
+                # La columna de acciones (c4, c5, c6) recibe más ancho para que
+                # "Editar", "Clave" y "Activar/Desactivar" entren en una línea.
+                c1, c2, c3, c4, c5, c6 = st.columns([1.6, 1, 1, 0.62, 0.62, 0.62])
+                with c1:
+                    st.markdown(f"<div style='text-align: center; padding-top: 5px;'><b>{u['nombre']} {u['apellido']}</b><br><span style='color: gray; font-size: 0.8em;'>{u['email']}</span></div>", unsafe_allow_html=True)
+                with c2:
+                    st.markdown(f"<div style='text-align: center; padding-top: 15px;'>{ETIQUETAS_ROL.get(u['rol'], u['rol'])}</div>", unsafe_allow_html=True)
+                with c3:
+                    lbl_est = "Activo" if u['activo'] else "Inactivo"
+                    st.markdown(f"<div style='text-align: center; padding-top: 15px;'>{lbl_est}</div>", unsafe_allow_html=True)
+                with c4:
+                    if st.button("Editar", icon=":material/edit:", key=f"ed_{u['id']}", help="Editar Usuario", use_container_width=True):
+                        curr_perms = db_pia.get_user_permissions(u['id'])
+                        modal_editar_usuario(u, db_pia.get_all_areas(), curr_perms)
+                with c5:
+                    if st.button("Clave", icon=":material/key:", key=f"pw_{u['id']}", help="Restablecer Contraseña", use_container_width=True):
+                        modal_cambiar_pass(u)
+                with c6:
+                    ico_btn = ":material/block:" if u['activo'] else ":material/check_circle:"
+                    btn_txt = "Desactivar" if u['activo'] else "Activar"
+                    hlp_t = "Desactivar Acceso" if u['activo'] else "Reactivar Acceso"
+                    if st.button(btn_txt, icon=ico_btn, key=f"tg_{u['id']}", help=hlp_t, use_container_width=True):
+                        areas_d = db_pia.get_all_areas()
+                        aid = None
+                        if areas_d and u.get('area'):
+                            for a in areas_d:
+                                if a['nombre'] == u['area']: aid = a['id']
+                        new_active = not bool(u['activo'])
+                        db_pia.update_user(u['id'], u['nombre'], u['apellido'], u['documento'], u['email'], aid, u['rol'], new_active)
+                        db_pia.log_audit_event(
+                            "user_status_changed",
+                            target_usuario_id=u["id"],
+                            detalle={"activo": new_active},
+                        )
+                        st.rerun()
+            st.markdown("<hr style='margin: 5px 0px; border-top: 1px solid #f0f0f0;'>", unsafe_allow_html=True)

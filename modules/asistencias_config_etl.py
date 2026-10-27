@@ -228,7 +228,7 @@ def render_body():
     st.markdown(
         "Configure qué años de **SysEduca** (fuente vieja, antes de 2025.2) y qué "
         "**periodos de Biometría** (fuente nueva, desde 2025.2) entran en la extracción. "
-        "El cron nocturno (**03:00**) corre automáticamente si está activo. El botón "
+        "La actualización automática nocturna (**03:00**) se ejecuta si está activa. El botón "
         "**Ejecutar ahora** dispara la extracción de inmediato."
     )
 
@@ -265,6 +265,7 @@ def render_body():
             accept_new_options=True,
             help="Cada año dispara una consulta separada a ucp.coord_aula (MySQL). "
                  "Puede escribir un año que no esté en la lista y presionar Enter para agregarlo.",
+            placeholder="Seleccione o agregue años",
         )
         try:
             anos_syseduca_sel = _parsear_anos_syseduca(anos_syseduca_raw)
@@ -279,6 +280,7 @@ def render_body():
             accept_new_options=True,
             help="Cada periodo (ej. '2025.2') dispara una consulta separada a attendance (Postgres). "
                  "Puede escribir un periodo que no esté en la lista (formato 'AAAA.S') y presionar Enter.",
+            placeholder="Seleccione o agregue periodos",
         )
         try:
             periodos_biometria_sel = _parsear_periodos_biometria(periodos_biometria_raw)
@@ -288,9 +290,9 @@ def render_body():
 
         activo_actual = bool(config["activo"])
         nuevo_estado = st.toggle(
-            "Actualización automática (cron diario 03:00)",
+            "Actualización automática (diaria 03:00)",
             value=activo_actual,
-            help="Si está pausada, el cron nocturno no ejecuta el ETL, pero los datos ya generados siguen visibles en el dashboard.",
+            help="Si está pausada, la actualización automática nocturna no ejecuta el ETL, pero los datos ya generados siguen visibles en el panel.",
         )
 
         if st.button("Guardar Configuración", type="primary", icon=":material/save:", key="asis_guardar_config"):
@@ -317,7 +319,7 @@ def render_body():
             st.warning(
                 f"⚠️ Ya hay una ejecución del ETL de asistencias en curso, disparada por "
                 f"**{lock_estado['disparado_por']}** desde {_formatear_fecha(lock_estado['iniciado_en'])} "
-                "(otra pestaña/sesión, o el cron nocturno). Espere a que termine antes de iniciar otra."
+                "(otra pestaña/sesión, o la actualización automática nocturna). Espere a que termine antes de iniciar otra."
             )
 
         c1, c2 = st.columns([3, 1])
