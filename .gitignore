@@ -31,6 +31,9 @@ assets/data/
 desktop.ini
 Thumbs.db
 
+# --- Skills locales de OpenCode ---
+.opencode/skills/
+
 # --- Temporários ---
 tmp_cols.json
 logs/
