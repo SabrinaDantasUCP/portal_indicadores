@@ -81,8 +81,8 @@ def modal_crear_config():
     )
     if tipo == "EVALUACION_PARES":
         st.warning(
-            "El pipeline de 'Evaluación de Pares' todavía no está implementado. "
-            "Puede cadastrar la configuración, pero 'Ejecutar ahora' fallará hasta que se implemente."
+            "El flujo de procesamiento de 'Evaluación de Pares' todavía no está implementado. "
+            "Puede registrar la configuración, pero 'Ejecutar ahora' fallará hasta que se implemente."
         )
 
     c1, c2 = st.columns(2)
@@ -91,12 +91,12 @@ def modal_crear_config():
         carrera = st.text_input("Carrera *", value="Medicina")
     with c2:
         periodo = st.text_input("Periodo *", value="2026.1", help="Ej: 2026.1, 2026.2")
-        id_encuesta_externa = st.number_input("Id de la Encuesta (Academico.Encuesta) *", min_value=1, value=1, step=1)
+        id_encuesta_externa = st.number_input("ID de la Encuesta (Academico.Encuesta) *", min_value=1, value=1, step=1)
 
     periodo_valido = _mostrar_preview_periodo(periodo)
 
     dataset_name = st.text_input(
-        "Nombre del dataset (identificador interno)",
+        "Nombre del conjunto de datos (identificador interno)",
         value=_sugerir_dataset_name(tipo, periodo),
         help="Se usa para nombrar el archivo generado. Se sugiere automáticamente, pero puede editarlo.",
     )
@@ -122,7 +122,7 @@ def modal_crear_config():
                 st.rerun()
             except Exception as e:
                 log_exception("Error al crear configuración de ETL de encuesta", e)
-                st.error("Error al crear: probablemente ya exista una configuración igual (tipo/sede/periodo/carrera) o el dataset_name ya está en uso.")
+                st.error("Error al crear: probablemente ya exista una configuración igual (tipo/sede/periodo/carrera) o el nombre del conjunto ya está en uso.")
         else:
             st.warning("Debe completar todos los campos obligatorios (*).")
 
@@ -138,12 +138,12 @@ def modal_editar_config(cfg):
     with c2:
         periodo = st.text_input("Periodo *", value=cfg["periodo"])
         id_encuesta_externa = st.number_input(
-            "Id de la Encuesta (Academico.Encuesta) *", min_value=1, value=int(cfg["id_encuesta_externa"]), step=1
+            "ID de la Encuesta (Academico.Encuesta) *", min_value=1, value=int(cfg["id_encuesta_externa"]), step=1
         )
 
     periodo_valido = _mostrar_preview_periodo(periodo)
 
-    dataset_name = st.text_input("Nombre del dataset (identificador interno)", value=cfg["dataset_name"])
+    dataset_name = st.text_input("Nombre del conjunto de datos (identificador interno)", value=cfg["dataset_name"])
 
     if st.button("Guardar Cambios", type="primary", use_container_width=True):
         if sede and periodo.strip() and carrera.strip() and dataset_name.strip() and periodo_valido:
@@ -165,7 +165,7 @@ def modal_editar_config(cfg):
                 st.rerun()
             except Exception as e:
                 log_exception("Error al actualizar configuración de ETL de encuesta", e)
-                st.error("Error al actualizar (posiblemente el dataset_name ya está en uso, o ya existe otra config igual).")
+                st.error("Error al actualizar (posiblemente el nombre del conjunto ya está en uso, o ya existe otra config igual).")
         else:
             st.warning("Debe completar todos los campos obligatorios (*).")
 
@@ -192,8 +192,8 @@ def render_body():
     pensado para ser embebido dentro de una pestaña (ver modules/config_etl.py),
     que ya hace el chequeo de ADMIN una sola vez para todas las pestañas."""
     st.markdown(
-        "Cadastre qué tipo de encuesta, periodo y carrera deben actualizarse "
-        "automáticamente (cron 3x al día). El botón **Ejecutar ahora** dispara "
+        "Registre qué tipo de encuesta, periodo y carrera deben actualizarse "
+        "automáticamente (3 veces al día). El botón **Ejecutar ahora** dispara "
         "la primera carga de datos de inmediato."
     )
 
@@ -238,7 +238,7 @@ def render_body():
             with c1:
                 st.markdown(f"**{TIPO_LABELS.get(cfg['tipo_encuesta'], cfg['tipo_encuesta'])}**")
                 st.caption(f"{cfg['sede']} · {cfg['periodo']} · {cfg['carrera']}")
-                st.caption(f"Id encuesta: {cfg['id_encuesta_externa']} · dataset: `{cfg['dataset_name']}`")
+                st.caption(f"ID de encuesta: {cfg['id_encuesta_externa']} · conjunto: `{cfg['dataset_name']}`")
             with c2:
                 if ultimo:
                     icono = "✅" if ultimo["status"] == "OK" else "❌"
@@ -256,7 +256,7 @@ def render_body():
                     "Actualización automática",
                     value=activo_actual,
                     key=f"activo_{cfg['id']}",
-                    help="Si está pausada, no se ejecuta en el cron 3x al día, pero los datos ya generados siguen visibles en el dashboard.",
+                    help="Si está pausada, no se ejecuta 3 veces al día, pero los datos ya generados siguen visibles en el panel.",
                 )
                 if nuevo_estado != activo_actual:
                     db_pia.toggle_encuesta_etl_config_activo(cfg["id"], nuevo_estado)

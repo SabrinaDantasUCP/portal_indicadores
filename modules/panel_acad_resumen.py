@@ -85,25 +85,25 @@ def render():
 
     # 1. Semestre Asignatura
     semestres_disc = sorted(df_filtered[COL_RES_SEMESTRE_DISCIPLINA].dropna().unique().astype(int).tolist())
-    semestre_disc_sel = c3.multiselect("Semestre de la Asignatura", semestres_disc, format_func=lambda x: f"{x}º")
+    semestre_disc_sel = c3.multiselect("Semestre de la Asignatura", semestres_disc, format_func=lambda x: f"{x}º", placeholder="Todos")
     if semestre_disc_sel:
         df_filtered = df_filtered[df_filtered[COL_RES_SEMESTRE_DISCIPLINA].isin(semestre_disc_sel)]
         
     # 2. Asignatura
     disciplinas = sorted(df_filtered[COL_RES_DISCIPLINA].dropna().unique().tolist())
-    disciplina_sel = c4.multiselect("Asignatura", disciplinas)
+    disciplina_sel = c4.multiselect("Asignatura", disciplinas, placeholder="Todas")
     if disciplina_sel:
         df_filtered = df_filtered[df_filtered[COL_RES_DISCIPLINA].isin(disciplina_sel)]
 
     # 3. Docente
     docentes = sorted(df_filtered[COL_RES_DOCENTE].dropna().unique().tolist())
-    docente_sel = c5.multiselect("Docente", docentes)
+    docente_sel = c5.multiselect("Docente", docentes, placeholder="Todos")
     if docente_sel:
         df_filtered = df_filtered[df_filtered[COL_RES_DOCENTE].isin(docente_sel)]
 
     # 4. Sección
     secciones = sorted(df_filtered[COL_RES_SECCION].dropna().unique().tolist())
-    seccion_sel = c6.multiselect("Sección", secciones)
+    seccion_sel = c6.multiselect("Sección", secciones, placeholder="Todas")
     if seccion_sel:
         df_filtered = df_filtered[df_filtered[COL_RES_SECCION].isin(seccion_sel)]
 
@@ -193,7 +193,7 @@ def render():
         
         # 5. Calificación Filter (Local to this tab)
         calificaciones = sorted(df_filtered[COL_RES_CALIFICACION].dropna().unique().astype(int).tolist())
-        calificacion_sel = st.multiselect("Filtrar por Calificación", calificaciones)
+        calificacion_sel = st.multiselect("Filtrar por Calificación", calificaciones, placeholder="Todas")
         
         # Apply Calificación filter
         df_detail_view = df_filtered.copy()

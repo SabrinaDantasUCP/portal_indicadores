@@ -47,9 +47,9 @@ def render():
     col1, col2, col3 = st.columns(3)
     col4, col5 = st.columns(2)
 
-    ano_sel      = col1.multiselect("Año", ano_vals)
-    periodo_sel  = col2.multiselect("Período Anual", periodo_vals)
-    semestre_sel = col3.multiselect("Semestre", semestre_vals)
+    ano_sel      = col1.multiselect("Año", ano_vals, placeholder="Todos")
+    periodo_sel  = col2.multiselect("Período Anual", periodo_vals, placeholder="Todos")
+    semestre_sel = col3.multiselect("Semestre", semestre_vals, placeholder="Todos")
 
     # Filtros dependientes (en cascada)
     df_temp = df.copy()
@@ -66,7 +66,7 @@ def render():
     else:
         disc_vals = sorted(df_temp[COL_DISCIPLINA].dropna().unique().tolist())
 
-    disc_sel = col4.multiselect("Disciplina", disc_vals)
+    disc_sel = col4.multiselect("Disciplina", disc_vals, placeholder="Todas")
 
     # Turmas disponíveis conforme disciplina
     if disc_sel:
@@ -74,7 +74,7 @@ def render():
     else:
         turma_vals = sorted(df_temp[COL_TURMA].dropna().unique().tolist())
 
-    turma_sel = col5.multiselect("Turma", turma_vals)
+    turma_sel = col5.multiselect("Sección", turma_vals, placeholder="Todas")
 
     # --- Aplicar filtros ---
     df_filtrado = df.copy()
@@ -182,7 +182,7 @@ def render():
         Período Anual: {', '.join(map(str, periodo_sel)) if periodo_sel else 'Todos'}<br/>
         Semestre: {', '.join(map(str, semestre_sel)) if semestre_sel else 'Todos'}<br/>
         Disciplina: {', '.join(map(str, disc_sel)) if disc_sel else 'Todas'}<br/>
-        Turma: {', '.join(map(str, turma_sel)) if turma_sel else 'Todas'}
+        Sección: {', '.join(map(str, turma_sel)) if turma_sel else 'Todas'}
         """
         story.append(Paragraph(filtros_texto, styles["Normal"]))
         story.append(Spacer(1, 12))

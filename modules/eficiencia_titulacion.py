@@ -202,7 +202,7 @@ def render():
         c2.download_button("Descargar Datos (Excel)", data=buf_ex.getvalue(), file_name="Datos_ETE_Global.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia de Titulación - Global", "Excel"))
 
     if vista == 'Detalle por Cohorte':
-        cohorte_sel = st.selectbox("Seleccione una Cohorte", opciones_cohorte(df_ete["cohorte"]), index=None)
+        cohorte_sel = st.selectbox("Seleccione una Cohorte", opciones_cohorte(df_ete["cohorte"]), index=None, placeholder="Seleccione una cohorte")
         if cohorte_sel:
             row = df_ete[df_ete["cohorte"] == cohorte_sel].iloc[0]
             t_final = row['periodo_final']
@@ -245,10 +245,10 @@ def render():
             render_titulo_seccion("Egresados de la cohorte", "Filtre por estado de titulación o tipo de egreso.")
             f_col1, f_col2 = st.columns(2)
             options_tit = sorted(lista_full["¿Titulado?"].dropna().unique().tolist())
-            sel_tit = f_col1.multiselect("Filtrar por Status de Titulación", options_tit)
+            sel_tit = f_col1.multiselect("Filtrar por Estado de Titulación", options_tit, placeholder="Todos")
             
             options_tipo = sorted(lista_full["Tipo Egreso"].unique().tolist())
-            sel_tipo = f_col2.multiselect("Filtrar por Tipo de Egreso", options_tipo)
+            sel_tipo = f_col2.multiselect("Filtrar por Tipo de Egreso", options_tipo, placeholder="Todos")
             
             mask = pd.Series(True, index=lista_full.index)
             if sel_tit: mask &= lista_full["¿Titulado?"].isin(sel_tit)

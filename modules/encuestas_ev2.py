@@ -2877,7 +2877,7 @@ def render_ev2_autoevaluacion_docente(
     docentes_lista = sorted([str(d) for d in df_base["docente"].replace("—", pd.NA).dropna().unique() if str(d).strip()])
     opt_doc_todos = f"Todos ({len(docentes_lista)})"
 
-    with st.expander("Filtros del Dashboard EV2", expanded=True):
+    with st.expander("Filtros del Panel EV2", expanded=True):
         f1, f2, f3, f4, f5 = st.columns([2.2, 2.2, 1.1, 1.3, 1.3])
         with f1:
             sel_docente = st.selectbox(

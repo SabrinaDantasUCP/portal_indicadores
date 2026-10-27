@@ -232,7 +232,7 @@ def _render_poblacion_section():
         ".xlsx directo, con las columnas **Año, Periodo, Catraca, ID Usuario, Nombre, Doc. Oficial, "
         "Semestre, Sección, Motivo** (obligatorias: Año, Periodo, ID Usuario, Semestre). El portal no "
         "modifica semestre ni sección; una sección vacía es válida.\n\n"
-        "Después de guardar: **\"Ejecutar ahora\"** más abajo (o esperar el cron) y luego los ETL de "
+        "Después de guardar: **\"Ejecutar ahora\"** más abajo (o esperar la actualización automática) y luego los ETL de "
         "**Alumnos**, **Asistencias** y **Encuestas** para regenerar los Indicadores."
     )
 
@@ -315,7 +315,7 @@ def _render_upload_manual_section():
         "columna por línea (por ejemplo un número de fila adelante), se usa la última "
         "columna. Al subir, **sobrescribe** el resultado generado a partir de la población (CSV) "
         "y borra los pares alumno-periodo, así que los Indicadores pasan a incluir TODO el historial "
-        "de esos ids -- la próxima ejecución del ETL (cron o \"Ejecutar ahora\" más arriba) lo "
+        "de esos ids -- la próxima ejecución del ETL (automática o \"Ejecutar ahora\" más arriba) lo "
         "vuelve a reemplazar con la población."
     )
 
@@ -430,6 +430,7 @@ def render():
             help="Solo los alumnos de la población (CSV) en estos periodos pasan a los archivos de ids "
                  "activos; los demás periodos del CSV se ignoran (y se avisa). Puede escribir un periodo "
                  "que no esté en la lista (formato 'AAAA.S') y presionar Enter para agregarlo.",
+            placeholder="Seleccione o agregue periodos",
         )
         try:
             periodos_seleccionados = _parsear_periodos(periodos_seleccionados_raw)
@@ -439,9 +440,9 @@ def render():
 
         activo_actual = bool(config["activo"])
         nuevo_estado = st.toggle(
-            "Actualización automática (cron diario, antes que Alumnos/Asistencias/Encuestas)",
+            "Actualización automática (diaria, antes que Alumnos/Asistencias/Encuestas)",
             value=activo_actual,
-            help="Si está pausada, el cron nocturno no ejecuta el ETL, pero el archivo de ids "
+            help="Si está pausada, la actualización automática nocturna no ejecuta el ETL, pero el archivo de ids "
                  "activos ya generado sigue siendo usado por los otros ETL.",
         )
 
@@ -469,7 +470,7 @@ def render():
             st.warning(
                 f"⚠️ Ya hay un ETL de activos en curso, disparado por "
                 f"**{lock_estado['disparado_por']}** desde {_formatear_fecha(lock_estado['iniciado_en'])} "
-                "(otra pestaña/sesión, o el cron). Espere a que termine antes de iniciar otro."
+                "(otra pestaña/sesión, o la actualización automática). Espere a que termine antes de iniciar otro."
             )
 
         c1, c2 = st.columns([3, 1])

@@ -75,8 +75,8 @@ def render():
     cohorte_sel = col1.selectbox("Cohorte", cohorte_vals, index=None, placeholder="Seleccione una Cohorte", key="cohorte_sel")
 
     if not cohorte_sel:
-        col2.multiselect("Semestre", [], disabled=True)
-        col3.multiselect("Asignatura", [], disabled=True)
+        col2.multiselect("Semestre", [], disabled=True, placeholder="Todos")
+        col3.multiselect("Asignatura", [], disabled=True, placeholder="Todas")
         st.info("Seleccione una **Cohorte** para visualizar los datos")
         return
 
@@ -87,7 +87,8 @@ def render():
     semestre_sel = col2.multiselect(
         "Semestre", 
         semestre_opts,
-        format_func=lambda x: f"{x}º Semestre"
+        format_func=lambda x: f"{x}º Semestre",
+        placeholder="Todos",
     )
     
     if semestre_sel:
@@ -95,7 +96,7 @@ def render():
 
     # 3️⃣ ASIGNATURA
     asignatura_vals = sorted(df_filtrado[COL_DISCIPLINA].dropna().unique().tolist())
-    asignatura_sel = col3.multiselect("Asignatura", asignatura_vals)
+    asignatura_sel = col3.multiselect("Asignatura", asignatura_vals, placeholder="Todas")
     
     if asignatura_sel:
         df_filtrado = df_filtrado[df_filtrado[COL_DISCIPLINA].isin(asignatura_sel)]

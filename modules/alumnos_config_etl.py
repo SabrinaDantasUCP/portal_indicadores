@@ -235,7 +235,7 @@ def render_body():
     pensado para ser embebido dentro de una pestaña (ver modules/config_etl.py)."""
     st.markdown(
         "Configure qué años entran en el loop de extracción de matrículas/notas "
-        "(cada año es una consulta separada al MySQL de origen). El cron nocturno "
+        "(cada año es una consulta separada al MySQL de origen). La actualización automática nocturna "
         "(**04:00**) corre automáticamente si está activo. El botón **Ejecutar ahora** "
         "dispara la extracción de inmediato."
     )
@@ -273,6 +273,7 @@ def render_body():
             accept_new_options=True,
             help="Cada año seleccionado dispara una consulta separada al MySQL de origen (matrículas + notas). "
                  "Puede escribir un año que no esté en la lista y presionar Enter para agregarlo.",
+            placeholder="Seleccione o agregue años",
         )
         try:
             anos_seleccionados = _parsear_anos(anos_seleccionados_raw)
@@ -282,9 +283,9 @@ def render_body():
 
         activo_actual = bool(config["activo"])
         nuevo_estado = st.toggle(
-            "Actualización automática (cron diario 04:00)",
+            "Actualización automática (diaria 04:00)",
             value=activo_actual,
-            help="Si está pausada, el cron nocturno no ejecuta el ETL, pero los datos ya generados siguen visibles en el dashboard.",
+            help="Si está pausada, la actualización automática nocturna no ejecuta el ETL, pero los datos ya generados siguen visibles en el panel.",
         )
 
         if st.button("Guardar Configuración", type="primary", icon=":material/save:"):
@@ -311,7 +312,7 @@ def render_body():
             st.warning(
                 f"⚠️ Ya hay una ejecución del ETL de alumnos en curso, disparada por "
                 f"**{lock_estado['disparado_por']}** desde {_formatear_fecha(lock_estado['iniciado_en'])} "
-                "(otra pestaña/sesión, o el cron nocturno). Espere a que termine antes de iniciar otra."
+                "(otra pestaña/sesión, o la actualización automática nocturna). Espere a que termine antes de iniciar otra."
             )
 
         c1, c2 = st.columns([3, 1])

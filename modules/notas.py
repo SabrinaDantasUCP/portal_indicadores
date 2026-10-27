@@ -53,8 +53,8 @@ def render():
     periodo_vals = sorted(df_notas[COL_PERIODO].dropna().unique().tolist())
     subperiodo_vals = sorted(df_notas[COL_SUBPERIODO].dropna().unique().tolist())
 
-    periodo_sel = col1.multiselect("Período", periodo_vals)
-    subperiodo_sel = col2.multiselect("Sub-Período", subperiodo_vals)
+    periodo_sel = col1.multiselect("Período", periodo_vals, placeholder="Todos")
+    subperiodo_sel = col2.multiselect("Sub-Período", subperiodo_vals, placeholder="Todos")
 
     df_temp = df_notas.copy()
     if periodo_sel:
@@ -63,17 +63,17 @@ def render():
         df_temp = df_temp[df_temp[COL_SUBPERIODO].isin(subperiodo_sel)]
 
     asignaturas = sorted(df_temp[COL_ASIGNATURA].dropna().unique().tolist())
-    asignatura_sel = col3.multiselect("Asignatura", asignaturas)
+    asignatura_sel = col3.multiselect("Asignatura", asignaturas, placeholder="Todas")
     if asignatura_sel:
         df_temp = df_temp[df_temp[COL_ASIGNATURA].isin(asignatura_sel)]
 
     profesores = sorted(df_temp[COL_PROFESOR].dropna().unique().tolist())
-    profesor_sel = col4.multiselect("Profesor", profesores)
+    profesor_sel = col4.multiselect("Profesor", profesores, placeholder="Todos")
     if profesor_sel:
         df_temp = df_temp[df_temp[COL_PROFESOR].isin(profesor_sel)]
 
     secciones = sorted(df_temp[COL_SECCION].dropna().unique().tolist())
-    seccion_sel = col5.multiselect("Sección", secciones)
+    seccion_sel = col5.multiselect("Sección", secciones, placeholder="Todas")
     if seccion_sel:
         df_temp = df_temp[df_temp[COL_SECCION].isin(seccion_sel)]
 

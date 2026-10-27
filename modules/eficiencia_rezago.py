@@ -203,7 +203,7 @@ def render():
         c2.download_button("Descargar Datos (Excel)", data=buf_ex.getvalue(), file_name="Datos_RE_Global.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Rezago Educativo - Global", "Excel"))
 
     if vista == 'Detalle por Cohorte':
-        cohorte_sel = st.selectbox("Seleccione una Cohorte", opciones_cohorte(df_re["cohorte"]), index=None)
+        cohorte_sel = st.selectbox("Seleccione una Cohorte", opciones_cohorte(df_re["cohorte"]), index=None, placeholder="Seleccione una cohorte")
         if cohorte_sel:
             row = df_re[df_re["cohorte"] == cohorte_sel].iloc[0]
             

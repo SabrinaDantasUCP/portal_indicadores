@@ -195,7 +195,7 @@ def render():
 
     if vista == 'Detalle por Cohorte':
         coh_list = opciones_cohorte(tme_resumen[COL_COHORTE].unique())
-        sel_coh = st.selectbox("Seleccione una Cohorte", options=coh_list, index=None)
+        sel_coh = st.selectbox("Seleccione una Cohorte", options=coh_list, index=None, placeholder="Seleccione una cohorte")
         
         if sel_coh:
             data_coh = egresados_df[egresados_df[COL_COHORTE] == sel_coh]

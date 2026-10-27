@@ -136,7 +136,7 @@ PERMANENCIA_PAGES = [
 ADMIN_PAGES = [
     {"title": "Gestión de Usuarios", "slug": "admin_usuarios", "module": "admin_usuarios", "icon": "person"},
     {"title": "Gestión de Áreas", "slug": "admin_areas", "module": "admin_areas", "icon": "apartment"},
-    {"title": "Logs y Auditoría", "slug": "admin_logs", "module": "admin_logs", "icon": "history"},
+    {"title": "Registros y Auditoría", "slug": "admin_logs", "module": "admin_logs", "icon": "history"},
 ]
 
 # "Configuración ETL" es un submenú (no una página propia): al hacer click se
