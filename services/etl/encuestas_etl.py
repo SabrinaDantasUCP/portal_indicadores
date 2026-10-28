@@ -242,6 +242,30 @@ FROM Academico.RespuestaUsuario ru WITH (NOLOCK)
 WHERE ru.IdEncuesta = :id_encuesta
 """
 
+QUERY_RESPUESTAS_RANGO = """
+SELECT
+    ru.Id,
+    ru.IdEncuesta,
+    ru.IdPregunta,
+    ru.IdRespuesta,
+    ru.IdUsuario,
+    ru.IdAlumnoExterno,
+    ru.IdDocenteExterno,
+    ru.IdGrupoExterno,
+    ru.IdSeccionExterno,
+    ru.IdAsignaturaExterno,
+    ru.PlanificacionId,
+    ru.IdInscripcion,
+    ru.DocenteNombre,
+    ru.AsignaturaNombre,
+    ru.SeccionNombre,
+    ru.GrupoNombre,
+    ru.CreatedAt
+FROM Academico.RespuestaUsuario ru WITH (NOLOCK)
+WHERE ru.IdEncuesta = :id_encuesta
+  AND ru.Id >= :min_id AND ru.Id < :max_id
+"""
+
 # ru.IdAlumnoExterno vem NULO na maioria dos casos. O ID externo real do
 # aluno (o mesmo "system_id" da bio) é obtido via:
 #   RespuestaUsuario.IdUsuario = Sistema.Usuario.Id
@@ -415,10 +439,47 @@ def fetch_respuestas(id_encuesta: int) -> pd.DataFrame:
     log.info("Buscando respuestas (Academico) para IdEncuesta=%s", id_encuesta)
     engine = get_mssql_engine()
     with engine.connect() as conn:
-        df = pd.read_sql(
-            text(QUERY_RESPUESTAS), conn, params={"id_encuesta": id_encuesta}
+        # Obtenemos el rango de IDs para descargar en bloques si supera el umbral
+        q_rango = text(
+            "SELECT MIN(Id), MAX(Id) FROM Academico.RespuestaUsuario WITH (NOLOCK) WHERE IdEncuesta = :id_encuesta"
         )
-    log.info("Respuestas: %s linhas", len(df))
+        min_id, max_id = conn.execute(q_rango, {"id_encuesta": id_encuesta}).fetchone()
+
+        if min_id is None or max_id is None:
+            log.info("No se encontraron respuestas para IdEncuesta=%s", id_encuesta)
+            return pd.DataFrame()
+
+        paso = 100000
+        # Si el rango es pequeño, se descarga directamente en una sola petición
+        if max_id - min_id < paso:
+            df = pd.read_sql(
+                text(QUERY_RESPUESTAS), conn, params={"id_encuesta": id_encuesta}
+            )
+            log.info("Respuestas: %s linhas (descarga directa)", len(df))
+            return df
+
+        # Descarga por bloques para evitar saturación y timeouts en el túnel VPN
+        chunks = []
+        log.info(
+            "Descargando respuestas masivas en bloques de %s IDs (rango %s a %s)...",
+            paso, min_id, max_id,
+        )
+        for start_id in range(min_id, max_id + paso, paso):
+            end_id = start_id + paso
+            df_chunk = pd.read_sql(
+                text(QUERY_RESPUESTAS_RANGO),
+                conn,
+                params={"id_encuesta": id_encuesta, "min_id": start_id, "max_id": end_id},
+            )
+            if not df_chunk.empty:
+                chunks.append(df_chunk)
+
+        if not chunks:
+            return pd.DataFrame()
+
+        df = pd.concat(chunks, ignore_index=True)
+
+    log.info("Respuestas consolidadas: %s linhas", len(df))
     return df
 
 
