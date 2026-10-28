@@ -29,6 +29,7 @@ import pandas as pd
 
 from services.etl import encuestas_etl as etl
 from services.etl.activos_ids import cargar_ids_activos, cargar_pares_activos
+from services.etl.retencion_output import aplicar_retencion_output
 from scripts.csv_to_parquet import BASE_DIR, convert as convertir_a_parquet
 from utils.system_logging import get_logger
 
@@ -176,6 +177,13 @@ def ejecutar_config(config: dict) -> dict:
             )
         else:
             raise ValueError(f"tipo_encuesta desconocido: {tipo!r}")
+
+        # Política de retención segura de snapshots en output/ (7 días, mínimo 2 versiones)
+        # Se ejecuta SI y SOLO SI la generación actual fue exitosa
+        try:
+            aplicar_retencion_output(directorio_output=RAW_OUTPUT_DIR, dias_retencion=7, min_versiones=2)
+        except Exception as err_retencion:
+            log.warning("No se pudo completar la retención automática en output/: %s", err_retencion)
 
         return {"status": "OK", "filas": filas, "mensaje_error": None}
     except Exception as exc:

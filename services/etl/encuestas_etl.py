@@ -238,7 +238,7 @@ SELECT
     ru.SeccionNombre,
     ru.GrupoNombre,
     ru.CreatedAt
-FROM Academico.RespuestaUsuario ru
+FROM Academico.RespuestaUsuario ru WITH (NOLOCK)
 WHERE ru.IdEncuesta = :id_encuesta
 """
 
@@ -268,13 +268,13 @@ SELECT DISTINCT
         ELSE NULL
     END AS id_syseduca,
     LTRIM(RTRIM(CONCAT(ISNULL(us.nombre_alumno, ''), ' ', ISNULL(us.apellidos_alumno, '')))) AS AlumnoNombre
-FROM Sistema.Usuario s
-JOIN dbo.Contacto c ON c.IdUser = s.Id
-LEFT JOIN dbo.PeriodoLectivoSyseduca pl
+FROM Sistema.Usuario s WITH (NOLOCK)
+JOIN dbo.Contacto c WITH (NOLOCK) ON c.IdUser = s.Id
+LEFT JOIN dbo.PeriodoLectivoSyseduca pl WITH (NOLOCK)
     ON pl.id_syseduca = c.IdExternoUsuario
    AND pl.periodo = :anho
    AND pl.subperiodo = :subperiodo
-LEFT JOIN dbo.UsuariosSyseduca us
+LEFT JOIN dbo.UsuariosSyseduca us WITH (NOLOCK)
     ON us.id_syseduca = c.IdExternoUsuario
 WHERE s.DeletedAt IS NULL
   AND c.DeletedAt IS NULL
@@ -298,12 +298,12 @@ SELECT
     s.Nombre AS Sede,
     (
         SELECT STRING_AGG(sem.Nombre, ', ') WITHIN GROUP (ORDER BY sem.id)
-        FROM [Academico].[EncuestaSemestres] es
-        JOIN [Parametrizacion].[Semestre] sem ON sem.id = es.IdSemestre
+        FROM [Academico].[EncuestaSemestres] es WITH (NOLOCK)
+        JOIN [Parametrizacion].[Semestre] sem WITH (NOLOCK) ON sem.id = es.IdSemestre
         WHERE es.IdEncuesta = e.Id
     ) AS SemestresHabilitados
-FROM [Academico].[Encuesta] e
-LEFT JOIN [Parametrizacion].[Sede] s
+FROM [Academico].[Encuesta] e WITH (NOLOCK)
+LEFT JOIN [Parametrizacion].[Sede] s WITH (NOLOCK)
     ON s.Id = e.IdSede AND s.DeletedAt IS NULL
 WHERE e.Id = :id_encuesta AND e.DeletedAt IS NULL
 """
@@ -326,10 +326,10 @@ SELECT
     ind.Nombre                        AS indicador,
     ep.IdDimensionEvaluacionDocente   AS id_dimension,
     dim.Nombre                        AS dimension
-FROM [Academico].[EncuestaPregunta] ep
-LEFT JOIN [Parametrizacion].[IndicadoresDesempenoDocente] ind
+FROM [Academico].[EncuestaPregunta] ep WITH (NOLOCK)
+LEFT JOIN [Parametrizacion].[IndicadoresDesempenoDocente] ind WITH (NOLOCK)
     ON ind.Id = ep.IdIndicadoresDesempenoDocente AND ind.DeletedAt IS NULL
-LEFT JOIN [Parametrizacion].[DimensionEvaluacionDocente] dim
+LEFT JOIN [Parametrizacion].[DimensionEvaluacionDocente] dim WITH (NOLOCK)
     ON dim.Id = ep.IdDimensionEvaluacionDocente AND dim.DeletedAt IS NULL
 WHERE ep.IdEncuesta = :id_encuesta AND ep.DeletedAt IS NULL
 """
@@ -347,8 +347,8 @@ SELECT
     tre.Id      AS id_respuesta,
     tre.Nombre  AS respuesta,
     tre.Puntaje AS puntaje
-FROM [Academico].[EncuestaRespuesta] er
-JOIN [Parametrizacion].[TipoRespuestaEncuesta] tre
+FROM [Academico].[EncuestaRespuesta] er WITH (NOLOCK)
+JOIN [Parametrizacion].[TipoRespuestaEncuesta] tre WITH (NOLOCK)
     ON tre.Id = er.IdTipoRespuestaEncuesta AND tre.DeletedAt IS NULL
 WHERE er.IdEncuesta = :id_encuesta
 """
@@ -374,8 +374,8 @@ SELECT
     rau.IdInscripcion,
     rau.Respuesta,
     rau.CreatedAt
-FROM [Academico].[RespuestaAbiertaUsuario] rau
-LEFT JOIN [Academico].[PreguntaAbiertaEncuesta] pae
+FROM [Academico].[RespuestaAbiertaUsuario] rau WITH (NOLOCK)
+LEFT JOIN [Academico].[PreguntaAbiertaEncuesta] pae WITH (NOLOCK)
     ON pae.Id = rau.IdPreguntaAbierta AND pae.DeletedAt IS NULL
 WHERE rau.IdEncuesta = :id_encuesta
   AND rau.DeletedAt IS NULL
@@ -392,7 +392,12 @@ def get_pg_engine():
 
 
 def get_mssql_engine():
-    return create_engine(CONFIG["MSSQL_CONN_STRING"])
+    # Timeout de conexión y validación de socket activo (pool_pre_ping)
+    return create_engine(
+        CONFIG["MSSQL_CONN_STRING"],
+        connect_args={"timeout": 60},
+        pool_pre_ping=True,
+    )
 
 
 def fetch_planificacion(anho: int, semestre: int) -> pd.DataFrame:
