@@ -286,20 +286,21 @@ def _generate_excel_bytes(period_summary, matriz, alumnos_list):
 @st.cache_data(show_spinner="Generando Excel detallado de alumnos...")
 def _generar_excel_listado_alumnos(alumnos_list, df_completo, busqueda=None):
     """Genera un archivo Excel altamente estético con el listado detallado de alumnos,
-    sus asignaturas, secciones y calificaciones (1 a 100 y 1 a 5).
+    sus asignaturas regulares, secciones y calificaciones (1 a 100 y 1 a 5).
 
     Cumple con los requisitos de diseño institucional:
-    - Encabezado con título del reporte, metadatos y fecha/hora de generación.
+    - Encabezado con título del reporte y fecha/hora de generación integrada en subtítulo.
     - Encabezados fijos de tabla con colores institucionales (freeze panes).
     - Filtros automáticos en los encabezados (autofilter).
     - Color cebra en filas alternadas y bordes sutiles.
     - Columnas autoajustables al ancho del contenido.
-    - Campos reales del dataset sin inventar datos: Matrícula, Documento (si existe),
+    - Campos reales del dataset sin inventar datos: Matrícula, Documento (doc_oficial de SysEduca),
       Nombre Completo, Estado de Matrícula, Periodo, Semestre, Sede, Materia, Sección, Nota 1-100 y Nota 1-5.
+    - Filtra exclusivamente materias regulares auténticas (tipo_disciplina == 'Regular') cursadas
+      en el último periodo lectivo con asignaturas regulares del estudiante, evitando registros vacíos
+      o extracurriculares con escalas no estándar.
     """
     df_raw = df_completo.copy()
-    periodo_anual_num = pd.to_numeric(df_raw["periodo_anual_periodo_letivo"], errors="coerce").fillna(0).astype(int)
-    df_raw["Periodo"] = df_raw["ano_periodo_letivo"].astype(str) + "." + periodo_anual_num.astype(str)
 
     # Identificar columna de documento si estuviera disponible en el dataset
     col_doc = None
@@ -308,9 +309,53 @@ def _generar_excel_listado_alumnos(alumnos_list, df_completo, busqueda=None):
             col_doc = col_candidata
             break
 
+    # Mapeo oficial de documentos (doc_oficial de SysEduca)
+    mapa_docs = load_alumnos_documentos()
+
+    # Identificar el conjunto de alumnos a exportar
+    uids = set(alumnos_list["usuarios_id"].dropna().unique())
+
+    # Filtrar exclusivamente asignaturas regulares válidas
+    df_reg = df_raw[
+        (df_raw["usuarios_id"].isin(uids))
+        & (df_raw["tipo_disciplina"] == "Regular")
+        & (df_raw["disciplina"].notna())
+        & (df_raw["disciplina"].astype(str).str.strip() != "")
+    ].copy()
+
+    # Último periodo lectivo regular efectivamente cursado por cada alumno
+    ultimos_periodos = (
+        df_reg.sort_values(["usuarios_id", "ano_periodo_letivo", "periodo_anual_periodo_letivo", "semestre_alumno"])
+        .groupby("usuarios_id")
+        .last()
+        .reset_index()[["usuarios_id", "ano_periodo_letivo", "periodo_anual_periodo_letivo"]]
+    )
+
+    materias_ultimas = df_reg.merge(
+        ultimos_periodos,
+        on=["usuarios_id", "ano_periodo_letivo", "periodo_anual_periodo_letivo"],
+        how="inner",
+    )
+
+    pan_reg = pd.to_numeric(materias_ultimas["periodo_anual_periodo_letivo"], errors="coerce").fillna(0).astype(int)
+    ano_reg = pd.to_numeric(materias_ultimas["ano_periodo_letivo"], errors="coerce").fillna(0).astype(int)
+    materias_ultimas["Periodo_Reg"] = ano_reg.astype(str) + "." + pan_reg.astype(str)
+    sem_reg = pd.to_numeric(materias_ultimas["semestre_alumno"], errors="coerce").fillna(0).astype(int)
+    materias_ultimas["Semestre_Reg"] = sem_reg.apply(lambda s: f"{s}º" if s > 0 else "")
+
+    # Información complementaria para alumnos sin asignaturas regulares
+    info_alumnos_aux = (
+        df_raw[df_raw["usuarios_id"].isin(uids)]
+        .sort_values(["usuarios_id", "ano_periodo_letivo", "periodo_anual_periodo_letivo"])
+        .groupby("usuarios_id")
+        .last()
+        .reset_index()[["usuarios_id", "filial_periodo_letivo", "nombre_status_actual"]]
+    )
+
     cols_materias = [
         "usuarios_id",
-        "Periodo",
+        "Periodo_Reg",
+        "Semestre_Reg",
         "filial_periodo_letivo",
         "disciplina",
         "turma",
@@ -318,22 +363,19 @@ def _generar_excel_listado_alumnos(alumnos_list, df_completo, busqueda=None):
         "calificacion_final_1a5",
         "nombre_status_actual",
     ]
-    if col_doc:
+    if col_doc and col_doc in materias_ultimas.columns:
         cols_materias.append(col_doc)
 
-    materias_df = df_raw[cols_materias].copy()
-
-    # Mapeo oficial de documentos (doc_oficial de SysEduca)
-    mapa_docs = load_alumnos_documentos()
-
-    # Cruce de alumnos con sus asignaturas del periodo
-    detalle = alumnos_list.merge(materias_df, on=["usuarios_id", "Periodo"], how="left")
+    detalle = alumnos_list.merge(materias_ultimas[cols_materias], on="usuarios_id", how="left")
+    detalle = detalle.merge(info_alumnos_aux, on="usuarios_id", how="left", suffixes=("", "_aux"))
 
     filas_datos = []
     for _, fila in detalle.iterrows():
         # Matrícula
         matr = fila.get("Número de Matrícula")
-        matr_val = int(matr) if pd.notna(matr) and str(matr).strip().isdigit() else (str(matr) if pd.notna(matr) else "")
+        matr_val = str(matr).strip() if pd.notna(matr) else ""
+        if matr_val.endswith(".0"):
+            matr_val = matr_val[:-2]
 
         # Documento oficial del alumno (doc_oficial en SysEduca)
         uid_val = fila.get("usuarios_id")
@@ -351,48 +393,53 @@ def _generar_excel_listado_alumnos(alumnos_list, df_completo, busqueda=None):
 
         # Estado de matrícula
         status_val = str(fila.get("nombre_status_actual", "")).strip()
-        if pd.isna(fila.get("nombre_status_actual")) or status_val.lower() == "nan" or not status_val:
+        if not status_val or status_val.lower() == "nan" or pd.isna(fila.get("nombre_status_actual")):
+            status_val = str(fila.get("nombre_status_actual_aux", "")).strip()
+        if not status_val or status_val.lower() == "nan":
             status_val = "–"
 
         # Periodo
-        periodo_val = str(fila.get("Periodo", "")).strip()
+        periodo_val = str(fila.get("Periodo_Reg", "")).strip()
+        if not periodo_val or periodo_val.lower() == "nan" or pd.isna(fila.get("Periodo_Reg")):
+            periodo_val = str(fila.get("Periodo", "")).strip()
 
         # Semestre
-        semestre_val = fila.get("Semestre")
-        sem_str = f"{int(semestre_val)}º" if pd.notna(semestre_val) and str(semestre_val).strip().isdigit() else ""
+        sem_str = str(fila.get("Semestre_Reg", "")).strip()
+        if not sem_str or sem_str.lower() == "nan" or pd.isna(fila.get("Semestre_Reg")):
+            sem_val = fila.get("Semestre")
+            sem_str = f"{int(sem_val)}º" if pd.notna(sem_val) and str(sem_val).strip().isdigit() else ""
 
         # Sede
         sede_val = str(fila.get("filial_periodo_letivo", "")).strip()
-        if pd.isna(fila.get("filial_periodo_letivo")) or sede_val.lower() == "nan":
+        if not sede_val or sede_val.lower() == "nan" or pd.isna(fila.get("filial_periodo_letivo")):
+            sede_val = str(fila.get("filial_periodo_letivo_aux", "")).strip()
+        if not sede_val or sede_val.lower() == "nan":
             sede_val = ""
 
         # Materia
         materia_val = str(fila.get("disciplina", "")).strip()
-        if pd.isna(fila.get("disciplina")) or materia_val.lower() == "nan":
+        if not materia_val or materia_val.lower() == "nan" or pd.isna(fila.get("disciplina")):
             materia_val = "–"
 
         # Sección
         seccion_val = str(fila.get("turma", "")).strip()
-        if pd.isna(fila.get("turma")) or seccion_val.lower() == "nan":
+        if not seccion_val or seccion_val.lower() == "nan" or pd.isna(fila.get("turma")):
             seccion_val = "–"
 
         # Nota 1 a 100 (si es que hay; si no, vacío o guion)
         nota_100 = fila.get("calificacion_final")
         nota_100_val = None
-        if pd.notna(nota_100) and nota_100 != "":
+        if pd.notna(nota_100) and nota_100 != "" and materia_val != "–":
             try:
                 num_100 = float(nota_100)
-                if materia_val == "–" and num_100 == 0:
-                    nota_100_val = None
-                else:
-                    nota_100_val = int(num_100) if num_100.is_integer() else round(num_100, 1)
+                nota_100_val = int(num_100) if num_100.is_integer() else round(num_100, 1)
             except (ValueError, TypeError):
                 nota_100_val = str(nota_100)
 
         # Nota 1 a 5 (escala de calificación)
         nota_1_5 = fila.get("calificacion_final_1a5")
-        nota_1_5_val = None
-        if pd.notna(nota_1_5) and nota_1_5 != "":
+        nota_1_5_val = "–"
+        if pd.notna(nota_1_5) and nota_1_5 != "" and materia_val != "–":
             try:
                 num_5 = int(float(nota_1_5))
                 nota_1_5_val = num_5 if num_5 > 0 else "–"

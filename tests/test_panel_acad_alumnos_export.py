@@ -2,7 +2,8 @@
 """
 tests/test_panel_acad_alumnos_export.py
 
-Pruebas unitarias para la exportación estética del Listado de Alumnos
+Pruebas unitarias para la exportación estética del Listado de Alumnos,
+filtrado estricto de asignaturas regulares (omisión de extracurriculares y sin disciplina)
 y no regresión de la exportación por Periodo y Semestre.
 """
 import io
@@ -46,14 +47,17 @@ class TestExportacionAlumnos(unittest.TestCase):
             },
         ])
 
-        # DataFrame completo con asignaturas y calificaciones reales
+        # DataFrame completo con asignaturas regulares, extracurriculares y sin disciplina
         self.df_completo = pd.DataFrame([
+            # Juan Perez: 2 materias regulares, 1 extracurricular, 1 sin disciplina en periodo posterior
             {
                 "usuarios_id": 101,
                 "ano_periodo_letivo": 2024,
                 "periodo_anual_periodo_letivo": 1,
+                "semestre_alumno": 1,
                 "filial_periodo_letivo": "CDE",
                 "disciplina": "Anatomía I",
+                "tipo_disciplina": "Regular",
                 "turma": "A",
                 "calificacion_final": 85.0,
                 "calificacion_final_1a5": 4,
@@ -63,19 +67,50 @@ class TestExportacionAlumnos(unittest.TestCase):
                 "usuarios_id": 101,
                 "ano_periodo_letivo": 2024,
                 "periodo_anual_periodo_letivo": 1,
+                "semestre_alumno": 1,
                 "filial_periodo_letivo": "CDE",
                 "disciplina": "Biología",
+                "tipo_disciplina": "Regular",
                 "turma": "B",
                 "calificacion_final": 92.0,
                 "calificacion_final_1a5": 5,
                 "nombre_status_actual": "Activo",
             },
             {
+                "usuarios_id": 101,
+                "ano_periodo_letivo": 2024,
+                "periodo_anual_periodo_letivo": 1,
+                "semestre_alumno": 1,
+                "filial_periodo_letivo": "CDE",
+                "disciplina": "Guaraní con énfasis",
+                "tipo_disciplina": "Extracurricular",
+                "turma": "A",
+                "calificacion_final": 20.0,
+                "calificacion_final_1a5": 0,
+                "nombre_status_actual": "Activo",
+            },
+            {
+                "usuarios_id": 101,
+                "ano_periodo_letivo": 2024,
+                "periodo_anual_periodo_letivo": 2,
+                "semestre_alumno": 2,
+                "filial_periodo_letivo": "CDE",
+                "disciplina": None,
+                "tipo_disciplina": "Sin Disciplina",
+                "turma": None,
+                "calificacion_final": 0.0,
+                "calificacion_final_1a5": 0,
+                "nombre_status_actual": "Activo",
+            },
+            # Maria Gomez: 1 materia regular
+            {
                 "usuarios_id": 102,
                 "ano_periodo_letivo": 2024,
                 "periodo_anual_periodo_letivo": 1,
+                "semestre_alumno": 2,
                 "filial_periodo_letivo": "CDE III",
                 "disciplina": "Histología",
+                "tipo_disciplina": "Regular",
                 "turma": "A",
                 "calificacion_final": 55.0,
                 "calificacion_final_1a5": 1,
@@ -96,13 +131,22 @@ class TestExportacionAlumnos(unittest.TestCase):
         self.assertIn("Listado", hojas)
 
     def test_generacion_excel_listado_detallado(self):
-        """Valida que el Excel del listado de alumnos tenga las 10 columnas y el formato correcto."""
+        """Valida que el Excel del listado de alumnos tenga las 11 columnas y el formato correcto."""
         bytes_excel = _generar_excel_listado_alumnos(self.alumnos_list, self.df_completo, busqueda=None)
         self.assertIsInstance(bytes_excel, bytes)
         self.assertGreater(len(bytes_excel), 1000)
 
-        # Leer a partir de la fila 6 (encabezados de la tabla)
-        df_leido = pd.read_excel(io.BytesIO(bytes_excel), skiprows=3, dtype={"Periodo": str, "Documento": str, "Estado de Matrícula": str, "Semestre": str, "Sección": str})
+        # Leer el título y subtítulo en filas 0 y 1
+        excel_completo = pd.read_excel(io.BytesIO(bytes_excel), header=None)
+        self.assertEqual(excel_completo.iloc[0, 0], "REPORTE DETALLADO - LISTADO DE ALUMNOS")
+        self.assertIn("Portal de Indicadores Académicos · Sistema de Gestión Institucional", str(excel_completo.iloc[1, 0]))
+
+        # Leer a partir de la fila 3 (encabezados de la tabla)
+        df_leido = pd.read_excel(
+            io.BytesIO(bytes_excel),
+            skiprows=3,
+            dtype={"Matrícula": str, "Periodo": str, "Documento": str, "Estado de Matrícula": str, "Semestre": str, "Sección": str}
+        )
         columnas_esperadas = [
             "Matrícula",
             "Documento",
@@ -117,11 +161,12 @@ class TestExportacionAlumnos(unittest.TestCase):
             "Nota (1 a 5)",
         ]
         self.assertEqual(list(df_leido.columns), columnas_esperadas)
+        # Solo deben salir 3 filas regulares (2 de Juan y 1 de María). Extracurriculares y Sin Disciplina deben ser omitidas.
         self.assertEqual(len(df_leido), 3)
 
         # Verificar contenido de la primera fila
         primera_fila = df_leido.iloc[0]
-        self.assertEqual(primera_fila["Matrícula"], 12345)
+        self.assertEqual(primera_fila["Matrícula"], "12345")
         self.assertEqual(primera_fila["Nombre Completo"], "Juan Perez")
         self.assertEqual(primera_fila["Estado de Matrícula"], "Activo")
         self.assertEqual(primera_fila["Periodo"], "2024.1")
@@ -135,7 +180,11 @@ class TestExportacionAlumnos(unittest.TestCase):
         """Valida que si se filtra por un estudiante, el reporte solo contenga a dicho estudiante."""
         filtro = self.alumnos_list[self.alumnos_list["Nombre y Apellido"] == "Maria Gomez"].reset_index(drop=True)
         bytes_excel = _generar_excel_listado_alumnos(filtro, self.df_completo, busqueda="Maria")
-        df_leido = pd.read_excel(io.BytesIO(bytes_excel), skiprows=3, dtype={"Periodo": str, "Documento": str, "Estado de Matrícula": str, "Semestre": str, "Sección": str})
+        df_leido = pd.read_excel(
+            io.BytesIO(bytes_excel),
+            skiprows=3,
+            dtype={"Matrícula": str, "Periodo": str, "Documento": str, "Estado de Matrícula": str, "Semestre": str, "Sección": str}
+        )
 
         self.assertEqual(len(df_leido), 1)
         self.assertEqual(df_leido.iloc[0]["Nombre Completo"], "Maria Gomez")
@@ -143,7 +192,6 @@ class TestExportacionAlumnos(unittest.TestCase):
         self.assertEqual(df_leido.iloc[0]["Materia"], "Histología")
         self.assertEqual(df_leido.iloc[0]["Nota (1 a 100)"], 55)
         self.assertEqual(df_leido.iloc[0]["Nota (1 a 5)"], 1)
-
 
     def test_cruce_doc_oficial_real(self):
         """Valida que el archivo de documentos oficiales exista y contenga registros."""
