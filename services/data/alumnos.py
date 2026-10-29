@@ -4,7 +4,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 import streamlit as st
 
-from utils.data_loader import get_data_path
+from utils.data_loader import get_data_path, get_global_data_path
 from utils.system_logging import log_exception
 
 
@@ -94,3 +94,33 @@ def count_current_alumnos_analyzed(only_cde=True):
     if "usuarios_id" in df.columns:
         return int(df["usuarios_id"].nunique())
     return int(len(df))
+
+
+@st.cache_data(ttl=86400)
+def load_alumnos_documentos():
+    """Carga el diccionario {usuarios_id: doc_oficial} directamente del parquet local institucional.
+    Si el archivo no existe, lo genera consultando a SysEduca MySQL y lo guarda localmente."""
+    try:
+        path = get_global_data_path("alumnos_documentos")
+        if os.path.exists(path):
+            df_docs = pd.read_parquet(path)
+            return dict(zip(df_docs["usuarios_id"].astype(int), df_docs["doc_oficial"].astype(str).str.strip()))
+
+        # Fallback de autogeneración desde SysEduca MySQL si no existe en disco
+        from services.etl.alumnos_etl import obtener_conexion
+        conn = obtener_conexion()
+        if conn:
+            cur = conn.cursor(dictionary=True)
+            cur.execute("SELECT id AS usuarios_id, doc_oficial FROM ucp.usuarios WHERE doc_oficial IS NOT NULL AND TRIM(doc_oficial) != ''")
+            rows = cur.fetchall()
+            conn.close()
+            if rows:
+                df_docs = pd.DataFrame(rows)
+                df_docs["usuarios_id"] = df_docs["usuarios_id"].astype(int)
+                df_docs["doc_oficial"] = df_docs["doc_oficial"].astype(str).str.strip()
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                df_docs.to_parquet(path, index=False)
+                return dict(zip(df_docs["usuarios_id"], df_docs["doc_oficial"]))
+    except Exception as exc:
+        log_exception("No se pudo cargar o generar alumnos_documentos.parquet", exc)
+    return {}

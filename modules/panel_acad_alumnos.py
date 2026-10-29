@@ -8,7 +8,7 @@ import streamlit as st
 import xlsxwriter
 
 import modules.rend_acad_alumno as raa
-from services.data.alumnos import load_current_alumnos
+from services.data.alumnos import load_current_alumnos, load_alumnos_documentos
 from utils import db_pia
 from utils.ui import (
     COLOR_BUENO,
@@ -323,6 +323,9 @@ def _generar_excel_listado_alumnos(alumnos_list, df_completo, busqueda=None):
 
     materias_df = df_raw[cols_materias].copy()
 
+    # Mapeo oficial de documentos (doc_oficial de SysEduca)
+    mapa_docs = load_alumnos_documentos()
+
     # Cruce de alumnos con sus asignaturas del periodo
     detalle = alumnos_list.merge(materias_df, on=["usuarios_id", "Periodo"], how="left")
 
@@ -332,9 +335,15 @@ def _generar_excel_listado_alumnos(alumnos_list, df_completo, busqueda=None):
         matr = fila.get("Número de Matrícula")
         matr_val = int(matr) if pd.notna(matr) and str(matr).strip().isdigit() else (str(matr) if pd.notna(matr) else "")
 
-        # Documento (si existe en la fuente de datos; si no, queda vacío sin inventar datos)
+        # Documento oficial del alumno (doc_oficial en SysEduca)
+        uid_val = fila.get("usuarios_id")
         doc_val = ""
-        if col_doc and pd.notna(fila.get(col_doc)):
+        if pd.notna(uid_val):
+            try:
+                doc_val = str(mapa_docs.get(int(uid_val), "")).strip()
+            except (ValueError, TypeError):
+                doc_val = ""
+        if not doc_val and col_doc and pd.notna(fila.get(col_doc)):
             doc_val = str(fila[col_doc]).strip()
 
         # Nombre completo
@@ -495,28 +504,17 @@ def _generar_excel_listado_alumnos(alumnos_list, df_completo, busqueda=None):
         "par_der": crear_formato_celda(COLOR_CEBRA, align="right"),
     }
 
-    # Encabezado institucional superior
+    # Encabezado institucional superior con fecha integrada
     worksheet.write(0, 0, "REPORTE DETALLADO - LISTADO DE ALUMNOS", fmt_titulo)
     worksheet.set_row(0, 24)
-    worksheet.write(1, 0, "Portal de Indicadores Académicos · Sistema de Gestión Institucional", fmt_subtitulo)
-    worksheet.set_row(1, 18)
 
     ahora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    worksheet.write(3, 0, "Fecha y hora de generación:", fmt_meta_label)
-    worksheet.write(3, 1, ahora, fmt_meta_val)
+    subtitulo_con_fecha = f"Portal de Indicadores Académicos · Sistema de Gestión Institucional - Fecha y hora de generación: {ahora}"
+    worksheet.write(1, 0, subtitulo_con_fecha, fmt_subtitulo)
+    worksheet.set_row(1, 18)
+    worksheet.set_row(2, 10)
 
-    filtro_txt = f'"{busqueda}"' if busqueda else "Todos los alumnos (sin filtro)"
-    worksheet.write(3, 3, "Filtro de búsqueda:", fmt_meta_label)
-    worksheet.write(3, 4, filtro_txt, fmt_meta_val)
-
-    total_estudiantes = len(alumnos_list)
-    total_registros = len(filas_datos)
-    worksheet.write(4, 0, "Estudiantes únicos:", fmt_meta_label)
-    worksheet.write(4, 1, f"{total_estudiantes:,}".replace(",", "."), fmt_meta_val)
-    worksheet.write(4, 3, "Total filas de asignaturas:", fmt_meta_label)
-    worksheet.write(4, 4, f"{total_registros:,}".replace(",", "."), fmt_meta_val)
-
-    fila_inicio_tabla = 6
+    fila_inicio_tabla = 3
     worksheet.set_row(fila_inicio_tabla, 26)
 
     # Encabezados de tabla

@@ -102,7 +102,7 @@ class TestExportacionAlumnos(unittest.TestCase):
         self.assertGreater(len(bytes_excel), 1000)
 
         # Leer a partir de la fila 6 (encabezados de la tabla)
-        df_leido = pd.read_excel(io.BytesIO(bytes_excel), skiprows=6, dtype={"Periodo": str, "Documento": str, "Estado de Matrícula": str, "Semestre": str, "Sección": str})
+        df_leido = pd.read_excel(io.BytesIO(bytes_excel), skiprows=3, dtype={"Periodo": str, "Documento": str, "Estado de Matrícula": str, "Semestre": str, "Sección": str})
         columnas_esperadas = [
             "Matrícula",
             "Documento",
@@ -135,7 +135,7 @@ class TestExportacionAlumnos(unittest.TestCase):
         """Valida que si se filtra por un estudiante, el reporte solo contenga a dicho estudiante."""
         filtro = self.alumnos_list[self.alumnos_list["Nombre y Apellido"] == "Maria Gomez"].reset_index(drop=True)
         bytes_excel = _generar_excel_listado_alumnos(filtro, self.df_completo, busqueda="Maria")
-        df_leido = pd.read_excel(io.BytesIO(bytes_excel), skiprows=6, dtype={"Periodo": str, "Documento": str, "Estado de Matrícula": str, "Semestre": str, "Sección": str})
+        df_leido = pd.read_excel(io.BytesIO(bytes_excel), skiprows=3, dtype={"Periodo": str, "Documento": str, "Estado de Matrícula": str, "Semestre": str, "Sección": str})
 
         self.assertEqual(len(df_leido), 1)
         self.assertEqual(df_leido.iloc[0]["Nombre Completo"], "Maria Gomez")
@@ -143,6 +143,16 @@ class TestExportacionAlumnos(unittest.TestCase):
         self.assertEqual(df_leido.iloc[0]["Materia"], "Histología")
         self.assertEqual(df_leido.iloc[0]["Nota (1 a 100)"], 55)
         self.assertEqual(df_leido.iloc[0]["Nota (1 a 5)"], 1)
+
+
+    def test_cruce_doc_oficial_real(self):
+        """Valida que el archivo de documentos oficiales exista y contenga registros."""
+        from services.data.alumnos import load_alumnos_documentos
+        docs = load_alumnos_documentos()
+        self.assertIsInstance(docs, dict)
+        self.assertGreater(len(docs), 1000)
+        # ID 1 debe tener documento oficial 43525
+        self.assertEqual(docs.get(1), "43525")
 
 
 if __name__ == "__main__":

@@ -17,5 +17,6 @@ DATASETS = {
         "permanencia_20261_vision_general": "assets/data/global/permanencia_20261.parquet",
         "permanencia_20261_fecha_corte": "assets/data/global/permanencia_20261_corte.parquet",
         "encuestas_docente_autoeval_20261": "assets/data/global/avance_encuestas_docente_autoeval_20261.parquet",
+        "alumnos_documentos": "assets/data/global/alumnos_documentos.parquet",
     },
 }
