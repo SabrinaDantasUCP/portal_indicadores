@@ -3,8 +3,8 @@
 tests/test_panel_acad_alumnos_export.py
 
 Pruebas unitarias para la exportación estética del Listado de Alumnos,
-filtrado estricto de asignaturas regulares (omisión de extracurriculares y sin disciplina)
-y no regresión de la exportación por Periodo y Semestre.
+filtrado estricto de asignaturas regulares (omisión de extracurriculares y sin disciplina),
+tope estricto de notas a 100 puntos en escala 1-100, y no regresión de la exportación por Periodo y Semestre.
 """
 import io
 import unittest
@@ -45,9 +45,16 @@ class TestExportacionAlumnos(unittest.TestCase):
                 "Periodo": "2024.1",
                 "Semestre": 2,
             },
+            {
+                "usuarios_id": 103,
+                "Número de Matrícula": 99999,
+                "Nombre y Apellido": "Pedro SinMaterias",
+                "Periodo": "2024.1",
+                "Semestre": 1,
+            },
         ])
 
-        # DataFrame completo con asignaturas regulares, extracurriculares y sin disciplina
+        # DataFrame completo con asignaturas regulares, notas > 100, extracurriculares y sin disciplina
         self.df_completo = pd.DataFrame([
             # Juan Perez: 2 materias regulares, 1 extracurricular, 1 sin disciplina en periodo posterior
             {
@@ -102,7 +109,7 @@ class TestExportacionAlumnos(unittest.TestCase):
                 "calificacion_final_1a5": 0,
                 "nombre_status_actual": "Activo",
             },
-            # Maria Gomez: 1 materia regular
+            # Maria Gomez: 1 materia regular con nota acumulada de 115 puntos (debe toparse a 100)
             {
                 "usuarios_id": 102,
                 "ano_periodo_letivo": 2024,
@@ -112,8 +119,22 @@ class TestExportacionAlumnos(unittest.TestCase):
                 "disciplina": "Histología",
                 "tipo_disciplina": "Regular",
                 "turma": "A",
-                "calificacion_final": 55.0,
-                "calificacion_final_1a5": 1,
+                "calificacion_final": 115.0,
+                "calificacion_final_1a5": 5,
+                "nombre_status_actual": "Trancado",
+            },
+            # Pedro SinMaterias: solo inscripción sin disciplina
+            {
+                "usuarios_id": 103,
+                "ano_periodo_letivo": 2024,
+                "periodo_anual_periodo_letivo": 1,
+                "semestre_alumno": 1,
+                "filial_periodo_letivo": "CDE",
+                "disciplina": None,
+                "tipo_disciplina": "Sin Disciplina",
+                "turma": None,
+                "calificacion_final": 0.0,
+                "calificacion_final_1a5": 0,
                 "nombre_status_actual": "Trancado",
             },
         ])
@@ -161,10 +182,10 @@ class TestExportacionAlumnos(unittest.TestCase):
             "Nota (1 a 5)",
         ]
         self.assertEqual(list(df_leido.columns), columnas_esperadas)
-        # Solo deben salir 3 filas regulares (2 de Juan y 1 de María). Extracurriculares y Sin Disciplina deben ser omitidas.
+        # Solo deben salir 3 filas regulares (2 de Juan y 1 de María). Pedro (sin materias) y materias extracurriculares deben omitirse.
         self.assertEqual(len(df_leido), 3)
 
-        # Verificar contenido de la primera fila
+        # Verificar contenido de la primera fila (Juan Perez)
         primera_fila = df_leido.iloc[0]
         self.assertEqual(primera_fila["Matrícula"], "12345")
         self.assertEqual(primera_fila["Nombre Completo"], "Juan Perez")
@@ -175,6 +196,15 @@ class TestExportacionAlumnos(unittest.TestCase):
         self.assertEqual(primera_fila["Sección"], "A")
         self.assertEqual(primera_fila["Nota (1 a 100)"], 85)
         self.assertEqual(primera_fila["Nota (1 a 5)"], 4)
+
+        # Verificar contenido de Maria Gomez: su nota 115 debe haberse topado en 100
+        fila_maria = df_leido[df_leido["Nombre Completo"] == "Maria Gomez"].iloc[0]
+        self.assertEqual(fila_maria["Materia"], "Histología")
+        self.assertEqual(fila_maria["Nota (1 a 100)"], 100)
+        self.assertEqual(fila_maria["Nota (1 a 5)"], 5)
+
+        # Verificar que NO existen materias vacías ('–') en la columna Materia
+        self.assertFalse((df_leido["Materia"] == "–").any())
 
     def test_filtro_busqueda_excel(self):
         """Valida que si se filtra por un estudiante, el reporte solo contenga a dicho estudiante."""
@@ -190,8 +220,8 @@ class TestExportacionAlumnos(unittest.TestCase):
         self.assertEqual(df_leido.iloc[0]["Nombre Completo"], "Maria Gomez")
         self.assertEqual(df_leido.iloc[0]["Estado de Matrícula"], "Trancado")
         self.assertEqual(df_leido.iloc[0]["Materia"], "Histología")
-        self.assertEqual(df_leido.iloc[0]["Nota (1 a 100)"], 55)
-        self.assertEqual(df_leido.iloc[0]["Nota (1 a 5)"], 1)
+        self.assertEqual(df_leido.iloc[0]["Nota (1 a 100)"], 100)
+        self.assertEqual(df_leido.iloc[0]["Nota (1 a 5)"], 5)
 
     def test_cruce_doc_oficial_real(self):
         """Valida que el archivo de documentos oficiales exista y contenga registros."""

@@ -343,14 +343,6 @@ def _generar_excel_listado_alumnos(alumnos_list, df_completo, busqueda=None):
     sem_reg = pd.to_numeric(materias_ultimas["semestre_alumno"], errors="coerce").fillna(0).astype(int)
     materias_ultimas["Semestre_Reg"] = sem_reg.apply(lambda s: f"{s}º" if s > 0 else "")
 
-    # Información complementaria para alumnos sin asignaturas regulares
-    info_alumnos_aux = (
-        df_raw[df_raw["usuarios_id"].isin(uids)]
-        .sort_values(["usuarios_id", "ano_periodo_letivo", "periodo_anual_periodo_letivo"])
-        .groupby("usuarios_id")
-        .last()
-        .reset_index()[["usuarios_id", "filial_periodo_letivo", "nombre_status_actual"]]
-    )
 
     cols_materias = [
         "usuarios_id",
@@ -366,8 +358,8 @@ def _generar_excel_listado_alumnos(alumnos_list, df_completo, busqueda=None):
     if col_doc and col_doc in materias_ultimas.columns:
         cols_materias.append(col_doc)
 
-    detalle = alumnos_list.merge(materias_ultimas[cols_materias], on="usuarios_id", how="left")
-    detalle = detalle.merge(info_alumnos_aux, on="usuarios_id", how="left", suffixes=("", "_aux"))
+    # Cruce estricto para incluir únicamente asignaturas regulares efectivas (sin filas vacías)
+    detalle = alumnos_list.merge(materias_ultimas[cols_materias], on="usuarios_id", how="inner")
 
     filas_datos = []
     for _, fila in detalle.iterrows():
@@ -426,23 +418,25 @@ def _generar_excel_listado_alumnos(alumnos_list, df_completo, busqueda=None):
         if not seccion_val or seccion_val.lower() == "nan" or pd.isna(fila.get("turma")):
             seccion_val = "–"
 
-        # Nota 1 a 100 (si es que hay; si no, vacío o guion)
+        # Nota 1 a 100 (escala oficial de 0 a 100 con tope estricto en 100 puntos)
         nota_100 = fila.get("calificacion_final")
         nota_100_val = None
         if pd.notna(nota_100) and nota_100 != "" and materia_val != "–":
             try:
                 num_100 = float(nota_100)
+                # La escala oficial tiene como puntaje máximo 100 (normalización de puntajes acumulados)
+                num_100 = min(100.0, max(0.0, num_100))
                 nota_100_val = int(num_100) if num_100.is_integer() else round(num_100, 1)
             except (ValueError, TypeError):
                 nota_100_val = str(nota_100)
 
-        # Nota 1 a 5 (escala de calificación)
+        # Nota 1 a 5 (escala de calificación oficial)
         nota_1_5 = fila.get("calificacion_final_1a5")
         nota_1_5_val = "–"
         if pd.notna(nota_1_5) and nota_1_5 != "" and materia_val != "–":
             try:
                 num_5 = int(float(nota_1_5))
-                nota_1_5_val = num_5 if num_5 > 0 else "–"
+                nota_1_5_val = min(5, max(1, num_5)) if num_5 > 0 else "–"
             except (ValueError, TypeError):
                 nota_1_5_val = str(nota_1_5)
 
