@@ -1,9 +1,11 @@
+import datetime
 import io
 from html import escape
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+import xlsxwriter
 
 import modules.rend_acad_alumno as raa
 from services.data.alumnos import load_current_alumnos
@@ -281,6 +283,289 @@ def _generate_excel_bytes(period_summary, matriz, alumnos_list):
     return buffer.getvalue()
 
 
+@st.cache_data(show_spinner="Generando Excel detallado de alumnos...")
+def _generar_excel_listado_alumnos(alumnos_list, df_completo, busqueda=None):
+    """Genera un archivo Excel altamente estético con el listado detallado de alumnos,
+    sus asignaturas, secciones y calificaciones (1 a 100 y 1 a 5).
+
+    Cumple con los requisitos de diseño institucional:
+    - Encabezado con título del reporte, metadatos y fecha/hora de generación.
+    - Encabezados fijos de tabla con colores institucionales (freeze panes).
+    - Filtros automáticos en los encabezados (autofilter).
+    - Color cebra en filas alternadas y bordes sutiles.
+    - Columnas autoajustables al ancho del contenido.
+    - Campos reales del dataset sin inventar datos: Matrícula, Documento (si existe),
+      Nombre Completo, Periodo, Semestre, Sede, Materia, Sección, Nota 1-100 y Nota 1-5.
+    """
+    df_raw = df_completo.copy()
+    periodo_anual_num = pd.to_numeric(df_raw["periodo_anual_periodo_letivo"], errors="coerce").fillna(0).astype(int)
+    df_raw["Periodo"] = df_raw["ano_periodo_letivo"].astype(str) + "." + periodo_anual_num.astype(str)
+
+    # Identificar columna de documento si estuviera disponible en el dataset
+    col_doc = None
+    for col_candidata in ["doc_oficial", "documento", "numero_documento", "cedula", "rg", "dni", "cpf"]:
+        if col_candidata in df_raw.columns:
+            col_doc = col_candidata
+            break
+
+    cols_materias = [
+        "usuarios_id",
+        "Periodo",
+        "filial_periodo_letivo",
+        "disciplina",
+        "turma",
+        "calificacion_final",
+        "calificacion_final_1a5",
+    ]
+    if col_doc:
+        cols_materias.append(col_doc)
+
+    materias_df = df_raw[cols_materias].copy()
+
+    # Cruce de alumnos con sus asignaturas del periodo
+    detalle = alumnos_list.merge(materias_df, on=["usuarios_id", "Periodo"], how="left")
+
+    filas_datos = []
+    for _, fila in detalle.iterrows():
+        # Matrícula
+        matr = fila.get("Número de Matrícula")
+        matr_val = int(matr) if pd.notna(matr) and str(matr).strip().isdigit() else (str(matr) if pd.notna(matr) else "")
+
+        # Documento (si existe en la fuente de datos; si no, queda vacío sin inventar datos)
+        doc_val = ""
+        if col_doc and pd.notna(fila.get(col_doc)):
+            doc_val = str(fila[col_doc]).strip()
+
+        # Nombre completo
+        nombre_val = str(fila.get("Nombre y Apellido", "")).strip()
+
+        # Periodo
+        periodo_val = str(fila.get("Periodo", "")).strip()
+
+        # Semestre
+        semestre_val = fila.get("Semestre")
+        sem_str = f"{int(semestre_val)}º" if pd.notna(semestre_val) and str(semestre_val).strip().isdigit() else ""
+
+        # Sede
+        sede_val = str(fila.get("filial_periodo_letivo", "")).strip()
+        if pd.isna(fila.get("filial_periodo_letivo")) or sede_val.lower() == "nan":
+            sede_val = ""
+
+        # Materia
+        materia_val = str(fila.get("disciplina", "")).strip()
+        if pd.isna(fila.get("disciplina")) or materia_val.lower() == "nan":
+            materia_val = "–"
+
+        # Sección
+        seccion_val = str(fila.get("turma", "")).strip()
+        if pd.isna(fila.get("turma")) or seccion_val.lower() == "nan":
+            seccion_val = "–"
+
+        # Nota 1 a 100 (si es que hay; si no, vacío o guion)
+        nota_100 = fila.get("calificacion_final")
+        nota_100_val = None
+        if pd.notna(nota_100) and nota_100 != "":
+            try:
+                num_100 = float(nota_100)
+                if materia_val == "–" and num_100 == 0:
+                    nota_100_val = None
+                else:
+                    nota_100_val = int(num_100) if num_100.is_integer() else round(num_100, 1)
+            except (ValueError, TypeError):
+                nota_100_val = str(nota_100)
+
+        # Nota 1 a 5 (escala de calificación)
+        nota_1_5 = fila.get("calificacion_final_1a5")
+        nota_1_5_val = None
+        if pd.notna(nota_1_5) and nota_1_5 != "":
+            try:
+                num_5 = int(float(nota_1_5))
+                nota_1_5_val = num_5 if num_5 > 0 else "–"
+            except (ValueError, TypeError):
+                nota_1_5_val = str(nota_1_5)
+
+        filas_datos.append([
+            matr_val,
+            doc_val,
+            nombre_val,
+            periodo_val,
+            sem_str,
+            sede_val,
+            materia_val,
+            seccion_val,
+            nota_100_val,
+            nota_1_5_val,
+        ])
+
+    encabezados = [
+        "Matrícula",
+        "Documento",
+        "Nombre Completo",
+        "Periodo",
+        "Semestre",
+        "Sede",
+        "Materia",
+        "Sección",
+        "Nota (1 a 100)",
+        "Nota (1 a 5)",
+    ]
+
+    buffer = io.BytesIO()
+    workbook = xlsxwriter.Workbook(buffer, {"in_memory": True})
+    worksheet = workbook.add_worksheet("Listado de Alumnos")
+
+    worksheet.hide_gridlines(False)
+    worksheet.set_paper(9)  # Formato A4
+    worksheet.set_landscape()
+
+    COLOR_AZUL_INST = "#1B365D"
+    COLOR_CEBRA = "#F8FAFC"
+    COLOR_BORDE = "#E2E8F0"
+
+    fmt_titulo = workbook.add_format({
+        "bold": True,
+        "font_size": 15,
+        "font_color": COLOR_AZUL_INST,
+        "font_name": "Calibri",
+        "valign": "vcenter",
+    })
+    fmt_subtitulo = workbook.add_format({
+        "italic": True,
+        "font_size": 10,
+        "font_color": "#64748B",
+        "font_name": "Calibri",
+        "valign": "vcenter",
+    })
+    fmt_meta_label = workbook.add_format({
+        "bold": True,
+        "font_size": 9,
+        "font_color": "#334155",
+        "font_name": "Calibri",
+        "valign": "vcenter",
+    })
+    fmt_meta_val = workbook.add_format({
+        "font_size": 9,
+        "font_color": "#0F172A",
+        "font_name": "Calibri",
+        "valign": "vcenter",
+    })
+
+    fmt_cabecera = workbook.add_format({
+        "bold": True,
+        "font_size": 10,
+        "font_color": "#FFFFFF",
+        "bg_color": COLOR_AZUL_INST,
+        "align": "center",
+        "valign": "vcenter",
+        "border": 1,
+        "border_color": "#334E68",
+        "font_name": "Calibri",
+        "text_wrap": True,
+    })
+
+    def crear_formato_celda(bg_color, align="left", bold=False, num_fmt=None):
+        opciones = {
+            "bg_color": bg_color,
+            "border": 1,
+            "border_color": COLOR_BORDE,
+            "font_name": "Calibri",
+            "font_size": 10,
+            "valign": "vcenter",
+            "align": align,
+            "bold": bold,
+        }
+        if num_fmt:
+            opciones["num_format"] = num_fmt
+        return workbook.add_format(opciones)
+
+    fmt_datos = {
+        "impar_centro": crear_formato_celda("#FFFFFF", align="center"),
+        "par_centro": crear_formato_celda(COLOR_CEBRA, align="center"),
+        "impar_izq": crear_formato_celda("#FFFFFF", align="left"),
+        "par_izq": crear_formato_celda(COLOR_CEBRA, align="left"),
+        "impar_der": crear_formato_celda("#FFFFFF", align="right"),
+        "par_der": crear_formato_celda(COLOR_CEBRA, align="right"),
+    }
+
+    # Encabezado institucional superior
+    worksheet.write(0, 0, "REPORTE DETALLADO - LISTADO DE ALUMNOS", fmt_titulo)
+    worksheet.set_row(0, 24)
+    worksheet.write(1, 0, "Portal de Indicadores Académicos · Sistema de Gestión Institucional", fmt_subtitulo)
+    worksheet.set_row(1, 18)
+
+    ahora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    worksheet.write(3, 0, "Fecha y hora de generación:", fmt_meta_label)
+    worksheet.write(3, 1, ahora, fmt_meta_val)
+
+    filtro_txt = f'"{busqueda}"' if busqueda else "Todos los alumnos (sin filtro)"
+    worksheet.write(3, 3, "Filtro de búsqueda:", fmt_meta_label)
+    worksheet.write(3, 4, filtro_txt, fmt_meta_val)
+
+    total_estudiantes = len(alumnos_list)
+    total_registros = len(filas_datos)
+    worksheet.write(4, 0, "Estudiantes únicos:", fmt_meta_label)
+    worksheet.write(4, 1, f"{total_estudiantes:,}".replace(",", "."), fmt_meta_val)
+    worksheet.write(4, 3, "Total filas de asignaturas:", fmt_meta_label)
+    worksheet.write(4, 4, f"{total_registros:,}".replace(",", "."), fmt_meta_val)
+
+    fila_inicio_tabla = 6
+    worksheet.set_row(fila_inicio_tabla, 26)
+
+    # Encabezados de tabla
+    for col_idx, encabezado in enumerate(encabezados):
+        worksheet.write(fila_inicio_tabla, col_idx, encabezado, fmt_cabecera)
+
+    # Inmovilizar paneles para mantener fijos los encabezados
+    worksheet.freeze_panes(fila_inicio_tabla + 1, 0)
+
+    alineaciones = ["centro", "centro", "izq", "centro", "centro", "centro", "izq", "centro", "der", "centro"]
+    ancho_maximos = [len(h) for h in encabezados]
+
+    for i, fila in enumerate(filas_datos):
+        fila_idx = fila_inicio_tabla + 1 + i
+        es_par = (i % 2 == 1)
+        prefijo = "par_" if es_par else "impar_"
+        worksheet.set_row(fila_idx, 19)
+
+        for col_idx, valor in enumerate(fila):
+            align = alineaciones[col_idx]
+            fmt_clave = f"{prefijo}{align}"
+
+            if valor is None or valor == "":
+                worksheet.write_blank(fila_idx, col_idx, "", fmt_datos[fmt_clave])
+                longitud = 0
+            elif col_idx in [1, 3, 4, 7]:  # Documento, Periodo, Semestre, Sección como texto explícito
+                str_val = str(valor)
+                worksheet.write_string(fila_idx, col_idx, str_val, fmt_datos[fmt_clave])
+                longitud = len(str_val)
+            elif isinstance(valor, (int, float)):
+                worksheet.write_number(fila_idx, col_idx, valor, fmt_datos[fmt_clave])
+                longitud = len(str(valor))
+            else:
+                str_val = str(valor)
+                worksheet.write_string(fila_idx, col_idx, str_val, fmt_datos[fmt_clave])
+                longitud = len(str_val)
+
+            if longitud > ancho_maximos[col_idx]:
+                ancho_maximos[col_idx] = longitud
+
+    # Activar autofiltros
+    ultima_fila = fila_inicio_tabla + len(filas_datos)
+    worksheet.autofilter(fila_inicio_tabla, 0, max(ultima_fila, fila_inicio_tabla + 1), len(encabezados) - 1)
+
+    # Ajuste dinámico de anchos de columna
+    for col_idx, max_len in enumerate(ancho_maximos):
+        ancho_ajustado = max(max_len + 4, 12)
+        if col_idx in [2, 6]:  # Nombre y Materia
+            ancho_ajustado = min(ancho_ajustado, 48)
+        else:
+            ancho_ajustado = min(ancho_ajustado, 25)
+        worksheet.set_column(col_idx, col_idx, ancho_ajustado)
+
+    workbook.close()
+    return buffer.getvalue()
+
+
 def render():
     render_cabecera_indicador(
         "Alumnos",
@@ -344,14 +629,35 @@ def render():
         _render_listado(alumnos_list, df_completo)
 
     st.divider()
-    excel_bytes = _generate_excel_bytes(period_summary, matriz, alumnos_list.drop(columns=[COL_ID_ALUMNO]))
-    st.download_button(
-        "Descargar datos (Excel: por periodo, matriz y listado)",
-        data=excel_bytes,
-        file_name="Alumnos_Analizados.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        icon=":material/download:",
-        width="stretch",
-        on_click=db_pia.log_export_callback,
-        args=("Alumnos", "Excel"),
-    )
+    if vista == vistas[0]:
+        excel_bytes = _generate_excel_bytes(period_summary, matriz, alumnos_list.drop(columns=[COL_ID_ALUMNO]))
+        st.download_button(
+            "Descargar datos (Excel: por periodo, matriz y listado)",
+            data=excel_bytes,
+            file_name="Alumnos_Analizados.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            icon=":material/download:",
+            width="stretch",
+            on_click=db_pia.log_export_callback,
+            args=("Alumnos", "Excel"),
+        )
+    else:
+        busqueda_actual = st.session_state.get("alumnos_busqueda", "").strip()
+        listado_filtrado = alumnos_list
+        if busqueda_actual:
+            listado_filtrado = alumnos_list[
+                alumnos_list["Nombre y Apellido"].astype(str).str.lower().str.contains(busqueda_actual.lower(), regex=False)
+                | alumnos_list["Número de Matrícula"].astype(str).str.contains(busqueda_actual, regex=False)
+            ].reset_index(drop=True)
+
+        excel_bytes_detallado = _generar_excel_listado_alumnos(listado_filtrado, df_completo, busqueda=busqueda_actual)
+        st.download_button(
+            "Descargar listado de alumnos (Excel)",
+            data=excel_bytes_detallado,
+            file_name="Listado_Detallado_Alumnos.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            icon=":material/download:",
+            width="stretch",
+            on_click=db_pia.log_export_callback,
+            args=("Listado Alumnos Detallado", "Excel"),
+        )
