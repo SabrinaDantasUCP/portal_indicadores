@@ -57,6 +57,7 @@ class TestExportacionAlumnos(unittest.TestCase):
                 "turma": "A",
                 "calificacion_final": 85.0,
                 "calificacion_final_1a5": 4,
+                "nombre_status_actual": "Activo",
             },
             {
                 "usuarios_id": 101,
@@ -67,6 +68,7 @@ class TestExportacionAlumnos(unittest.TestCase):
                 "turma": "B",
                 "calificacion_final": 92.0,
                 "calificacion_final_1a5": 5,
+                "nombre_status_actual": "Activo",
             },
             {
                 "usuarios_id": 102,
@@ -77,6 +79,7 @@ class TestExportacionAlumnos(unittest.TestCase):
                 "turma": "A",
                 "calificacion_final": 55.0,
                 "calificacion_final_1a5": 1,
+                "nombre_status_actual": "Trancado",
             },
         ])
 
@@ -99,11 +102,12 @@ class TestExportacionAlumnos(unittest.TestCase):
         self.assertGreater(len(bytes_excel), 1000)
 
         # Leer a partir de la fila 6 (encabezados de la tabla)
-        df_leido = pd.read_excel(io.BytesIO(bytes_excel), skiprows=6, dtype={"Periodo": str, "Documento": str, "Semestre": str, "Sección": str})
+        df_leido = pd.read_excel(io.BytesIO(bytes_excel), skiprows=6, dtype={"Periodo": str, "Documento": str, "Estado de Matrícula": str, "Semestre": str, "Sección": str})
         columnas_esperadas = [
             "Matrícula",
             "Documento",
             "Nombre Completo",
+            "Estado de Matrícula",
             "Periodo",
             "Semestre",
             "Sede",
@@ -119,6 +123,7 @@ class TestExportacionAlumnos(unittest.TestCase):
         primera_fila = df_leido.iloc[0]
         self.assertEqual(primera_fila["Matrícula"], 12345)
         self.assertEqual(primera_fila["Nombre Completo"], "Juan Perez")
+        self.assertEqual(primera_fila["Estado de Matrícula"], "Activo")
         self.assertEqual(primera_fila["Periodo"], "2024.1")
         self.assertEqual(primera_fila["Sede"], "CDE")
         self.assertEqual(primera_fila["Materia"], "Anatomía I")
@@ -130,10 +135,11 @@ class TestExportacionAlumnos(unittest.TestCase):
         """Valida que si se filtra por un estudiante, el reporte solo contenga a dicho estudiante."""
         filtro = self.alumnos_list[self.alumnos_list["Nombre y Apellido"] == "Maria Gomez"].reset_index(drop=True)
         bytes_excel = _generar_excel_listado_alumnos(filtro, self.df_completo, busqueda="Maria")
-        df_leido = pd.read_excel(io.BytesIO(bytes_excel), skiprows=6, dtype={"Periodo": str, "Documento": str, "Semestre": str, "Sección": str})
+        df_leido = pd.read_excel(io.BytesIO(bytes_excel), skiprows=6, dtype={"Periodo": str, "Documento": str, "Estado de Matrícula": str, "Semestre": str, "Sección": str})
 
         self.assertEqual(len(df_leido), 1)
         self.assertEqual(df_leido.iloc[0]["Nombre Completo"], "Maria Gomez")
+        self.assertEqual(df_leido.iloc[0]["Estado de Matrícula"], "Trancado")
         self.assertEqual(df_leido.iloc[0]["Materia"], "Histología")
         self.assertEqual(df_leido.iloc[0]["Nota (1 a 100)"], 55)
         self.assertEqual(df_leido.iloc[0]["Nota (1 a 5)"], 1)

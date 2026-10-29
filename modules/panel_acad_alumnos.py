@@ -295,7 +295,7 @@ def _generar_excel_listado_alumnos(alumnos_list, df_completo, busqueda=None):
     - Color cebra en filas alternadas y bordes sutiles.
     - Columnas autoajustables al ancho del contenido.
     - Campos reales del dataset sin inventar datos: Matrícula, Documento (si existe),
-      Nombre Completo, Periodo, Semestre, Sede, Materia, Sección, Nota 1-100 y Nota 1-5.
+      Nombre Completo, Estado de Matrícula, Periodo, Semestre, Sede, Materia, Sección, Nota 1-100 y Nota 1-5.
     """
     df_raw = df_completo.copy()
     periodo_anual_num = pd.to_numeric(df_raw["periodo_anual_periodo_letivo"], errors="coerce").fillna(0).astype(int)
@@ -316,6 +316,7 @@ def _generar_excel_listado_alumnos(alumnos_list, df_completo, busqueda=None):
         "turma",
         "calificacion_final",
         "calificacion_final_1a5",
+        "nombre_status_actual",
     ]
     if col_doc:
         cols_materias.append(col_doc)
@@ -338,6 +339,11 @@ def _generar_excel_listado_alumnos(alumnos_list, df_completo, busqueda=None):
 
         # Nombre completo
         nombre_val = str(fila.get("Nombre y Apellido", "")).strip()
+
+        # Estado de matrícula
+        status_val = str(fila.get("nombre_status_actual", "")).strip()
+        if pd.isna(fila.get("nombre_status_actual")) or status_val.lower() == "nan" or not status_val:
+            status_val = "–"
 
         # Periodo
         periodo_val = str(fila.get("Periodo", "")).strip()
@@ -388,6 +394,7 @@ def _generar_excel_listado_alumnos(alumnos_list, df_completo, busqueda=None):
             matr_val,
             doc_val,
             nombre_val,
+            status_val,
             periodo_val,
             sem_str,
             sede_val,
@@ -401,6 +408,7 @@ def _generar_excel_listado_alumnos(alumnos_list, df_completo, busqueda=None):
         "Matrícula",
         "Documento",
         "Nombre Completo",
+        "Estado de Matrícula",
         "Periodo",
         "Semestre",
         "Sede",
@@ -518,7 +526,7 @@ def _generar_excel_listado_alumnos(alumnos_list, df_completo, busqueda=None):
     # Inmovilizar paneles para mantener fijos los encabezados
     worksheet.freeze_panes(fila_inicio_tabla + 1, 0)
 
-    alineaciones = ["centro", "centro", "izq", "centro", "centro", "centro", "izq", "centro", "der", "centro"]
+    alineaciones = ["centro", "centro", "izq", "centro", "centro", "centro", "centro", "izq", "centro", "der", "centro"]
     ancho_maximos = [len(h) for h in encabezados]
 
     for i, fila in enumerate(filas_datos):
@@ -534,7 +542,7 @@ def _generar_excel_listado_alumnos(alumnos_list, df_completo, busqueda=None):
             if valor is None or valor == "":
                 worksheet.write_blank(fila_idx, col_idx, "", fmt_datos[fmt_clave])
                 longitud = 0
-            elif col_idx in [1, 3, 4, 7]:  # Documento, Periodo, Semestre, Sección como texto explícito
+            elif col_idx in [1, 3, 4, 5, 8]:  # Documento, Estado de Matrícula, Periodo, Semestre, Sección como texto explícito
                 str_val = str(valor)
                 worksheet.write_string(fila_idx, col_idx, str_val, fmt_datos[fmt_clave])
                 longitud = len(str_val)
@@ -556,7 +564,7 @@ def _generar_excel_listado_alumnos(alumnos_list, df_completo, busqueda=None):
     # Ajuste dinámico de anchos de columna
     for col_idx, max_len in enumerate(ancho_maximos):
         ancho_ajustado = max(max_len + 4, 12)
-        if col_idx in [2, 6]:  # Nombre y Materia
+        if col_idx in [2, 7]:  # Nombre y Materia
             ancho_ajustado = min(ancho_ajustado, 48)
         else:
             ancho_ajustado = min(ancho_ajustado, 25)
