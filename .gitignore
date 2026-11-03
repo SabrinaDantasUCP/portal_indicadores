@@ -31,8 +31,8 @@ assets/data/
 desktop.ini
 Thumbs.db
 
-# --- Skills locales de OpenCode ---
-.opencode/skills/
+# --- Configuración local de OpenCode ---
+.opencode/
 
 # --- Configuración local de Claude Code ---
 CLAUDE.md
