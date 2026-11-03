@@ -34,6 +34,10 @@ Thumbs.db
 # --- Skills locales de OpenCode ---
 .opencode/skills/
 
+# --- Configuración local de Claude Code ---
+CLAUDE.md
+.claude/
+
 # --- Temporários ---
 tmp_cols.json
 logs/
