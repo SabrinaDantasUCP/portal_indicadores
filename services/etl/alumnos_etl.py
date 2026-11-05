@@ -959,6 +959,42 @@ def generar_alumnos_v1(df_consolidado, egresados_xlsx_path=None, fecha_envio_egr
 # ETL - ALUMNOS CON CORTE (alumnos_v2)
 # ─────────────────────────────────────────────
 
+# Bajas definitivas históricas solicitadas por Dirección (Decisión 3.1 - Opción B)
+IDS_BAJAS_DEFINITIVAS_V2 = {
+    14328,  # Josafa Leite Valadares (baja total en todos los periodos históricos en V2)
+    12448,  # Julia Regis Santos Silva (baja total en todos los periodos históricos en V2)
+}
+
+
+def aplicar_ajustes_direccion_v2(df_v2):
+    """Aplica las bajas definitivas históricas y reasignaciones integrales
+    de comisiones solicitadas por Dirección exclusivamente sobre V2."""
+    if IDS_BAJAS_DEFINITIVAS_V2:
+        df_v2 = df_v2[~df_v2['usuarios_id'].isin(IDS_BAJAS_DEFINITIVAS_V2)].copy()
+
+    ruta_nomina = "informes/Nomina_Ajustes_Secciones_y_Bajas_V2.xlsx"
+    if os.path.exists(ruta_nomina):
+        try:
+            df_nom = pd.read_excel(ruta_nomina)
+            for _, r in df_nom.iterrows():
+                mask = (
+                    (df_v2['ano_periodo_letivo'] == r['ano']) &
+                    (df_v2['periodo_anual_periodo_letivo'] == r['periodo']) &
+                    (df_v2['usuarios_id'] == r['usuarios_id']) &
+                    (df_v2['disciplina'] == r['disciplina'])
+                )
+                if mask.any():
+                    df_v2.loc[mask, 'turma'] = r['turma_nueva']
+                    if 'oferta_nueva' in r and pd.notna(r['oferta_nueva']):
+                        df_v2.loc[mask, 'id_oferta_disciplina'] = r['oferta_nueva']
+                    if 'docente_nuevo' in r and pd.notna(r['docente_nuevo']):
+                        df_v2.loc[mask, 'docente'] = r['docente_nuevo']
+        except Exception as e:
+            log.warning("No se pudo aplicar la nómina de ajustes de Dirección: %s", e)
+
+    return df_v2
+
+
 def generar_alumnos_v2(df_v1, ids_activos, pares_activos=None, correcciones=None):
     """A partir de alumnos_v1, restringe a los alumnos cuyo usuarios_id está
     en ids_activos (ver services/etl/activos_ids.cargar_ids_activos) y
@@ -1026,5 +1062,7 @@ def generar_alumnos_v2(df_v1, ids_activos, pares_activos=None, correcciones=None
         for campo, valor in campos.items():
             if campo in df_v2.columns:
                 df_v2.loc[mask, campo] = valor
+
+    df_v2 = aplicar_ajustes_direccion_v2(df_v2)
 
     return df_v2
