@@ -176,7 +176,7 @@ def get_query(ano_loop):
         GROUP BY od.id, aluno.id_aluno
     ),
 
-    base_unificada AS (
+    base_unificada_raw AS (
         -- PARTE 1: EXAMES
         SELECT
             et.id, et.status,
@@ -189,6 +189,7 @@ def get_query(ano_loop):
             et.periodo_letivo_id AS id_periodo_lectivo,
             u.id                 AS id_alumno,
             te.id                AS tipo_examen_id,
+            CONCAT('EXAM_', te.id) AS id_componente,
             te.nome              AS tipo_examen,
             et.created_at        AS fecha_evaluacion,
             et.nota              AS puntos_logrados,
@@ -221,6 +222,7 @@ def get_query(ano_loop):
             pl.id,
             u.id,
             999                              AS tipo_examen_id,
+            CONCAT('TRAB_', ta.ex_trabalhos_id) AS id_componente,
             'Trabajo'                        AS tipo_examen,
             ta.created_at                    AS fecha_evaluacion,
             CAST(ta.nota AS DECIMAL(10,2))   AS puntos_logrados,
@@ -272,6 +274,26 @@ def get_query(ano_loop):
                 WHEN f3.nome LIKE '%Extra%'                                                               THEN 15
                 ELSE 1000
             END AS tipo_examen_id,
+            CONCAT('ANT_', CASE
+                WHEN f2.nome LIKE '%Extraordinaria%'                                                     THEN 9
+                WHEN (f2.nome LIKE '%Recuperat%' OR f2.nome LIKE '%Regulariza%')
+                    AND (f3.nome LIKE '%1%Parcial%' OR f3.nome LIKE '%Pratico%'
+                        OR (f3.nome LIKE '%Parcial%' AND f3.nome NOT LIKE '%2%'))                       THEN 3
+                WHEN (f2.nome LIKE '%Recuperat%' OR f2.nome LIKE '%Regulariza%')
+                    AND f3.nome LIKE '%2%Parcial%'                                                       THEN 6
+                WHEN (f2.nome LIKE '%Ordinario%' OR f2.nome LIKE '%Práctica%')
+                    AND f3.nome LIKE '%1%Parcial%'                                                       THEN 1
+                WHEN (f2.nome LIKE '%Ordinario%' OR f2.nome LIKE '%Práctica%')
+                    AND f3.nome LIKE '%Pratico%'                                                         THEN 1
+                WHEN (f2.nome LIKE '%Ordinario%' OR f2.nome LIKE '%Práctica%')
+                    AND f3.nome LIKE '%2%Parcial%'                                                       THEN 4
+                WHEN (f2.nome LIKE '%Ordinario%' OR f2.nome LIKE '%Práctica%')
+                    AND (f3.nome LIKE '%Final%' OR f3.nome LIKE '%Examen%' OR f3.nome LIKE '%Exame%')   THEN 8
+                WHEN f2.nome LIKE '%Complementar%'                                                        THEN 7
+                WHEN f3.nome LIKE '%Trabajo%' OR f3.nome LIKE '%Trabalho%'                               THEN 999
+                WHEN f3.nome LIKE '%Extra%'                                                               THEN 15
+                ELSE 1000
+            END) AS id_componente,
             f3.nome         AS tipo_examen,
             c.data          AS fecha_evaluacion,
             nv.nota_val     AS puntos_logrados,
@@ -308,6 +330,20 @@ def get_query(ano_loop):
               'CANCELADO','NO','DESCONSIDERAR','PRUEBA SISTEMA VAMOS ELIMINAR',
               'Examen duplicado','DUPLICADO','PRUEBA SISTEMA','teste'
           )
+    ),
+
+    -- Deduplicación por componente de evaluación: evita doble suma de parciales o trabajos duplicados
+    base_unificada AS (
+        SELECT *
+        FROM (
+            SELECT b.*,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY id_alumno, id_asignatura, id_periodo_lectivo, id_componente
+                       ORDER BY puntos_logrados DESC, fecha_evaluacion DESC, id DESC
+                   ) AS rn_comp
+            FROM base_unificada_raw b
+        ) t
+        WHERE rn_comp = 1
     ),
 
     base_com_maximos AS (
@@ -866,6 +902,11 @@ def generar_alumnos_v1(df_consolidado, egresados_xlsx_path=None, fecha_envio_egr
         [df['disciplinas_id'].isna(), df['disciplinas_id'].isin(IDS_EXTRACURRICULARES)],
         ['Sin Disciplina', 'Extracurricular'],
         default='Regular',
+    )
+
+    # Limitar la calificación de disciplinas regulares al rango válido institucional (0 a 100)
+    df.loc[df['tipo_disciplina'] == 'Regular', 'calificacion_final'] = (
+        df.loc[df['tipo_disciplina'] == 'Regular', 'calificacion_final'].clip(lower=0, upper=100)
     )
 
     # 3. Lógica de Aprobación y Escala 1-5
