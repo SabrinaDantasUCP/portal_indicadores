@@ -186,7 +186,10 @@ def page_login():
                     except Exception as exc:
                         log_exception("No se pudo guardar la cookie de login", exc)
 
-                    st.switch_page(p_home)
+                    # Redirigir a la página que el usuario intentaba visitar o a inicio
+                    dest_page = st.session_state.pop("redirect_after_login", p_home)
+                    st.switch_page(dest_page)
+                    st.stop()
                 else:
                     db_pia.log_audit_event(
                         "login_failed",
@@ -265,13 +268,19 @@ def main():
     if "user" not in st.session_state:
         st.session_state.user = None
 
-    # --- Lógica de Auto-Login por Cookies ---
+    # --- Lógica de Auto-Login por Cookies (Inmediata y Componente) ---
     if st.session_state.user is None:
         try:
-            # Obtener el ID del usuario de la cookie persistente
-            saved_user_id = cookie_manager.get(cookie="pia_uid")
+            # 1. Intentar lectura inmediata desde los encabezados HTTP (evita parpadeos o falsos cierres de sesión)
+            saved_user_id = None
+            if hasattr(st, "context") and hasattr(st.context, "cookies"):
+                saved_user_id = st.context.cookies.get("pia_uid")
+            
+            # 2. Si no está en context, verificar con el componente de cookies
+            if not saved_user_id:
+                saved_user_id = cookie_manager.get(cookie="pia_uid")
+
             if saved_user_id:
-                # Validar y cargar datos del usuario
                 user_data = db_pia.get_user_by_id(saved_user_id)
                 if user_data:
                     st.session_state.user = user_data
@@ -290,13 +299,19 @@ def main():
     if st.session_state.user is None:
         # Sin sesión solo se permite la pantalla de login.
         if not en_login:
+            # Preservar el módulo al que intentaba ingresar para redirigir tras autenticarse
+            st.session_state["redirect_after_login"] = pg
             st.switch_page(p_login)
-        page_login()
-        return  # Bloquear la carga de la app real
+            st.stop()
+
+        # Si ya está en la ruta de login, pg.run() lo renderiza limpiamente (una sola vez)
+        pg.run()
+        return  # Bloquear la carga de la app real y de la barra lateral
 
     # Con sesión activa, /login ya no tiene sentido: se vuelve al inicio.
     if en_login:
         st.switch_page(p_home)
+        st.stop()
 
     # -------------------------------
     # BARRA LATERAL (MENU) PARA USUARIO LOGUEADO
