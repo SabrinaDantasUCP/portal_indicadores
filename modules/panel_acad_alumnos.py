@@ -380,7 +380,7 @@ def _generar_excel_listado_alumnos(_alumnos_list, _df_completo, busqueda="", per
     - Columnas autoajustables y predimensionadas para alto rendimiento.
     - Campos reales del dataset sin inventar datos: Matrícula, Documento (doc_oficial de SysEduca),
       Nombre Completo, Estado de Matrícula, Periodo, Semestre, Sede, Materia, Sección, Nota 1-100 y Nota 1-5.
-    - Filtra exclusivamente materias regulares auténticas cursadas en el periodo lectivo seleccionado.
+    - Incluye materias académicas cursadas (regulares y extracurriculares de preinternado/guaraní hospitalario) en el periodo lectivo seleccionado.
     - Tope estricto de notas de 0 a 100 puntos y de 1 a 5.
     - Parámetros con guión bajo (_alumnos_list, _df_completo) para evitar sobrecarga de hasheo en caché de Streamlit.
     """
@@ -405,12 +405,13 @@ def _generar_excel_listado_alumnos(_alumnos_list, _df_completo, busqueda="", per
     df_raw_prep["ano_periodo_letivo"] = pd.to_numeric(df_raw_prep["ano_periodo_letivo"], errors="coerce").fillna(0).astype(int)
     df_raw_prep["periodo_anual_periodo_letivo"] = pd.to_numeric(df_raw_prep["periodo_anual_periodo_letivo"], errors="coerce").fillna(0).astype(int)
 
-    # Filtrar exclusivamente asignaturas regulares válidas
+    # Filtrar asignaturas académicas válidas (regulares y extracurriculares con disciplina)
     df_reg = df_raw_prep[
         (df_raw_prep["usuarios_id"].isin(uids))
-        & (df_raw_prep["tipo_disciplina"] == "Regular")
+        & (df_raw_prep["tipo_disciplina"].isin(["Regular", "Extracurricular"]))
         & (df_raw_prep["disciplina"].notna())
         & (df_raw_prep["disciplina"].astype(str).str.strip() != "")
+        & (df_raw_prep["disciplina"].astype(str).str.lower() != "nan")
     ].copy()
 
     # Asegurar columnas de periodo en alumnos_sub
