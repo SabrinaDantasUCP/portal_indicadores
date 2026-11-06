@@ -730,7 +730,7 @@ def render():
 
     dados_excel = generar_excel_estilizado(
         df_export,
-        titulo=f"HISTORIAL ACADÉMICO - {nome_aluno}",
+        titulo=f"HISTORIAL ACADÉMICO - {alumno_nome}",
         subtitulo=f"Matrícula: {catraca_num} · Rendimiento Académico por Estudiante",
         nombre_hoja_default="Rendimiento",
     )
