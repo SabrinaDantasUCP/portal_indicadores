@@ -501,11 +501,18 @@ def _generar_excel_listado_alumnos(_alumnos_list, _df_completo, busqueda="", per
 
     # Notas vectorizadas con tope estricto de 0 a 100
     n100 = pd.to_numeric(detalle["calificacion_final"], errors="coerce").clip(lower=0, upper=100)
-    detalle["Nota (1 a 100)"] = n100.apply(lambda v: (int(v) if v.is_integer() else round(v, 1)) if pd.notna(v) else None)
+    detalle["Nota (1 a 100)"] = n100.apply(lambda v: (int(v) if v.is_integer() else round(v, 1)) if pd.notna(v) else None).astype(object)
 
     # Notas 1 a 5 aseguradas en rango 1 a 5
     n5 = pd.to_numeric(detalle["calificacion_final_1a5"], errors="coerce").fillna(0).astype(int)
-    detalle["Nota (1 a 5)"] = n5.apply(lambda v: min(5, max(1, v)) if v > 0 else "–")
+    detalle["Nota (1 a 5)"] = n5.apply(lambda v: min(5, max(1, v)) if v > 0 else "–").astype(object)
+
+    # Alumnos con matrícula lanzada pero sin materias registradas en el periodo lectivo
+    es_sin_materias = detalle["disciplina"].isna() | (detalle["disciplina"].astype(str).str.strip().isin(["", "nan", "–"]))
+    detalle.loc[es_sin_materias, "Materia"] = "Matrícula lanzada / Sin materias"
+    detalle.loc[es_sin_materias, "Sección"] = "Sin sección"
+    detalle.loc[es_sin_materias, "Nota (1 a 100)"] = "Sin nota"
+    detalle.loc[es_sin_materias, "Nota (1 a 5)"] = "Sin nota"
 
     cols_finales = [
         "Matrícula",
@@ -630,7 +637,9 @@ def _generar_excel_listado_alumnos(_alumnos_list, _df_completo, busqueda="", per
         worksheet.set_row(fila_idx, 19)
 
         for col_idx, valor in enumerate(row):
-            fmt = fmt_datos[prefijo + alineaciones[col_idx]]
+            # Para notas en formato texto (ej. 'Sin nota'), alinear al centro
+            alineacion_celda = "centro" if col_idx == 9 and not isinstance(valor, (int, float)) else alineaciones[col_idx]
+            fmt = fmt_datos[prefijo + alineacion_celda]
             if valor is None or valor == "" or (isinstance(valor, float) and pd.isna(valor)):
                 worksheet.write_blank(fila_idx, col_idx, "", fmt)
             elif isinstance(valor, (int, float)):
@@ -641,7 +650,7 @@ def _generar_excel_listado_alumnos(_alumnos_list, _df_completo, busqueda="", per
     worksheet.autofilter(fila_inicio_tabla, 0, fila_inicio_tabla + len(df_export), len(cols_finales) - 1)
 
     # Anchos predimensionados para máximo rendimiento
-    anchos_optimos = [14, 18, 36, 18, 12, 12, 14, 38, 12, 16, 14]
+    anchos_optimos = [14, 18, 36, 18, 12, 12, 14, 40, 14, 16, 14]
     for col_idx, ancho in enumerate(anchos_optimos):
         worksheet.set_column(col_idx, col_idx, ancho)
 
