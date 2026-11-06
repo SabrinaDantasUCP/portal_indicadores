@@ -10,6 +10,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.units import cm
 from utils import db_pia
+from utils.excel_export import generar_excel_estilizado
 from utils.ui import (
     selector_vista,
     COLOR_ATENCION,
@@ -180,17 +181,12 @@ def gerar_pdf_asistencia(df_dados, titulo, col_widths=None, filtros_aplicados=No
 
 @st.cache_data(show_spinner="Generando Excel...")
 def generate_excel_bytes(df, sheet_name='Sheet1', filtros_aplicados=None):
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name=sheet_name)
-        if filtros_aplicados:
-            worksheet = writer.sheets[sheet_name]
-            start_row = len(df) + 3
-            worksheet.write(start_row, 0, "Filtros aplicados")
-            for idx, (label, value) in enumerate(filtros_aplicados, start=1):
-                worksheet.write(start_row + idx, 0, label)
-                worksheet.write(start_row + idx, 1, value)
-    return buffer.getvalue()
+    return generar_excel_estilizado(
+        df,
+        titulo=f"REPORTE INSTITUCIONAL DE ASISTENCIAS - {sheet_name.upper()}",
+        filtros=filtros_aplicados,
+        nombre_hoja_default=sheet_name,
+    )
 
 
 def format_filter_values(values, suffix=None):

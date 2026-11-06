@@ -20,6 +20,7 @@ from utils.ui import (
     render_titulo_seccion,
 )
 from utils.system_logging import log_exception
+from utils.excel_export import generar_excel_estilizado
 from services.data.alumnos import load_current_alumnos
 from services.calculations.tasa_promocion import (
     COL_ANO,
@@ -191,9 +192,13 @@ def render():
                 pdf_data = gerar_pdf_tpr(df_c[["Transición", "EIns", "EPr", "TPr (%)"]], f"Reporte de Promoción - Cohorte {cohorte_sel}")
                 st.download_button("Descargar Reporte (PDF)", pdf_data, f"TPr_{cohorte_sel}.pdf", key="pdf_coh", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Tasa de Promoción Semestral", "PDF"))
             with cx2:
-                buffer_xls = io.BytesIO()
-                df_c.to_excel(buffer_xls, index=False)
-                st.download_button("Descargar Datos (Excel)", buffer_xls.getvalue(), f"TPr_{cohorte_sel}.xlsx", key="xls_coh", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Tasa de Promoción Semestral", "Excel"))
+                excel_bytes_tpr = generar_excel_estilizado(
+                    df_c,
+                    titulo=f"TASA DE PROMOCIÓN SEMESTRAL - COHORTE {cohorte_sel}",
+                    subtitulo=f"Cohorte: {cohorte_sel} · Detalle por Transición",
+                    nombre_hoja_default="TPr",
+                )
+                st.download_button("Descargar Datos (Excel)", excel_bytes_tpr, f"TPr_{cohorte_sel}.xlsx", key="xls_coh", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Tasa de Promoción Semestral", "Excel"))
 
     if vista == 'Detalle de Alumnos':
         coh_det = st.selectbox("Cohorte", cohortes_disponibles, index=0, key="det_coh")

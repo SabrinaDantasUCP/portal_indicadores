@@ -13,6 +13,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 
 from utils import db_pia
 from utils.system_logging import log_exception
+from utils.excel_export import generar_excel_estilizado
 from utils.ui import render_kpi_card
 from modules.encuestas_ev1 import render_ev1_opinion_estudiante
 from modules.encuestas_ev2 import render_ev2_autoevaluacion_docente
@@ -42,11 +43,12 @@ from services.data.encuestas import (
 
 @st.cache_data(show_spinner=False, max_entries=8, ttl=600)
 def excel_bytes_reporte(tablas: dict):
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-        for nombre, df in tablas.items():
-            df.to_excel(writer, index=False, sheet_name=nombre[:31])
-    return buffer.getvalue()
+    """Genera el reporte consolidado de encuestas en Excel con formato institucional estilizado."""
+    return generar_excel_estilizado(
+        tablas,
+        titulo="REPORTE DE EVALUACIÓN Y ENCUESTAS INSTITUCIONALES",
+        subtitulo="Consolidado de resultados y participación",
+    )
 
 
 def _fmt_num(value):

@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 from utils import db_pia
 from utils.system_logging import log_exception
+from utils.excel_export import generar_excel_estilizado
 from utils.ui import (
     selector_vista,
     COLOR_ATENCION,
@@ -223,13 +224,16 @@ def render():
         )
         
         pdf_all = gerar_pdf_ee(df_ee)
-        buf_ex = io.BytesIO()
-        with pd.ExcelWriter(buf_ex, engine='xlsxwriter') as wr:
-            df_ee.to_excel(wr, index=False, sheet_name='EE Global')
+        excel_bytes_ee = generar_excel_estilizado(
+            df_ee,
+            titulo="EFICIENCIA DE EGRESO - REPORTE GLOBAL",
+            subtitulo="Reporte Comparativo de Eficiencia de Egreso por Cohorte",
+            nombre_hoja_default="EE Global",
+        )
         st.divider()
         c1, c2 = st.columns(2)
         c1.download_button("Descargar Reporte (PDF)", data=pdf_all, file_name="Reporte_EE_Global.pdf", mime="application/pdf", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia de Egreso - Global", "PDF"))
-        c2.download_button("Descargar Datos (Excel)", data=buf_ex.getvalue(), file_name="Datos_EE_Global.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia de Egreso - Global", "Excel"))
+        c2.download_button("Descargar Datos (Excel)", data=excel_bytes_ee, file_name="Datos_EE_Global.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia de Egreso - Global", "Excel"))
 
     if vista == 'Detalle por Cohorte':
         cohorte_sel = st.selectbox("Seleccione una Cohorte", opciones_cohorte(df_ee["cohorte"]), index=None, placeholder="Seleccione una cohorte")
@@ -309,11 +313,16 @@ def render():
                     columns={COL_NOMBRE: "Nombre", COL_CATRACA: "Número de Matrícula"}
                 ).sort_values("Nombre")
 
-                buf_ex_sel = io.BytesIO()
-                with pd.ExcelWriter(buf_ex_sel, engine='xlsxwriter') as wr:
-                    pd.DataFrame([row]).to_excel(wr, index=False, sheet_name='Resumen EE')
-                    lista_full.drop(columns=[COL_ID_ALUMNO]).to_excel(wr, index=False, sheet_name='Listado Egresados')
-                    df_ingresantes.to_excel(wr, index=False, sheet_name='Ingresantes')
+                # Generación de Excel institucional estilizado
+                excel_bytes_sel = generar_excel_estilizado(
+                    {
+                        "Resumen EE": pd.DataFrame([row]),
+                        "Listado Egresados": lista_full.drop(columns=[COL_ID_ALUMNO]),
+                        "Ingresantes": df_ingresantes,
+                    },
+                    titulo=f"EFICIENCIA DE EGRESO - COHORTE {cohorte_sel}",
+                    subtitulo=f"Cohorte: {cohorte_sel} · Indicador de Eficiencia de Egreso",
+                )
             else:
                 st.warning("No se registraron egresados en esta cohorte para el periodo analizado.")
                 # Reporte PDF y Excel para la cohorte (solo resumen ya que no hay listado de egresados)
@@ -324,15 +333,19 @@ def render():
                     columns={COL_NOMBRE: "Nombre", COL_CATRACA: "Número de Matrícula"}
                 ).sort_values("Nombre")
 
-                buf_ex_sel = io.BytesIO()
-                with pd.ExcelWriter(buf_ex_sel, engine='xlsxwriter') as wr:
-                    pd.DataFrame([row]).to_excel(wr, index=False, sheet_name='Resumen EE')
-                    df_ingresantes.to_excel(wr, index=False, sheet_name='Ingresantes')
+                excel_bytes_sel = generar_excel_estilizado(
+                    {
+                        "Resumen EE": pd.DataFrame([row]),
+                        "Ingresantes": df_ingresantes,
+                    },
+                    titulo=f"EFICIENCIA DE EGRESO - COHORTE {cohorte_sel}",
+                    subtitulo=f"Cohorte: {cohorte_sel} · Indicador de Eficiencia de Egreso",
+                )
             
             # Botões de download aparecem sempre
             c3, c4 = st.columns(2)
             c3.download_button("Descargar Reporte (PDF)", data=pdf_sel, file_name=f"Reporte_EE_{cohorte_sel}.pdf", mime="application/pdf", key="pdf_ee_sel", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia de Egreso", "PDF"))
-            c4.download_button("Descargar Datos (Excel)", data=buf_ex_sel.getvalue(), file_name=f"Datos_EE_{cohorte_sel}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="excel_ee_sel", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia de Egreso", "Excel"))
+            c4.download_button("Descargar Datos (Excel)", data=excel_bytes_sel, file_name=f"Datos_EE_{cohorte_sel}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="excel_ee_sel", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia de Egreso", "Excel"))
 
     st.divider()
     with st.expander("¿Cómo se calcula la Eficiencia de Egreso?", icon=":material/functions:"):

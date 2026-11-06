@@ -7,6 +7,7 @@ import unicodedata
 from datetime import datetime, timedelta
 from utils import db_pia
 from utils.system_logging import log_exception
+from utils.excel_export import generar_excel_estilizado
 from utils.ui import (
     COLOR_ATENCION,
     COLOR_BUENO,
@@ -382,39 +383,20 @@ def render():
     # 1. Gerar PDF
     dados_pdf = gerar_pdf_tras(df_display, cohorte_sel)
 
-    # 2. Gerar Excel (Formatado)
-    buffer_excel = io.BytesIO()
-    try:
-        with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
-            
-            # Formata Semestre antes de exportar
-            df_export = df_display.copy()
-            if "Semestre_Fmt" in df_export.columns:
-                 df_export["Semestre"] = df_export["Semestre_Fmt"]
-                 df_export = df_export.drop(columns=["Semestre_Fmt"])
-            else:
-                 df_export["Semestre"] = df_export["Semestre"].apply(lambda x: f"{int(x)}º Semestre")
-            
-            df_export.to_excel(writer, index=False, sheet_name='TRAS')
-            workbook = writer.book
-            worksheet = writer.sheets['TRAS']
-            
-            num_fmt = workbook.add_format({'num_format': '0.00'})
-            
-            for i, col in enumerate(df_export.columns):
-                max_len = max(df_export[col].astype(str).map(len).max(), len(col)) + 2
-                if col == "Promedio (TRAS)":
-                    worksheet.set_column(i, i, max_len, num_fmt)
-                else:
-                    worksheet.set_column(i, i, max_len)
-    except Exception as exc:
-        log_exception("No se pudo generar Excel con xlsxwriter en rendimiento por semestre", exc)
-        with pd.ExcelWriter(buffer_excel) as writer:
-             df_export = df_display.copy()
-             df_export["Semestre"] = df_export["Semestre"].apply(lambda x: f"{int(x)}º Semestre")
-             df_export.to_excel(writer, index=False, sheet_name='TRAS')
+    # Formata Semestre antes de exportar
+    df_export = df_display.copy()
+    if "Semestre_Fmt" in df_export.columns:
+        df_export["Semestre"] = df_export["Semestre_Fmt"]
+        df_export = df_export.drop(columns=["Semestre_Fmt"])
+    else:
+        df_export["Semestre"] = df_export["Semestre"].apply(lambda x: f"{int(x)}º Semestre")
 
-    dados_excel = buffer_excel.getvalue()
+    dados_excel = generar_excel_estilizado(
+        df_export,
+        titulo=f"RENDIMIENTO ACADÉMICO POR SEMESTRE - COHORTE {cohorte_sel}",
+        subtitulo=f"Cohorte: {cohorte_sel} · Rendimiento Académico por Semestre (TRAS)",
+        nombre_hoja_default="TRAS",
+    )
 
     # 3. Botões
     st.divider()

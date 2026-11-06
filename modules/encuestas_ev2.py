@@ -28,6 +28,7 @@ import unicodedata
 
 import pandas as pd
 import streamlit as st
+from utils.excel_export import generar_excel_estilizado
 
 from services.data.encuestas import (
     get_encuesta_nombre,
@@ -541,78 +542,14 @@ def _puntaje_oferta_deterministico_ev2(docente: str, materia: str, seccion: str,
 
 @st.cache_data(show_spinner=False, max_entries=16, ttl=600)
 def _generar_excel_ev2(df_exportar: pd.DataFrame, nombre_hoja: str = "EV2_Datos") -> bytes:
-    """Genera un archivo Excel (.xlsx) con diseño corporativo UCP:
-    encabezado azul marino con filtro automático, filas cebradas y ajuste automático de ancho y alto."""
-    buffer = io.BytesIO()
+    """Genera un archivo Excel (.xlsx) con el diseño institucional estilizado del Portal de Indicadores."""
     hoja = nombre_hoja[:31] if nombre_hoja else "EV2_Datos"
-    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-        df_exportar.to_excel(writer, index=False, sheet_name=hoja)
-        workbook = writer.book
-        worksheet = writer.sheets[hoja]
-
-        fmt_encabezado = workbook.add_format({
-            "bold": True,
-            "font_name": "Segoe UI",
-            "font_size": 10,
-            "font_color": "#FFFFFF",
-            "bg_color": "#12263F",
-            "border": 1,
-            "border_color": "#CBD5E1",
-            "align": "center",
-            "valign": "vcenter",
-            "text_wrap": True,
-        })
-        fmt_fila_par = workbook.add_format({
-            "font_name": "Segoe UI",
-            "font_size": 10,
-            "font_color": "#17243A",
-            "bg_color": "#FFFFFF",
-            "border": 1,
-            "border_color": "#E2E8F0",
-            "valign": "vcenter",
-            "text_wrap": True,
-        })
-        fmt_fila_impar = workbook.add_format({
-            "font_name": "Segoe UI",
-            "font_size": 10,
-            "font_color": "#17243A",
-            "bg_color": "#F3F6FA",
-            "border": 1,
-            "border_color": "#E2E8F0",
-            "valign": "vcenter",
-            "text_wrap": True,
-        })
-
-        n_filas, n_cols = df_exportar.shape
-        worksheet.set_row(0, 28)
-        for col_idx, col_name in enumerate(df_exportar.columns):
-            worksheet.write(0, col_idx, str(col_name), fmt_encabezado)
-
-        anchos = [max(len(str(c)) + 5, 12) for c in df_exportar.columns]
-        for row_idx in range(n_filas):
-            formato_actual = fmt_fila_impar if row_idx % 2 == 1 else fmt_fila_par
-            fila_serie = df_exportar.iloc[row_idx]
-            max_lineas = 1
-            for col_idx, valor in enumerate(fila_serie):
-                texto_celda = "" if pd.isna(valor) else str(valor)
-                largo_texto = len(texto_celda)
-                if largo_texto + 4 > anchos[col_idx]:
-                    anchos[col_idx] = min(largo_texto + 4, 58)
-                ancho_ref = max(anchos[col_idx], 15)
-                lineas_est = max(1, (largo_texto // ancho_ref) + 1)
-                if lineas_est > max_lineas:
-                    max_lineas = lineas_est
-                worksheet.write(row_idx + 1, col_idx, texto_celda if not isinstance(valor, (int, float)) or pd.isna(valor) else valor, formato_actual)
-            worksheet.set_row(row_idx + 1, min(max(20, max_lineas * 16), 95))
-
-        for col_idx, ancho in enumerate(anchos):
-            worksheet.set_column(col_idx, col_idx, min(max(ancho, 12), 58))
-
-        if n_filas > 0 and n_cols > 0:
-            worksheet.autofilter(0, 0, n_filas, n_cols - 1)
-            worksheet.freeze_panes(1, 0)
-
-    return buffer.getvalue()
+    return generar_excel_estilizado(
+        df_exportar,
+        titulo="EVALUACIÓN DOCENTE EV2 - AUTOEVALUACIÓN",
+        subtitulo=f"Reporte Institucional de Autoevaluación Docente · Hoja: {hoja}",
+        nombre_hoja_default=hoja,
+    )
 
 
 def _render_botones_descarga_ev2(df_exportar: pd.DataFrame, prefijo_archivo: str, clave_unica: str):

@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 from utils import db_pia
 from utils.system_logging import log_exception
+from utils.excel_export import generar_excel_estilizado
 from utils.ui import (
     selector_vista,
     COLOR_ATENCION,
@@ -187,11 +188,15 @@ def render():
         pdf_data = gerar_pdf_tme(tme_resumen)
         c1.download_button("Descargar Reporte (PDF)", data=pdf_data, file_name="Reporte_TME_Global.pdf", mime="application/pdf", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Tiempos Medios de Egreso", "PDF"))
         
-        buf_ex = io.BytesIO()
-        with pd.ExcelWriter(buf_ex, engine='xlsxwriter') as wr:
-            tme_resumen.to_excel(wr, index=False, sheet_name='TME Global')
-            egresados_df[[COL_COHORTE, COL_NOMBRE, COL_CATRACA, "Semestres"]].to_excel(wr, index=False, sheet_name='Detalle Egresados')
-        c2.download_button("Descargar Datos (Excel)", data=buf_ex.getvalue(), file_name="Datos_TME_Global.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Tiempos Medios de Egreso", "Excel"))
+        excel_bytes_tme = generar_excel_estilizado(
+            {
+                "TME Global": tme_resumen,
+                "Detalle Egresados": egresados_df[[COL_COHORTE, COL_NOMBRE, COL_CATRACA, "Semestres"]],
+            },
+            titulo="TIEMPOS MEDIOS DE EGRESO (TME) - REPORTE INSTITUCIONAL",
+            subtitulo="Reporte Global de Tiempos Medios de Egreso por Cohorte",
+        )
+        c2.download_button("Descargar Datos (Excel)", data=excel_bytes_tme, file_name="Datos_TME_Global.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Tiempos Medios de Egreso", "Excel"))
 
     if vista == 'Detalle por Cohorte':
         coh_list = opciones_cohorte(tme_resumen[COL_COHORTE].unique())

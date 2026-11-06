@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import io
 from utils import db_pia
+from utils.excel_export import generar_excel_estilizado
 from utils.ui import (
     selector_vista,
     COLOR_ATENCION,
@@ -177,10 +178,11 @@ def render():
 
         # Excel Export
         st.divider()
-        excel_buffer = io.BytesIO()
-        with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
-            df_view.to_excel(writer, index=False, sheet_name='Resumen')
-        excel_bytes = excel_buffer.getvalue()
+        excel_bytes = generar_excel_estilizado(
+            df_view,
+            titulo="REPORTE - RESUMEN ACADÉMICO",
+            nombre_hoja_default="Resumen",
+        )
         
         st.download_button("Descargar Datos (Excel)", data=excel_bytes, file_name=f"Resumen_Academico.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Resumen Académico", "Excel"))
 
@@ -216,10 +218,13 @@ def render():
 
             # Excel Export
             st.divider()
-            excel_buffer_2 = io.BytesIO()
-            with pd.ExcelWriter(excel_buffer_2, engine='xlsxwriter') as writer:
-                df_detalle.to_excel(writer, index=False, sheet_name='Listado')
-            excel_bytes_2 = excel_buffer_2.getvalue()
+            filtros_tab2 = [f"Calificación: {', '.join(str(c) for c in calificacion_sel)}"] if calificacion_sel else None
+            excel_bytes_2 = generar_excel_estilizado(
+                df_detalle,
+                titulo="REPORTE DETALLADO - LISTADO DE ALUMNOS",
+                filtros=filtros_tab2,
+                nombre_hoja_default="Listado de Alumnos",
+            )
 
             st.download_button("Descargar Datos (Excel)", data=excel_bytes_2, file_name=f"Listado_Alumnos.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", key="btn_xls_tab2", on_click=db_pia.log_export_callback, args=("Resumen Académico - Listado de Alumnos", "Excel"))
 

@@ -166,66 +166,69 @@ def page_login():
         f'<img src="data:image/png;base64,{logo_data}" width="220" style="margin-bottom: 20px;">'
         if logo_data else ""
     )
-    st.markdown(
-        f"""
-        <div style="text-align: center; margin-top: 30px; margin-bottom: 30px;">
-            {logo_html}
-            <h1 style="color: #003366; font-size: 42px; margin-bottom: 10px; font-weight: 700;">
-                Portal de Indicadores Académicos
-            </h1>
-        </div>
-        """, unsafe_allow_html=True
-    )
-    col1, col2, col3 = st.columns([1.2, 1.4, 1.2])
-    with col2:
-        with st.form("login_form"):
-            email = st.text_input("Correo Electrónico")
-            password = st.text_input("Contraseña", type="password")
-            submitted = st.form_submit_button("Entrar", use_container_width=True)
-            if submitted:
-                user_data = db_pia.authenticate_user(email, password)
-                if user_data:
-                    db_pia.log_audit_event(
-                        "login_success",
-                        target_usuario_id=user_data["id"],
-                        actor_usuario_id=user_data["id"],
-                        detalle={"email": email},
-                    )
-                    st.session_state.user = user_data
-                    st.session_state.rol = user_data['rol']
-                    st.session_state.user_id = user_data['id']
-                    st.session_state.permisos = db_pia.get_user_permissions(user_data['id'])
-
-                    # Guardar cookie tanto en JavaScript nativo como en el gestor de cookies (duración 3 horas)
-                    st.components.v1.html(
-                        f"""
-                        <script>
-                        document.cookie = "pia_uid={user_data['id']}; path=/; max-age=10800; SameSite=Lax";
-                        </script>
-                        """,
-                        height=0,
-                        width=0,
-                    )
-                    try:
-                        cookie_manager.set(
-                            "pia_uid",
-                            str(user_data['id']),
-                            key="set_cookie_login",
-                            path="/",
-                            same_site="lax",
-                            expires_at=datetime.now() + timedelta(hours=3),
+    login_container = st.empty()
+    with login_container.container():
+        st.markdown(
+            f"""
+            <div style="text-align: center; margin-top: 30px; margin-bottom: 30px;">
+                {logo_html}
+                <h1 style="color: #003366; font-size: 42px; margin-bottom: 10px; font-weight: 700;">
+                    Portal de Indicadores Académicos
+                </h1>
+            </div>
+            """, unsafe_allow_html=True
+        )
+        col1, col2, col3 = st.columns([1.2, 1.4, 1.2])
+        with col2:
+            with st.form("login_form"):
+                email = st.text_input("Correo Electrónico")
+                password = st.text_input("Contraseña", type="password")
+                submitted = st.form_submit_button("Entrar", use_container_width=True)
+                if submitted:
+                    user_data = db_pia.authenticate_user(email, password)
+                    if user_data:
+                        db_pia.log_audit_event(
+                            "login_success",
+                            target_usuario_id=user_data["id"],
+                            actor_usuario_id=user_data["id"],
+                            detalle={"email": email},
                         )
-                    except Exception as exc:
-                        log_exception("No se pudo guardar la cookie de login", exc)
+                        st.session_state.user = user_data
+                        st.session_state.rol = user_data['rol']
+                        st.session_state.user_id = user_data['id']
+                        st.session_state.permisos = db_pia.get_user_permissions(user_data['id'])
 
-                    st.rerun()
-                else:
-                    db_pia.log_audit_event(
-                        "login_failed",
-                        detalle={"email": email},
-                        actor_usuario_id=None,
-                    )
-                    st.error("Credenciales incorrectas o cuenta inactiva.")
+                        # Guardar cookie tanto en JavaScript nativo como en el gestor de cookies (duración 3 horas)
+                        st.components.v1.html(
+                            f"""
+                            <script>
+                            document.cookie = "pia_uid={user_data['id']}; path=/; max-age=10800; SameSite=Lax";
+                            </script>
+                            """,
+                            height=0,
+                            width=0,
+                        )
+                        try:
+                            cookie_manager.set(
+                                "pia_uid",
+                                str(user_data['id']),
+                                key="set_cookie_login",
+                                path="/",
+                                same_site="lax",
+                                expires_at=datetime.now() + timedelta(hours=3),
+                            )
+                        except Exception as exc:
+                            log_exception("No se pudo guardar la cookie de login", exc)
+
+                        login_container.empty()
+                        st.switch_page(p_home)
+                    else:
+                        db_pia.log_audit_event(
+                            "login_failed",
+                            detalle={"email": email},
+                            actor_usuario_id=None,
+                        )
+                        st.error("Credenciales incorrectas o cuenta inactiva.")
 
 
 # -------------------------------

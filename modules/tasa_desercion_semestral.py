@@ -19,6 +19,7 @@ from utils.ui import (
     render_titulo_seccion,
 )
 from utils.system_logging import log_exception
+from utils.excel_export import generar_excel_estilizado
 from services.data.alumnos import load_current_alumnos
 from services.calculations.tasa_desercion import (
     COL_COHORTE,
@@ -154,9 +155,13 @@ def render():
                 pdf_data = gerar_pdf_tdsc(df_tdsc, cohorte_sel)
                 st.download_button("Descargar Reporte (PDF)", pdf_data, f"TDSC_{cohorte_sel}.pdf", "application/pdf", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Tasa de Deserción Semestral", "PDF"))
             with c_xls:
-                buffer_xls = io.BytesIO()
-                df_tdsc.to_excel(buffer_xls, index=False)
-                st.download_button("Descargar Datos (Excel)", buffer_xls.getvalue(), f"TDSC_Datos_{cohorte_sel}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Tasa de Deserción Semestral", "Excel"))
+                excel_bytes_tdsc = generar_excel_estilizado(
+                    df_tdsc,
+                    titulo=f"TASA DE DESERCIÓN SEMESTRAL - COHORTE {cohorte_sel}",
+                    subtitulo=f"Cohorte: {cohorte_sel} · Indicador de Deserción Semestral",
+                    nombre_hoja_default="TDSC",
+                )
+                st.download_button("Descargar Datos (Excel)", excel_bytes_tdsc, f"TDSC_Datos_{cohorte_sel}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Tasa de Deserción Semestral", "Excel"))
 
     # -------------------------------------------------------------------------
     # METODOLOGÍA (FINAL)

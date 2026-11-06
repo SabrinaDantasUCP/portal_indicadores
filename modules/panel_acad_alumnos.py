@@ -333,10 +333,94 @@ def _matriz_html(matriz, period_summary):
 def _generate_excel_bytes(_period_summary, _matriz, _alumnos_list, version_tag=""):
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-        _period_summary[["Periodo", "Alumnos"]].to_excel(writer, index=False, sheet_name="Por Periodo")
-
-        # Hoja "Matriz" con el mismo formato (colores por cohorte) que el consolidado.
         libro = writer.book
+
+        # Formatos institucionales
+        fmt_cabecera = libro.add_format({
+            "bold": True,
+            "font_size": 10,
+            "font_color": "#FFFFFF",
+            "bg_color": "#1B365D",
+            "align": "center",
+            "valign": "vcenter",
+            "border": 1,
+            "border_color": "#334E68",
+            "font_name": "Calibri",
+        })
+        fmt_cebra_blanco = libro.add_format({
+            "bg_color": "#FFFFFF",
+            "border": 1,
+            "border_color": "#E2E8F0",
+            "font_name": "Calibri",
+            "font_size": 10,
+            "valign": "vcenter",
+        })
+        fmt_cebra_color = libro.add_format({
+            "bg_color": "#F8FAFC",
+            "border": 1,
+            "border_color": "#E2E8F0",
+            "font_name": "Calibri",
+            "font_size": 10,
+            "valign": "vcenter",
+        })
+        fmt_centro_blanco = libro.add_format({
+            "bg_color": "#FFFFFF",
+            "border": 1,
+            "border_color": "#E2E8F0",
+            "font_name": "Calibri",
+            "font_size": 10,
+            "valign": "vcenter",
+            "align": "center",
+        })
+        fmt_centro_color = libro.add_format({
+            "bg_color": "#F8FAFC",
+            "border": 1,
+            "border_color": "#E2E8F0",
+            "font_name": "Calibri",
+            "font_size": 10,
+            "valign": "vcenter",
+            "align": "center",
+        })
+        fmt_num_blanco = libro.add_format({
+            "bg_color": "#FFFFFF",
+            "border": 1,
+            "border_color": "#E2E8F0",
+            "font_name": "Calibri",
+            "font_size": 10,
+            "valign": "vcenter",
+            "align": "right",
+            "num_format": "#,##0",
+        })
+        fmt_num_color = libro.add_format({
+            "bg_color": "#F8FAFC",
+            "border": 1,
+            "border_color": "#E2E8F0",
+            "font_name": "Calibri",
+            "font_size": 10,
+            "valign": "vcenter",
+            "align": "right",
+            "num_format": "#,##0",
+        })
+
+        # 1. Hoja "Por Periodo" estilizada
+        hoja_p = libro.add_worksheet("Por Periodo")
+        hoja_p.set_landscape()
+        df_p = _period_summary[["Periodo", "Alumnos"]].copy()
+        hoja_p.write(0, 0, "Periodo", fmt_cabecera)
+        hoja_p.write(0, 1, "Alumnos", fmt_cabecera)
+        hoja_p.set_row(0, 24)
+        for r_idx, (_, fila) in enumerate(df_p.iterrows(), start=1):
+            f_cen = fmt_centro_color if r_idx % 2 == 0 else fmt_centro_blanco
+            f_num = fmt_num_color if r_idx % 2 == 0 else fmt_num_blanco
+            hoja_p.write(r_idx, 0, str(fila["Periodo"]), f_cen)
+            hoja_p.write(r_idx, 1, int(fila["Alumnos"]), f_num)
+            hoja_p.set_row(r_idx, 19)
+        hoja_p.set_column(0, 0, 16)
+        hoja_p.set_column(1, 1, 16)
+        hoja_p.autofilter(0, 0, len(df_p), 1)
+        hoja_p.freeze_panes(1, 0)
+
+        # 2. Hoja "Matriz" con formato por cohorte
         hoja = libro.add_worksheet("Matriz")
         base = {"border": 1, "border_color": "#FFFFFF", "align": "center"}
         f_cab = libro.add_format({**base, "bold": True, "bg_color": COLOR_CABECERA_MATRIZ})
@@ -362,8 +446,29 @@ def _generate_excel_bytes(_period_summary, _matriz, _alumnos_list, version_tag="
             hoja.write(fila_total, j, int(valor), f_tot)
         hoja.set_column(0, len(_matriz.columns), 10)
 
+        # 3. Hoja "Listado" estilizada
         cols_export_list = [c for c in ["Número de Matrícula", "Nombre y Apellido", "Periodo", "Semestre"] if c in _alumnos_list.columns]
-        _alumnos_list[cols_export_list].to_excel(writer, index=False, sheet_name="Listado")
+        df_l = _alumnos_list[cols_export_list].copy()
+        hoja_l = libro.add_worksheet("Listado")
+        hoja_l.set_landscape()
+        hoja_l.set_row(0, 24)
+        for c_idx, c_nom in enumerate(cols_export_list):
+            hoja_l.write(0, c_idx, c_nom, fmt_cabecera)
+        for r_idx, (_, fila) in enumerate(df_l.iterrows(), start=1):
+            f_txt = fmt_cebra_color if r_idx % 2 == 0 else fmt_cebra_blanco
+            f_cen = fmt_centro_color if r_idx % 2 == 0 else fmt_centro_blanco
+            hoja_l.set_row(r_idx, 19)
+            for c_idx, c_nom in enumerate(cols_export_list):
+                val = str(fila[c_nom]) if pd.notna(fila[c_nom]) else ""
+                fmt_usar = f_cen if c_nom in ("Número de Matrícula", "Periodo", "Semestre") else f_txt
+                hoja_l.write(r_idx, c_idx, val, fmt_usar)
+        hoja_l.set_column(0, 0, 22)
+        hoja_l.set_column(1, 1, 38)
+        hoja_l.set_column(2, 2, 14)
+        hoja_l.set_column(3, 3, 14)
+        hoja_l.autofilter(0, 0, len(df_l), len(cols_export_list) - 1)
+        hoja_l.freeze_panes(1, 0)
+
     return buffer.getvalue()
 
 

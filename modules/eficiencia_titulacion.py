@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 from utils import db_pia
 from utils.system_logging import log_exception
+from utils.excel_export import generar_excel_estilizado
 from utils.ui import (
     selector_vista,
     COLOR_ATENCION,
@@ -193,13 +194,16 @@ def render():
         }), width="stretch", hide_index=True)
         
         pdf_all = gerar_pdf_ete(df_ete)
-        buf_ex = io.BytesIO()
-        with pd.ExcelWriter(buf_ex, engine='xlsxwriter') as wr:
-            df_ete.to_excel(wr, index=False, sheet_name='ET Global')
+        excel_bytes_ete = generar_excel_estilizado(
+            df_ete,
+            titulo="EFICIENCIA DE TITULACIÓN - REPORTE GLOBAL",
+            subtitulo="Reporte Comparativo de Eficiencia de Titulación por Cohorte",
+            nombre_hoja_default="ETE Global",
+        )
         st.divider()
         c1, c2 = st.columns(2)
         c1.download_button("Descargar Reporte (PDF)", data=pdf_all, file_name="Reporte_ETE_Global.pdf", mime="application/pdf", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia de Titulación - Global", "PDF"))
-        c2.download_button("Descargar Datos (Excel)", data=buf_ex.getvalue(), file_name="Datos_ETE_Global.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia de Titulación - Global", "Excel"))
+        c2.download_button("Descargar Datos (Excel)", data=excel_bytes_ete, file_name="Datos_ETE_Global.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia de Titulación - Global", "Excel"))
 
     if vista == 'Detalle por Cohorte':
         cohorte_sel = st.selectbox("Seleccione una Cohorte", opciones_cohorte(df_ete["cohorte"]), index=None, placeholder="Seleccione una cohorte")
@@ -285,14 +289,18 @@ def render():
             
             st.divider()
             pdf_sel = gerar_pdf_ete(df_ete, cohorte_sel)
-            buf_ex_sel = io.BytesIO()
-            with pd.ExcelWriter(buf_ex_sel, engine='xlsxwriter') as wr:
-                pd.DataFrame([row]).to_excel(wr, index=False, sheet_name='Resumen ETE')
-                lista_view.drop(columns=[COL_ID_ALUMNO]).to_excel(wr, index=False, sheet_name='Listado Alumnos')
+            excel_bytes_ete_sel = generar_excel_estilizado(
+                {
+                    "Resumen ETE": pd.DataFrame([row]),
+                    "Listado Alumnos": lista_view.drop(columns=[COL_ID_ALUMNO]),
+                },
+                titulo=f"EFICIENCIA DE TITULACIÓN - COHORTE {cohorte_sel}",
+                subtitulo=f"Cohorte: {cohorte_sel} · Indicador de Eficiencia de Titulación",
+            )
             
             c3, c4 = st.columns(2)
             c3.download_button("Descargar Reporte (PDF)", data=pdf_sel, file_name=f"Reporte_ETE_{cohorte_sel}.pdf", mime="application/pdf", key="pdf_ete_sel", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia de Titulación", "PDF"))
-            c4.download_button("Descargar Datos (Excel)", data=buf_ex_sel.getvalue(), file_name=f"Datos_ETE_{cohorte_sel}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="excel_ete_sel", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia de Titulación", "Excel"))
+            c4.download_button("Descargar Datos (Excel)", data=excel_bytes_ete_sel, file_name=f"Datos_ETE_{cohorte_sel}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="excel_ete_sel", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia de Titulación", "Excel"))
 
     st.divider()
     with st.expander("¿Cómo se calcula la Eficiencia de Titulación?", icon=":material/functions:"):

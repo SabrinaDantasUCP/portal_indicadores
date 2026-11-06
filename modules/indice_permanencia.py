@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 import io
 import zlib
 from utils import db_pia
+from utils.excel_export import generar_excel_estilizado
 from services.data.permanencia import (
     VISTA_FECHA_CORTE,
     VISTA_VISION_GENERAL,
@@ -32,14 +33,13 @@ from services.calculations.permanencia import (
 
 @st.cache_data(show_spinner=False, max_entries=8, ttl=600)
 def excel_bytes(df, sheet_name="Datos"):
-    """Arma el Excel una sola vez por combinación de datos.
-
-    st.download_button exige los bytes por adelantado, así que sin cache el
-    archivo se generaba en cada rerun aunque nadie lo descargara.
-    """
-    buffer = io.BytesIO()
-    df.to_excel(buffer, index=False, sheet_name=sheet_name)
-    return buffer.getvalue()
+    """Arma el Excel con diseño institucional estilizado una sola vez por combinación de datos."""
+    return generar_excel_estilizado(
+        df,
+        titulo="ÍNDICE DE PERMANENCIA - LISTADO DE ALUMNOS",
+        subtitulo="Listado de estudiantes analizados en el Índice de Permanencia",
+        nombre_hoja_default=sheet_name,
+    )
 
 
 def render_common_setup():
