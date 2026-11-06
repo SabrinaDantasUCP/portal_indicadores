@@ -46,7 +46,7 @@ st.set_page_config(
     layout="wide"
 )
 # -------------------------------   
-# 1. SISTEMA DE IMPORTAÇÃO SEGURA
+# 1. SISTEMA DE IMPORTACIÓN SEGURA Y CARGA PEREZOSA (LAZY LOADING)
 # -------------------------------
 class ModulePlaceholder:
     def __init__(self, name):
@@ -56,15 +56,31 @@ class ModulePlaceholder:
         st.info("Este módulo está en desarrollo.")
 
 def safe_import_module(module_name):
-    """Tenta importar um módulo. Se falhar, retorna um Placeholder."""
+    """Intenta importar un módulo de forma segura. Si falla, retorna un ModulePlaceholder."""
     try:
         return importlib.import_module(f"modules.{module_name}")
     except ImportError as exc:
         log_exception(f"No se pudo importar el módulo {module_name}", exc)
         return ModulePlaceholder(module_name)
 
-# Carregamento dos Módulos declarados no catálogo de navegação
-MODULES = {module_name: safe_import_module(module_name) for module_name in all_module_names()}
+class LazyModulesDict(dict):
+    """Diccionario con carga perezosa (lazy loading) para los módulos del sistema.
+    Importa bajo demanda solo los módulos que el usuario realmente visita,
+    reduciendo drásticamente el tiempo de inicio y navegación en el portal.
+    """
+    def __getitem__(self, module_name):
+        if module_name not in self:
+            self[module_name] = safe_import_module(module_name)
+        return super().__getitem__(module_name)
+
+    def get(self, module_name, default=None):
+        try:
+            return self[module_name]
+        except Exception:
+            return default
+
+# Registro dinámico de módulos bajo demanda
+MODULES = LazyModulesDict()
 
 # -------------------------------
 # 2. FUNÇÕES DE PÁGINA (WRAPPERS)
@@ -213,28 +229,36 @@ p_login = st.Page(page_login, title="Iniciar sesión", url_path="login")
 # Chave = "Categoria:Botão" -> Valor = st.Page(...)
 ALL_PAGES = {}
 
-# Função auxiliar para criar e registrar páginas
-def create_page(module_obj, title, url_slug, category, custom_render=None):
-    # Cria uma função lambda para renderizar este módulo específico
+# Función auxiliar para crear y registrar páginas con carga diferida
+def create_page(module_name, title, url_slug, category, custom_render_name=None):
+    # Crea una función que importa el módulo únicamente al renderizar la página
     def page_func():
-        if custom_render:
-            custom_render()
+        module_obj = MODULES[module_name]
+        if custom_render_name:
+            custom_render = getattr(module_obj, custom_render_name, None)
+            if custom_render:
+                custom_render()
+            else:
+                st.warning(f"El módulo '{module_name}' no tiene la función '{custom_render_name}()'.")
         else:
             render_page(module_obj)
     
-    # Cria la página
+    # Crea la página
     page = st.Page(page_func, title=title, url_path=url_slug)
     
-    # Registra no dicionário global usando a chave composta
+    # Registra en el diccionario global usando la clave compuesta
     key = page_key(category, title)
     ALL_PAGES[key] = page
     return page
 
 def register_page_from_config(category, page_config):
-    module_obj = MODULES[page_config["module"]]
-    custom_render_name = page_config.get("custom_render")
-    custom_render = getattr(module_obj, custom_render_name) if custom_render_name else None
-    return create_page(module_obj, page_config["title"], page_config["slug"], category, custom_render=custom_render)
+    return create_page(
+        page_config["module"],
+        page_config["title"],
+        page_config["slug"],
+        category,
+        custom_render_name=page_config.get("custom_render"),
+    )
 
 
 # --- REGISTRO DAS PÁGINAS ---

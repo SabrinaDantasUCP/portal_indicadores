@@ -330,10 +330,10 @@ def _matriz_html(matriz, period_summary):
 
 
 @st.cache_data(show_spinner="Generando Excel...")
-def _generate_excel_bytes(period_summary, matriz, alumnos_list):
+def _generate_excel_bytes(_period_summary, _matriz, _alumnos_list, version_tag=""):
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-        period_summary[["Periodo", "Alumnos"]].to_excel(writer, index=False, sheet_name="Por Periodo")
+        _period_summary[["Periodo", "Alumnos"]].to_excel(writer, index=False, sheet_name="Por Periodo")
 
         # Hoja "Matriz" con el mismo formato (colores por cohorte) que el consolidado.
         libro = writer.book
@@ -344,26 +344,26 @@ def _generate_excel_bytes(period_summary, matriz, alumnos_list):
         f_tot = libro.add_format({**base, "bold": True, "bg_color": COLOR_TOTAL_MATRIZ, "num_format": "#,##0"})
         f_cero = libro.add_format({**base, "font_color": "#BFBFBF"})
         f_color = {c: libro.add_format({**base, "bg_color": c, "num_format": "#,##0"}) for c in COLORES_COHORTE}
-        sub_por_periodo = dict(zip(period_summary["Periodo"], zip(period_summary[COL_PERIODO], period_summary[COL_SUBPERIODO])))
+        sub_por_periodo = dict(zip(_period_summary["Periodo"], zip(_period_summary[COL_PERIODO], _period_summary[COL_SUBPERIODO])))
 
         hoja.write(0, 0, "Semestre", f_cab)
-        for j, periodo in enumerate(matriz.columns, start=1):
+        for j, periodo in enumerate(_matriz.columns, start=1):
             hoja.write(0, j, periodo, f_cab)
-        for i, (semestre, fila) in enumerate(matriz.iterrows(), start=1):
+        for i, (semestre, fila) in enumerate(_matriz.iterrows(), start=1):
             hoja.write(i, 0, semestre, f_sem)
             for j, (periodo, valor) in enumerate(fila.items(), start=1):
                 if valor:
                     hoja.write(i, j, int(valor), f_color[_color_cohorte(*sub_por_periodo[periodo], semestre)])
                 else:
                     hoja.write(i, j, 0, f_cero)
-        fila_total = len(matriz) + 1
+        fila_total = len(_matriz) + 1
         hoja.write(fila_total, 0, "TOTAL", f_tot)
-        for j, valor in enumerate(period_summary["Alumnos"], start=1):
+        for j, valor in enumerate(_period_summary["Alumnos"], start=1):
             hoja.write(fila_total, j, int(valor), f_tot)
-        hoja.set_column(0, len(matriz.columns), 10)
+        hoja.set_column(0, len(_matriz.columns), 10)
 
-        cols_export_list = [c for c in ["Número de Matrícula", "Nombre y Apellido", "Periodo", "Semestre"] if c in alumnos_list.columns]
-        alumnos_list[cols_export_list].to_excel(writer, index=False, sheet_name="Listado")
+        cols_export_list = [c for c in ["Número de Matrícula", "Nombre y Apellido", "Periodo", "Semestre"] if c in _alumnos_list.columns]
+        _alumnos_list[cols_export_list].to_excel(writer, index=False, sheet_name="Listado")
     return buffer.getvalue()
 
 
@@ -714,7 +714,10 @@ def render():
     st.divider()
     if vista == vistas[0]:
         cols_export_list = [c for c in ["Número de Matrícula", "Nombre y Apellido", "Periodo", "Semestre"] if c in alumnos_list.columns]
-        excel_bytes = _generate_excel_bytes(period_summary, matriz, alumnos_list[cols_export_list])
+        tag_vistas = f"{get_current_version()}_{len(df_completo)}"
+        excel_bytes = _generate_excel_bytes(
+            period_summary, matriz, alumnos_list[cols_export_list], version_tag=tag_vistas
+        )
         st.download_button(
             "Descargar datos (Excel: por periodo, matriz y listado)",
             data=excel_bytes,

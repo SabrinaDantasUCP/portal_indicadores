@@ -1,6 +1,7 @@
 import os
 
 import pandas as pd
+import pyarrow.parquet as pq
 import streamlit as st
 
 from utils import data_config, db_pia
@@ -55,9 +56,11 @@ def _dataset_parquet_path(dataset_name):
     return f"{DATASETS_DIR}/{dataset_name}.parquet"
 
 
-@st.cache_data(ttl=30, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def _construir_registro_cached():
-    """Construye y cachea el diccionario de configuración de encuestas y las rutas de parquets."""
+    """Construye y cachea el diccionario de configuración de encuestas y las rutas de parquets.
+    El TTL de 1 hora evita reconectar a MySQL en cada rerun. Se invalida explícitamente
+    al guardar cambios desde el panel de administración."""
     registro = {}
     rutas_global = {}
     rutas_v1 = {}
@@ -119,6 +122,11 @@ def _construir_registro():
     for ds_name, ds_path in rutas_v2.items():
         data_config.DATASETS.setdefault("indicadores_v2", {})[ds_name] = ds_path
     return registro
+
+
+def invalidar_cache_encuestas():
+    """Limpia la caché en memoria de configuración de encuestas para sincronizar cambios del admin."""
+    _construir_registro_cached.clear()
 
 
 COLUMNAS_DETALLE = [
@@ -303,10 +311,49 @@ def load_encuestas_raw(sede, periodo, carrera, tipo):
     return _read_encuestas_parquet(dataset_name, scope, mtime)
 
 
+@st.cache_data(show_spinner=False)
+def _read_encuestas_metadata_fast(dataset_name, scope, mtime):
+    """Lee únicamente la fila inicial de metadatos (vigencia, semestres_habilitados) usando pyarrow.
+    Acelera drásticamente la carga de selectores de encuestas al no cargar millones de registros a pandas."""
+    try:
+        path = get_data_path(dataset_name, scope)
+        if not os.path.exists(path):
+            return None, None
+        pf = pq.ParquetFile(path)
+        schema_names = set(pf.schema.names)
+        cols = [c for c in ["vigencia", "semestres_habilitados"] if c in schema_names]
+        if not cols:
+            return None, None
+        tbl = pf.read_row_group(0, columns=cols)
+        if tbl.num_rows == 0:
+            return None, None
+        df_row = tbl.slice(0, 1).to_pandas()
+        fila = df_row.iloc[0]
+        vigencia = fila.get("vigencia")
+        semestres_habilitados = fila.get("semestres_habilitados")
+        return (
+            vigencia if _valor_valido_metadata(vigencia) else None,
+            semestres_habilitados if _valor_valido_metadata(semestres_habilitados) else None,
+        )
+    except Exception as exc:
+        log_exception(f"No se pudieron leer metadatos de forma rápida para {dataset_name}", exc)
+        return None, None
+
+
 def load_encuestas_metadata(sede, periodo, carrera, tipo):
-    """(vigencia, semestres_habilitados) tal como vienen en el CSV/parquet de
-    origen (columnas "vigencia" y "semestres_habilitados"), no hardcodeados
-    en ENCUESTAS_DATASETS, para que reflejen siempre el dato real cargado."""
+    """(vigencia, semestres_habilitados) tal como vienen en el parquet de
+    origen (columnas "vigencia" y "semestres_habilitados"), con lectura columnar optimizada."""
+    try:
+        dataset_name = get_encuestas_dataset(sede, periodo, carrera, tipo)
+        scope = get_encuesta_scope(sede, periodo, carrera, tipo)
+    except KeyError:
+        return None, None
+    mtime = data_file_mtime(dataset_name, scope)
+    vigencia, semestres = _read_encuestas_metadata_fast(dataset_name, scope, mtime)
+    if vigencia is not None or semestres is not None:
+        return vigencia, semestres
+
+    # Fallback de respaldo usando carga regular
     df = load_encuestas_raw(sede, periodo, carrera, tipo)
     if df.empty:
         return None, None
