@@ -307,6 +307,12 @@ def main():
 
     if "user" not in st.session_state:
         st.session_state.user = None
+    if "permisos" not in st.session_state:
+        st.session_state.permisos = []
+    if "rol" not in st.session_state:
+        st.session_state.rol = None
+    if "user_id" not in st.session_state:
+        st.session_state.user_id = None
 
     # --- Lógica de Auto-Login por Cookies (Inmediata y Componente) ---
     if st.session_state.user is None:
@@ -564,7 +570,7 @@ def main():
             if clicked and target_page is not None:
                 st.switch_page(target_page)
 
-        user_perms = set(st.session_state.permisos or [])
+        user_perms = set(st.session_state.get("permisos") or [])
 
         def has_indicator_permission(version, indicator):
             if st.session_state.rol != 'LEITURA':
