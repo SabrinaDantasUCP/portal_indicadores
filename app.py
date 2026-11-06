@@ -196,16 +196,29 @@ def page_login():
                     st.session_state.user_id = user_data['id']
                     st.session_state.permisos = db_pia.get_user_permissions(user_data['id'])
 
-                    # Guardar cookie para persistencia (expira en 3 horas)
+                    # Guardar cookie tanto en JavaScript nativo como en el gestor de cookies (duración 3 horas)
+                    st.components.v1.html(
+                        f"""
+                        <script>
+                        document.cookie = "pia_uid={user_data['id']}; path=/; max-age=10800; SameSite=Lax";
+                        </script>
+                        """,
+                        height=0,
+                        width=0,
+                    )
                     try:
-                        cookie_manager.set("pia_uid", str(user_data['id']), key="set_cookie_login", expires_at=datetime.now() + timedelta(hours=3))
+                        cookie_manager.set(
+                            "pia_uid",
+                            str(user_data['id']),
+                            key="set_cookie_login",
+                            path="/",
+                            same_site="lax",
+                            expires_at=datetime.now() + timedelta(hours=3),
+                        )
                     except Exception as exc:
                         log_exception("No se pudo guardar la cookie de login", exc)
 
-                    # Redirigir a la página que el usuario intentaba visitar o a inicio
-                    dest_page = st.session_state.pop("redirect_after_login", p_home)
-                    st.switch_page(dest_page)
-                    st.stop()
+                    st.rerun()
                 else:
                     db_pia.log_audit_event(
                         "login_failed",
@@ -311,29 +324,18 @@ def main():
                     st.session_state.rol = user_data['rol']
                     st.session_state.user_id = user_data['id']
                     st.session_state.permisos = db_pia.get_user_permissions(user_data['id'])
-                    st.rerun() 
         except Exception as exc:
             log_exception("Error durante auto-login por cookie", exc)
 
     # --- Control de rutas según la sesión ---
-    # El login es una página real (st.Page con url_path='login').
-    ruta_actual = getattr(pg, "url_path", "")
-    en_login = (ruta_actual == "login")
-
     if st.session_state.user is None:
-        # Sin sesión solo se permite la pantalla de login.
-        if not en_login:
-            # Preservar el módulo al que intentaba ingresar para redirigir tras autenticarse
-            st.session_state["redirect_after_login"] = pg
-            st.switch_page(p_login)
-            st.stop()
+        # Sin sesión activa: se muestra exclusivamente la pantalla de login (sin duplicados)
+        page_login()
+        st.stop()
 
-        # Si ya está en la ruta de login, pg.run() lo renderiza limpiamente (una sola vez)
-        pg.run()
-        return  # Bloquear la carga de la app real y de la barra lateral
-
-    # Con sesión activa, /login ya no tiene sentido: se vuelve al inicio.
-    if en_login:
+    # Con sesión activa, si el usuario navega a /login se le redirige al inicio
+    ruta_actual = getattr(pg, "url_path", "")
+    if ruta_actual == "login":
         st.switch_page(p_home)
         st.stop()
 
@@ -486,6 +488,15 @@ def main():
                         target_usuario_id=logout_user_id,
                         actor_usuario_id=logout_user_id,
                     )
+                st.components.v1.html(
+                    """
+                    <script>
+                    document.cookie = "pia_uid=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC; SameSite=Lax";
+                    </script>
+                    """,
+                    height=0,
+                    width=0,
+                )
                 try:
                     cookie_manager.delete("pia_uid", key="delete_cookie_logout")
                 except Exception as exc:
