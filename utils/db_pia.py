@@ -20,12 +20,14 @@ def get_connection(silent=False):
     pantalla: para lecturas opcionales que tienen un valor por defecto.
     """
     try:
+        timeout = int(os.getenv("MYSQL_TIMEOUT_PIA", "5"))
         connection = mysql.connector.connect(
             host=os.getenv("MYSQL_HOST_PIA", "localhost"),
             port=os.getenv("MYSQL_PORT_PIA", "3306"),
             user=os.getenv("MYSQL_USER_PIA", "root"),
             password=os.getenv("MYSQL_PASSWORD_PIA", ""),
-            database=os.getenv("MYSQL_DB_PIA", "sistema_relatorios")
+            database=os.getenv("MYSQL_DB_PIA", "sistema_relatorios"),
+            connection_timeout=timeout,
         )
         if connection.is_connected():
             return connection

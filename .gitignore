@@ -31,8 +31,12 @@ assets/data/
 desktop.ini
 Thumbs.db
 
-# --- Skills locales de OpenCode ---
-.opencode/skills/
+# --- Configuración local de OpenCode ---
+.opencode/
+
+# --- Configuración local de Claude Code ---
+CLAUDE.md
+.claude/
 
 # --- Temporários ---
 tmp_cols.json
@@ -46,3 +50,5 @@ informes/
 GEMINI.md
 iniciar_portal.bat
 *.html
+
+.atl/

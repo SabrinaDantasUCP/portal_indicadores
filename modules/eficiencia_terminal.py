@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 from utils import db_pia
 from utils.system_logging import log_exception
+from utils.excel_export import generar_excel_estilizado
 from utils.ui import (
     selector_vista,
     COLOR_PRIMARIO,
@@ -288,11 +289,13 @@ def render():
         c1, c2 = st.columns(2)
         pdf_bytes_all = gerar_pdf_et_comparativo(resumen_et)
         
-        # Excel
-        buffer_excel_all = io.BytesIO()
-        with pd.ExcelWriter(buffer_excel_all, engine='xlsxwriter') as writer:
-            resumen_et.to_excel(writer, index=False, sheet_name='ET Global')
-        excel_bytes_all = buffer_excel_all.getvalue()
+        # Generación de Excel institucional con diseño estilizado
+        excel_bytes_all = generar_excel_estilizado(
+            resumen_et,
+            titulo="EFICIENCIA TERMINAL - COMPARATIVO GLOBAL",
+            subtitulo="Reporte Comparativo de Eficiencia Terminal por Cohorte",
+            nombre_hoja_default="ET Global",
+        )
 
         with c1:
             st.download_button("Descargar Reporte (PDF)", data=pdf_bytes_all, file_name="Reporte_ET_Comparativo.pdf", mime="application/pdf", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Eficiencia Terminal - Comparativo", "PDF"))
@@ -372,21 +375,15 @@ def render():
             # Downloads tab 2
             pdf_bytes_sel = gerar_pdf_et(resumen_et, cohorte_sel, dados_sel['ET (%)'], dados_sel['EIIC'], dados_sel['ECE'])
             
-            buffer_excel_sel = io.BytesIO()
-            with pd.ExcelWriter(buffer_excel_sel, engine='xlsxwriter') as writer:
-                # Hoja de Resumen
-                pd.DataFrame([dados_sel]).to_excel(writer, index=False, sheet_name='Resumen ET')
-                # Hoja de Listado Detallado (Nueva)
-                lista_view.to_excel(writer, index=False, sheet_name='Listado Alumnos')
-                
-                # Formato básico
-                workbook = writer.book
-                ws_list = writer.sheets['Listado Alumnos']
-                ws_list.set_column(0, 0, 40) # Nombre
-                ws_list.set_column(1, 1, 20) # Número de Matrícula
-                ws_list.set_column(2, 2, 20) # Status
-                
-            excel_bytes_sel = buffer_excel_sel.getvalue()
+            # Generación de Excel institucional estilizado (Resumen y Listado de Alumnos)
+            excel_bytes_sel = generar_excel_estilizado(
+                {
+                    "Resumen ET": pd.DataFrame([dados_sel]),
+                    "Listado Alumnos": lista_view,
+                },
+                titulo=f"EFICIENCIA TERMINAL - COHORTE {cohorte_sel}",
+                subtitulo=f"Cohorte: {cohorte_sel} · Indicador de Eficiencia Terminal",
+            )
 
             c3, c4 = st.columns(2)
             with c3:

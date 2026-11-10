@@ -18,6 +18,7 @@ from utils.ui import (
     render_titulo_seccion,
 )
 from utils.system_logging import log_exception
+from utils.excel_export import generar_excel_estilizado
 from services.data.alumnos import load_current_alumnos
 from services.calculations.rendimiento_academico import (
     calculate_student_general_performance,
@@ -727,20 +728,12 @@ def render():
     }
     df_export = df_excel[list(colunas_desejadas.keys())].rename(columns=colunas_desejadas)
 
-    buffer_excel = io.BytesIO()
-    try:
-        with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
-            df_export.to_excel(writer, index=False, sheet_name='Rendimiento')
-            worksheet = writer.sheets['Rendimiento']
-            for i, col in enumerate(df_export.columns):
-                max_len = max(df_export[col].astype(str).map(len).max(), len(col)) + 2
-                worksheet.set_column(i, i, max_len)
-    except Exception as exc:
-        log_exception("No se pudo generar Excel con xlsxwriter en rendimiento por alumno", exc)
-        with pd.ExcelWriter(buffer_excel) as writer:
-            df_export.to_excel(writer, index=False, sheet_name='Rendimiento')
-            
-    dados_excel = buffer_excel.getvalue()
+    dados_excel = generar_excel_estilizado(
+        df_export,
+        titulo=f"HISTORIAL ACADÉMICO - {alumno_nome}",
+        subtitulo=f"Matrícula: {catraca_num} · Rendimiento Académico por Estudiante",
+        nombre_hoja_default="Rendimiento",
+    )
 
     # ------------------------------------------------------------
     # 🔘 Botões de Download

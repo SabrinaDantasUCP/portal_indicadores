@@ -4,7 +4,7 @@ import streamlit as st
 
 from utils import db_pia
 from utils.system_logging import log_exception
-from services.data.encuestas import SEDES
+from services.data.encuestas import SEDES, invalidar_cache_encuestas
 from services.etl.encuestas_etl import derivar_parametros_periodo
 from services.etl.encuesta_runner import ejecutar_config
 from services.etl import vpn_control
@@ -118,6 +118,7 @@ def modal_crear_config():
                     "encuesta_etl_config_created",
                     detalle={"config_id": config_id, "tipo": tipo, "sede": sede, "periodo": periodo, "carrera": carrera},
                 )
+                invalidar_cache_encuestas()
                 st.session_state.temp_msg_encuesta_etl = "Configuración creada exitosamente."
                 st.rerun()
             except Exception as e:
@@ -161,6 +162,7 @@ def modal_editar_config(cfg):
                     "encuesta_etl_config_updated",
                     detalle={"config_id": cfg["id"], "sede": sede, "periodo": periodo, "carrera": carrera},
                 )
+                invalidar_cache_encuestas()
                 st.session_state.temp_msg_encuesta_etl = "Configuración actualizada exitosamente."
                 st.rerun()
             except Exception as e:
@@ -260,6 +262,7 @@ def render_body():
                 )
                 if nuevo_estado != activo_actual:
                     db_pia.toggle_encuesta_etl_config_activo(cfg["id"], nuevo_estado)
+                    invalidar_cache_encuestas()
                     db_pia.log_audit_event(
                         "encuesta_etl_config_activo_changed",
                         detalle={"config_id": cfg["id"], "activo": nuevo_estado},

@@ -46,7 +46,7 @@ st.set_page_config(
     layout="wide"
 )
 # -------------------------------   
-# 1. SISTEMA DE IMPORTAÇÃO SEGURA
+# 1. SISTEMA DE IMPORTACIÓN SEGURA Y CARGA PEREZOSA (LAZY LOADING)
 # -------------------------------
 class ModulePlaceholder:
     def __init__(self, name):
@@ -56,15 +56,31 @@ class ModulePlaceholder:
         st.info("Este módulo está en desarrollo.")
 
 def safe_import_module(module_name):
-    """Tenta importar um módulo. Se falhar, retorna um Placeholder."""
+    """Intenta importar un módulo de forma segura. Si falla, retorna un ModulePlaceholder."""
     try:
         return importlib.import_module(f"modules.{module_name}")
     except ImportError as exc:
         log_exception(f"No se pudo importar el módulo {module_name}", exc)
         return ModulePlaceholder(module_name)
 
-# Carregamento dos Módulos declarados no catálogo de navegação
-MODULES = {module_name: safe_import_module(module_name) for module_name in all_module_names()}
+class LazyModulesDict(dict):
+    """Diccionario con carga perezosa (lazy loading) para los módulos del sistema.
+    Importa bajo demanda solo los módulos que el usuario realmente visita,
+    reduciendo drásticamente el tiempo de inicio y navegación en el portal.
+    """
+    def __getitem__(self, module_name):
+        if module_name not in self:
+            self[module_name] = safe_import_module(module_name)
+        return super().__getitem__(module_name)
+
+    def get(self, module_name, default=None):
+        try:
+            return self[module_name]
+        except Exception:
+            return default
+
+# Registro dinámico de módulos bajo demanda
+MODULES = LazyModulesDict()
 
 # -------------------------------
 # 2. FUNÇÕES DE PÁGINA (WRAPPERS)
@@ -150,50 +166,69 @@ def page_login():
         f'<img src="data:image/png;base64,{logo_data}" width="220" style="margin-bottom: 20px;">'
         if logo_data else ""
     )
-    st.markdown(
-        f"""
-        <div style="text-align: center; margin-top: 30px; margin-bottom: 30px;">
-            {logo_html}
-            <h1 style="color: #003366; font-size: 42px; margin-bottom: 10px; font-weight: 700;">
-                Portal de Indicadores Académicos
-            </h1>
-        </div>
-        """, unsafe_allow_html=True
-    )
-    col1, col2, col3 = st.columns([1.2, 1.4, 1.2])
-    with col2:
-        with st.form("login_form"):
-            email = st.text_input("Correo Electrónico")
-            password = st.text_input("Contraseña", type="password")
-            submitted = st.form_submit_button("Entrar", use_container_width=True)
-            if submitted:
-                user_data = db_pia.authenticate_user(email, password)
-                if user_data:
-                    db_pia.log_audit_event(
-                        "login_success",
-                        target_usuario_id=user_data["id"],
-                        actor_usuario_id=user_data["id"],
-                        detalle={"email": email},
-                    )
-                    st.session_state.user = user_data
-                    st.session_state.rol = user_data['rol']
-                    st.session_state.user_id = user_data['id']
-                    st.session_state.permisos = db_pia.get_user_permissions(user_data['id'])
+    login_container = st.empty()
+    with login_container.container():
+        st.markdown(
+            f"""
+            <div style="text-align: center; margin-top: 30px; margin-bottom: 30px;">
+                {logo_html}
+                <h1 style="color: #003366; font-size: 42px; margin-bottom: 10px; font-weight: 700;">
+                    Portal de Indicadores Académicos
+                </h1>
+            </div>
+            """, unsafe_allow_html=True
+        )
+        col1, col2, col3 = st.columns([1.2, 1.4, 1.2])
+        with col2:
+            with st.form("login_form"):
+                email = st.text_input("Correo Electrónico")
+                password = st.text_input("Contraseña", type="password")
+                submitted = st.form_submit_button("Entrar", use_container_width=True)
+                if submitted:
+                    user_data = db_pia.authenticate_user(email, password)
+                    if user_data:
+                        db_pia.log_audit_event(
+                            "login_success",
+                            target_usuario_id=user_data["id"],
+                            actor_usuario_id=user_data["id"],
+                            detalle={"email": email},
+                        )
+                        st.session_state.user = user_data
+                        st.session_state.rol = user_data['rol']
+                        st.session_state.user_id = user_data['id']
+                        st.session_state.permisos = db_pia.get_user_permissions(user_data['id'])
 
-                    # Guardar cookie para persistencia (expira en 3 horas)
-                    try:
-                        cookie_manager.set("pia_uid", str(user_data['id']), key="set_cookie_login", expires_at=datetime.now() + timedelta(hours=3))
-                    except Exception as exc:
-                        log_exception("No se pudo guardar la cookie de login", exc)
+                        # Guardar cookie tanto en JavaScript nativo como en el gestor de cookies (duración 3 horas)
+                        st.components.v1.html(
+                            f"""
+                            <script>
+                            document.cookie = "pia_uid={user_data['id']}; path=/; max-age=10800; SameSite=Lax";
+                            </script>
+                            """,
+                            height=0,
+                            width=0,
+                        )
+                        try:
+                            cookie_manager.set(
+                                "pia_uid",
+                                str(user_data['id']),
+                                key="set_cookie_login",
+                                path="/",
+                                same_site="lax",
+                                expires_at=datetime.now() + timedelta(hours=3),
+                            )
+                        except Exception as exc:
+                            log_exception("No se pudo guardar la cookie de login", exc)
 
-                    st.switch_page(p_home)
-                else:
-                    db_pia.log_audit_event(
-                        "login_failed",
-                        detalle={"email": email},
-                        actor_usuario_id=None,
-                    )
-                    st.error("Credenciales incorrectas o cuenta inactiva.")
+                        login_container.empty()
+                        st.switch_page(p_home)
+                    else:
+                        db_pia.log_audit_event(
+                            "login_failed",
+                            detalle={"email": email},
+                            actor_usuario_id=None,
+                        )
+                        st.error("Credenciales incorrectas o cuenta inactiva.")
 
 
 # -------------------------------
@@ -210,28 +245,36 @@ p_login = st.Page(page_login, title="Iniciar sesión", url_path="login")
 # Chave = "Categoria:Botão" -> Valor = st.Page(...)
 ALL_PAGES = {}
 
-# Função auxiliar para criar e registrar páginas
-def create_page(module_obj, title, url_slug, category, custom_render=None):
-    # Cria uma função lambda para renderizar este módulo específico
+# Función auxiliar para crear y registrar páginas con carga diferida
+def create_page(module_name, title, url_slug, category, custom_render_name=None):
+    # Crea una función que importa el módulo únicamente al renderizar la página
     def page_func():
-        if custom_render:
-            custom_render()
+        module_obj = MODULES[module_name]
+        if custom_render_name:
+            custom_render = getattr(module_obj, custom_render_name, None)
+            if custom_render:
+                custom_render()
+            else:
+                st.warning(f"El módulo '{module_name}' no tiene la función '{custom_render_name}()'.")
         else:
             render_page(module_obj)
     
-    # Cria la página
+    # Crea la página
     page = st.Page(page_func, title=title, url_path=url_slug)
     
-    # Registra no dicionário global usando a chave composta
+    # Registra en el diccionario global usando la clave compuesta
     key = page_key(category, title)
     ALL_PAGES[key] = page
     return page
 
 def register_page_from_config(category, page_config):
-    module_obj = MODULES[page_config["module"]]
-    custom_render_name = page_config.get("custom_render")
-    custom_render = getattr(module_obj, custom_render_name) if custom_render_name else None
-    return create_page(module_obj, page_config["title"], page_config["slug"], category, custom_render=custom_render)
+    return create_page(
+        page_config["module"],
+        page_config["title"],
+        page_config["slug"],
+        category,
+        custom_render_name=page_config.get("custom_render"),
+    )
 
 
 # --- REGISTRO DAS PÁGINAS ---
@@ -264,39 +307,46 @@ def main():
 
     if "user" not in st.session_state:
         st.session_state.user = None
+    if "permisos" not in st.session_state:
+        st.session_state.permisos = []
+    if "rol" not in st.session_state:
+        st.session_state.rol = None
+    if "user_id" not in st.session_state:
+        st.session_state.user_id = None
 
-    # --- Lógica de Auto-Login por Cookies ---
+    # --- Lógica de Auto-Login por Cookies (Inmediata y Componente) ---
     if st.session_state.user is None:
         try:
-            # Obtener el ID del usuario de la cookie persistente
-            saved_user_id = cookie_manager.get(cookie="pia_uid")
+            # 1. Intentar lectura inmediata desde los encabezados HTTP (evita parpadeos o falsos cierres de sesión)
+            saved_user_id = None
+            if hasattr(st, "context") and hasattr(st.context, "cookies"):
+                saved_user_id = st.context.cookies.get("pia_uid")
+            
+            # 2. Si no está en context, verificar con el componente de cookies
+            if not saved_user_id:
+                saved_user_id = cookie_manager.get(cookie="pia_uid")
+
             if saved_user_id:
-                # Validar y cargar datos del usuario
                 user_data = db_pia.get_user_by_id(saved_user_id)
                 if user_data:
                     st.session_state.user = user_data
                     st.session_state.rol = user_data['rol']
                     st.session_state.user_id = user_data['id']
                     st.session_state.permisos = db_pia.get_user_permissions(user_data['id'])
-                    st.rerun() 
         except Exception as exc:
             log_exception("Error durante auto-login por cookie", exc)
 
     # --- Control de rutas según la sesión ---
-    # El login es una página real (st.Page con url_path='login').
-    ruta_actual = getattr(pg, "url_path", "")
-    en_login = (ruta_actual == "login")
-
     if st.session_state.user is None:
-        # Sin sesión solo se permite la pantalla de login.
-        if not en_login:
-            st.switch_page(p_login)
+        # Sin sesión activa: se muestra exclusivamente la pantalla de login (sin duplicados)
         page_login()
-        return  # Bloquear la carga de la app real
+        st.stop()
 
-    # Con sesión activa, /login ya no tiene sentido: se vuelve al inicio.
-    if en_login:
+    # Con sesión activa, si el usuario navega a /login se le redirige al inicio
+    ruta_actual = getattr(pg, "url_path", "")
+    if ruta_actual == "login":
         st.switch_page(p_home)
+        st.stop()
 
     # -------------------------------
     # BARRA LATERAL (MENU) PARA USUARIO LOGUEADO
@@ -447,6 +497,15 @@ def main():
                         target_usuario_id=logout_user_id,
                         actor_usuario_id=logout_user_id,
                     )
+                st.components.v1.html(
+                    """
+                    <script>
+                    document.cookie = "pia_uid=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC; SameSite=Lax";
+                    </script>
+                    """,
+                    height=0,
+                    width=0,
+                )
                 try:
                     cookie_manager.delete("pia_uid", key="delete_cookie_logout")
                 except Exception as exc:
@@ -511,7 +570,7 @@ def main():
             if clicked and target_page is not None:
                 st.switch_page(target_page)
 
-        user_perms = set(st.session_state.permisos or [])
+        user_perms = set(st.session_state.get("permisos") or [])
 
         def has_indicator_permission(version, indicator):
             if st.session_state.rol != 'LEITURA':

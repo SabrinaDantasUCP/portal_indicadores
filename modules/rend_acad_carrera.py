@@ -7,6 +7,7 @@ import unicodedata
 from datetime import datetime, timedelta
 from utils import db_pia
 from utils.system_logging import log_exception
+from utils.excel_export import generar_excel_estilizado
 from utils.ui import (
     COLOR_ATENCION,
     COLOR_BUENO,
@@ -408,41 +409,15 @@ def render():
     # 1. Gerar PDF
     dados_pdf = gerar_pdf_trc(df_display, cohorte_sel, trc_valor)
 
-    # 2. Gerar Excel (Formatado)
-    buffer_excel = io.BytesIO()
-    try:
-        with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
-            # Aba Detalhada
-            df_display.to_excel(writer, index=False, sheet_name='Detalle Semestres')
-            
-            # Aba Resumo
-            df_resumo = pd.DataFrame([{"Cohorte": cohorte_sel, "TRC": trc_valor}])
-            df_resumo.to_excel(writer, index=False, sheet_name='Resumen TRC')
-            
-            workbook = writer.book
-            
-            # Formatação
-            num_fmt = workbook.add_format({'num_format': '0.00'})
-            
-            # Formata Aba Detalhe
-            ws_det = writer.sheets['Detalle Semestres']
-            for i, col in enumerate(df_display.columns):
-                max_len = max(df_display[col].astype(str).map(len).max(), len(col)) + 2
-                if "TRAS" in col:
-                    ws_det.set_column(i, i, max_len, num_fmt)
-                else:
-                    ws_det.set_column(i, i, max_len)
-                    
-            # Formata Aba Resumo
-            ws_res = writer.sheets['Resumen TRC']
-            ws_res.set_column(1, 1, 15, num_fmt)
-
-    except Exception as exc:
-        log_exception("No se pudo generar Excel con xlsxwriter en rendimiento por carrera", exc)
-        with pd.ExcelWriter(buffer_excel) as writer:
-             df_display.to_excel(writer, index=False, sheet_name='Datos TRC')
-
-    dados_excel = buffer_excel.getvalue()
+    # 2. Excel institucional estilizado
+    dados_excel = generar_excel_estilizado(
+        {
+            "Resumen TRC": pd.DataFrame([{"Cohorte": cohorte_sel, "TRC": trc_valor}]),
+            "Detalle Semestres": df_display,
+        },
+        titulo=f"RENDIMIENTO ACADÉMICO POR CARRERA - COHORTE {cohorte_sel}",
+        subtitulo=f"Cohorte: {cohorte_sel} · Rendimiento General de la Carrera (TRC: {trc_valor:.2f})",
+    )
 
     # 3. Botões
     st.divider()

@@ -5,6 +5,7 @@ import os
 import re
 from datetime import datetime
 from utils import db_pia
+from utils.excel_export import generar_excel_estilizado
 from utils.ui import (
     COLOR_ATENCION,
     COLOR_BUENO,
@@ -236,9 +237,13 @@ def render():
     with c_pdf:
         st.download_button("Descargar Reporte (PDF)", data=pdf_final, file_name=f"Reporte_{cohorte_sel}.pdf", width="stretch", icon=":material/download:", on_click=db_pia.log_export_callback, args=("Rendimiento Asignatura", "PDF"))
     with c_xls:
-        buffer_ex = io.BytesIO()
-        df_display.to_excel(buffer_ex, index=False)
-        st.download_button("Descargar Datos (Excel)", data=buffer_ex.getvalue(), file_name=f"Datos_{cohorte_sel}.xlsx", width="stretch", icon=":material/download:", on_click=db_pia.log_export_callback, args=("Rendimiento Asignatura", "Excel"))
+        excel_bytes_trasa = generar_excel_estilizado(
+            df_display,
+            titulo=f"RENDIMIENTO ACADÉMICO POR ASIGNATURA - COHORTE {cohorte_sel}",
+            subtitulo=f"Cohorte: {cohorte_sel} · Rendimiento Académico por Asignatura (TRASA)",
+            nombre_hoja_default="TRASA",
+        )
+        st.download_button("Descargar Datos (Excel)", data=excel_bytes_trasa, file_name=f"Datos_{cohorte_sel}.xlsx", width="stretch", icon=":material/download:", on_click=db_pia.log_export_callback, args=("Rendimiento Asignatura", "Excel"))
 
     # ------------------------------------------------------------
     # 🔹 Explicação Final na Tela

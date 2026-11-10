@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 from utils import db_pia
 from utils.system_logging import log_exception
+from utils.excel_export import generar_excel_estilizado
 from utils.ui import (
     selector_vista,
     COLOR_ATENCION,
@@ -226,11 +227,21 @@ def render():
         all_sems = range(1, 13)
         pivot_tr = pivot_tr.reindex(columns=all_sems)
 
-        buf_ex = io.BytesIO()
-        with pd.ExcelWriter(buf_ex, engine='xlsxwriter') as wr:
-            pivot_tr.to_excel(wr, sheet_name='Matriz TR')
-            retencion_df.to_excel(wr, index=False, sheet_name='Datos Base TR')
-        excel_data = buf_ex.getvalue()
+        # Preparar versión tabular para Excel estilizado
+        pivot_tr_export = pivot_tr.rename_axis(index="Cohorte").reset_index()
+        pivot_tr_export.columns = [
+            f"Semestre {col}" if isinstance(col, (int, float)) and pd.notna(col) else str(col)
+            for col in pivot_tr_export.columns
+        ]
+
+        excel_data = generar_excel_estilizado(
+            {
+                "Matriz TR": pivot_tr_export,
+                "Datos Base TR": retencion_df,
+            },
+            titulo="TASA DE RETENCIÓN - MATRIZ Y DATOS BASE",
+            subtitulo="Reporte Comparativo de Tasa de Retención por Cohorte y Semestre",
+        )
         pdf_all = gerar_pdf_tr(retencion_df)
 
         # --- Matriz de Retención (Optimización: Expander para aligerar la página) ---
@@ -342,14 +353,18 @@ def render():
 
             st.divider()
             pdf_sel = gerar_pdf_tr(retencion_df, cohorte_sel)
-            buf_ex_sel = io.BytesIO()
-            with pd.ExcelWriter(buf_ex_sel, engine='xlsxwriter') as wr:
-                data_c.to_excel(wr, index=False, sheet_name='Evolución TR')
-                lista_view.drop(columns=[COL_ID_ALUMNO]).to_excel(wr, index=False, sheet_name=f'Alumnos S{sem_sel}')
+            excel_bytes_tr_sel = generar_excel_estilizado(
+                {
+                    "Evolución TR": data_c,
+                    f"Alumnos S{sem_sel}": lista_view.drop(columns=[COL_ID_ALUMNO]),
+                },
+                titulo=f"TASA DE RETENCIÓN - COHORTE {cohorte_sel}",
+                subtitulo=f"Cohorte: {cohorte_sel} · Semestre {sem_sel}",
+            )
             
             c3, c4 = st.columns(2)
             c3.download_button("Descargar Reporte (PDF)", data=pdf_sel, file_name=f"Reporte_TR_{cohorte_sel}.pdf", mime="application/pdf", key="pdf_tr_sel", width="stretch", on_click=db_pia.log_export_callback, args=("Tasa de Retención", "PDF"))
-            c4.download_button("Descargar Datos (Excel)", data=buf_ex_sel.getvalue(), file_name=f"Datos_TR_{cohorte_sel}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="excel_tr_sel", width="stretch", on_click=db_pia.log_export_callback, args=("Tasa de Retención", "Excel"))
+            c4.download_button("Descargar Datos (Excel)", data=excel_bytes_tr_sel, file_name=f"Datos_TR_{cohorte_sel}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="excel_tr_sel", width="stretch", on_click=db_pia.log_export_callback, args=("Tasa de Retención", "Excel"))
 
     st.divider()
     with st.expander("¿Cómo se calcula la Tasa de Retención?", icon=":material/functions:"):

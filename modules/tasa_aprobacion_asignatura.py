@@ -20,6 +20,7 @@ from utils.ui import (
     render_titulo_seccion,
 )
 from utils.system_logging import log_exception
+from utils.excel_export import generar_excel_estilizado
 from services.data.alumnos import load_current_alumnos
 from services.calculations.tasa_aprobacion import (
     COL_COHORTE,
@@ -268,17 +269,13 @@ def render():
         # 1. PDF
         pdf_bytes = gerar_pdf_taa(df_export_detail, cohorte_sel, f"Detalle por Sección: {subject if 'subject' in locals() else 'Filtro'}", "Sección")
         
-        # 2. Excel
-        excel_buffer = io.BytesIO()
-        with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
-            df_export_detail.to_excel(writer, index=False, sheet_name='Detalle Sección')
-            workbook = writer.book
-            num_fmt = workbook.add_format({'num_format': '0.00'})
-            ws = writer.sheets['Detalle Sección']
-            ws.set_column(0, 0, 20) # Sección
-            ws.set_column(3, 3, 15, num_fmt) # %
-
-        excel_bytes = excel_buffer.getvalue()
+        # 2. Excel institucional estilizado
+        excel_bytes = generar_excel_estilizado(
+            df_export_detail,
+            titulo=f"TASA DE APROBACIÓN POR SECCIÓN - COHORTE {cohorte_sel}",
+            subtitulo=f"Cohorte: {cohorte_sel} · Detalle por Sección",
+            nombre_hoja_default="Detalle Sección",
+        )
 
         st.divider()
         c_pdf, c_xls = st.columns(2, gap="medium")
@@ -373,17 +370,13 @@ def render():
         # 1. PDF
         pdf_bytes = gerar_pdf_taa(resumen_table, cohorte_sel, "Detalle por Asignatura", "Asignatura")
         
-        # 2. Excel
-        excel_buffer = io.BytesIO()
-        with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
-            resumen_table.to_excel(writer, index=False, sheet_name='Detalle Asignatura')
-            workbook = writer.book
-            num_fmt = workbook.add_format({'num_format': '0.00'})
-            ws = writer.sheets['Detalle Asignatura']
-            ws.set_column(0, 0, 40) # Asignatura
-            ws.set_column(3, 3, 15, num_fmt) # %
-
-        excel_bytes = excel_buffer.getvalue()
+        # 2. Excel institucional estilizado
+        excel_bytes = generar_excel_estilizado(
+            resumen_table,
+            titulo=f"TASA DE APROBACIÓN POR ASIGNATURA - COHORTE {cohorte_sel}",
+            subtitulo=f"Cohorte: {cohorte_sel} · Detalle General por Asignatura",
+            nombre_hoja_default="Detalle Asignatura",
+        )
 
         st.divider()
         c_pdf, c_xls = st.columns(2, gap="medium")

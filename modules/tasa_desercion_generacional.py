@@ -20,6 +20,7 @@ from utils.ui import (
     render_titulo_seccion,
 )
 from utils.system_logging import log_exception
+from utils.excel_export import generar_excel_estilizado
 from services.data.alumnos import load_current_alumnos
 from services.calculations.tasa_desercion import (
     COL_COHORTE,
@@ -176,9 +177,13 @@ def render():
         pdf_data = gerar_pdf_tdg(resumen_tdg, "Reporte de Deserción Generacional")
         st.download_button("Descargar Reporte (PDF)", pdf_data, f"TDG_Comparativo_{datetime.now().strftime('%Y%m%d')}.pdf", "application/pdf", icon=":material/download:", width="stretch", key="pdf_tdg", on_click=db_pia.log_export_callback, args=("Tasa de Deserción Generacional", "PDF"))
     with c_xls:
-        buffer_xls = io.BytesIO()
-        resumen_tdg.to_excel(buffer_xls, index=False)
-        st.download_button("Descargar Datos (Excel)", buffer_xls.getvalue(), f"TDG_Datos_{datetime.now().strftime('%Y%m%d')}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", key="xlsx_tdg", on_click=db_pia.log_export_callback, args=("Tasa de Deserción Generacional", "Excel"))
+        excel_bytes_tdg = generar_excel_estilizado(
+            resumen_tdg,
+            titulo="TASA DE DESERCIÓN GENERACIONAL - COMPARATIVO",
+            subtitulo="Reporte Comparativo de Tasa de Deserción Generacional por Cohorte",
+            nombre_hoja_default="TDG Comparativo",
+        )
+        st.download_button("Descargar Datos (Excel)", excel_bytes_tdg, f"TDG_Datos_{datetime.now().strftime('%Y%m%d')}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", key="xlsx_tdg", on_click=db_pia.log_export_callback, args=("Tasa de Deserción Generacional", "Excel"))
 
     # -------------------------------------------------------------------------
     # METODOLOGÍA (FINAL)

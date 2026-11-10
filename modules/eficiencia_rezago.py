@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 from utils import db_pia
 from utils.system_logging import log_exception
+from utils.excel_export import generar_excel_estilizado
 from utils.ui import (
     selector_vista,
     COLOR_ATENCION,
@@ -194,13 +195,16 @@ def render():
         }), width="stretch", hide_index=True)
         
         pdf_all = gerar_pdf_re(df_re)
-        buf_ex = io.BytesIO()
-        with pd.ExcelWriter(buf_ex, engine='xlsxwriter') as wr:
-            df_re.to_excel(wr, index=False, sheet_name='Rezago Global')
+        excel_bytes_re = generar_excel_estilizado(
+            df_re,
+            titulo="REZAGO EDUCATIVO - REPORTE GLOBAL",
+            subtitulo="Reporte Comparativo de Rezago Educativo por Cohorte",
+            nombre_hoja_default="Rezago Global",
+        )
         st.divider()
         c1, c2 = st.columns(2)
         c1.download_button("Descargar Reporte (PDF)", data=pdf_all, file_name="Reporte_RE_Global.pdf", mime="application/pdf", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Rezago Educativo - Global", "PDF"))
-        c2.download_button("Descargar Datos (Excel)", data=buf_ex.getvalue(), file_name="Datos_RE_Global.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Rezago Educativo - Global", "Excel"))
+        c2.download_button("Descargar Datos (Excel)", data=excel_bytes_re, file_name="Datos_RE_Global.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/download:", width="stretch", on_click=db_pia.log_export_callback, args=("Rezago Educativo - Global", "Excel"))
 
     if vista == 'Detalle por Cohorte':
         cohorte_sel = st.selectbox("Seleccione una Cohorte", opciones_cohorte(df_re["cohorte"]), index=None, placeholder="Seleccione una cohorte")
@@ -256,15 +260,19 @@ def render():
                 st.divider()
 
             pdf_sel = gerar_pdf_re(df_re, cohorte_sel)
-            buf_ex_sel = io.BytesIO()
-            with pd.ExcelWriter(buf_ex_sel, engine='xlsxwriter') as wr:
-                pd.DataFrame([row]).to_excel(wr, index=False, sheet_name='Resumen RE')
-                if not lista_view.empty:
-                    lista_view.drop(columns=[COL_ID_ALUMNO]).to_excel(wr, index=False, sheet_name='Alumnos Rezago')
+            hojas_sel = {"Resumen RE": pd.DataFrame([row])}
+            if not lista_view.empty:
+                hojas_sel["Alumnos Rezago"] = lista_view.drop(columns=[COL_ID_ALUMNO])
+
+            excel_bytes_re_sel = generar_excel_estilizado(
+                hojas_sel,
+                titulo=f"REZAGO EDUCATIVO - COHORTE {cohorte_sel}",
+                subtitulo=f"Cohorte: {cohorte_sel} · Indicador de Rezago Educativo",
+            )
             
             c3, c4 = st.columns(2)
             c3.download_button("Descargar Reporte (PDF)", data=pdf_sel, file_name=f"Reporte_RE_{cohorte_sel}.pdf", mime="application/pdf", key="pdf_re_sel", width="stretch", on_click=db_pia.log_export_callback, args=("Rezago Educativo", "PDF"))
-            c4.download_button("Descargar Datos (Excel)", data=buf_ex_sel.getvalue(), file_name=f"Datos_RE_{cohorte_sel}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="excel_re_sel", width="stretch", on_click=db_pia.log_export_callback, args=("Rezago Educativo", "Excel"))
+            c4.download_button("Descargar Datos (Excel)", data=excel_bytes_re_sel, file_name=f"Datos_RE_{cohorte_sel}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="excel_re_sel", width="stretch", on_click=db_pia.log_export_callback, args=("Rezago Educativo", "Excel"))
 
     st.divider()
     with st.expander("¿Cómo se calcula el Rezago Educativo?", icon=":material/functions:"):

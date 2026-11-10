@@ -21,6 +21,7 @@ from utils.ui import (
     render_titulo_seccion,
 )
 from utils.system_logging import log_exception
+from utils.excel_export import generar_excel_estilizado
 from services.data.alumnos import load_current_alumnos
 from services.calculations.tasa_aprobacion import (
     COL_COHORTE,
@@ -266,18 +267,13 @@ def render():
         # 1. Generate PDF
         dados_pdf_all = gerar_pdf_tac_comparativo(resumen_cohorte)
 
-        # 2. Generate Excel
-        buffer_excel_all = io.BytesIO()
-        with pd.ExcelWriter(buffer_excel_all, engine='xlsxwriter') as writer:
-            resumen_cohorte.to_excel(writer, index=False, sheet_name='Comparativo TAC')
-            # Format
-            workbook = writer.book
-            num_fmt = workbook.add_format({'num_format': '0.00'})
-            ws = writer.sheets['Comparativo TAC']
-            ws.set_column(0, 0, 15) # Cohorte
-            ws.set_column(1, 1, 15, num_fmt) # TAC
-            
-        dados_excel_all = buffer_excel_all.getvalue()
+        # 2. Generate Excel institucional estilizado
+        dados_excel_all = generar_excel_estilizado(
+            resumen_cohorte,
+            titulo="TASA DE APROBACIÓN POR CARRERA - COMPARATIVO",
+            subtitulo="Reporte Comparativo de Tasa de Aprobación por Carrera por Cohorte",
+            nombre_hoja_default="Comparativo TAC",
+        )
 
         # 3. Buttons
         st.divider()
@@ -389,36 +385,17 @@ def render():
             # 1. Generate PDF
             dados_pdf = gerar_pdf_tac(resumen_semestre, cohorte_sel, tac_promedio)
 
-            # 2. Generate Excel (Formatted)
-            buffer_excel = io.BytesIO()
-            try:
-                with pd.ExcelWriter(buffer_excel, engine='xlsxwriter') as writer:
-                    # Detail Sheet
-                    resumen_semestre.rename(columns={COL_SEMESTRE: "Semestre"}).to_excel(writer, index=False, sheet_name='Detalle Semestres')
-                    
-                    # Summary Sheet
-                    df_resumo = pd.DataFrame([{"Cohorte": cohorte_sel, "TAC Promedio": tac_promedio}])
-                    df_resumo.to_excel(writer, index=False, sheet_name='Resumen TAC')
-                    
-                    workbook = writer.book
-                    num_fmt = workbook.add_format({'num_format': '0.00'})
-                    
-                    # Format Detail Sheet
-                    ws_det = writer.sheets['Detalle Semestres']
-                    for i, col in enumerate(resumen_semestre.columns):
-                        max_len = 20 # Standard width
-                        ws_det.set_column(i, i, max_len)
-                            
-                    # Format Summary Sheet
-                    ws_res = writer.sheets['Resumen TAC']
-                    ws_res.set_column(1, 1, 15, num_fmt)
-
-            except Exception as exc:
-                log_exception("No se pudo generar Excel con xlsxwriter en tasa de aprobación por carrera", exc)
-                with pd.ExcelWriter(buffer_excel) as writer:
-                     resumen_semestre.to_excel(writer, index=False, sheet_name='Datos TAC')
-
-            dados_excel = buffer_excel.getvalue()
+            # 2. Generate Excel institucional estilizado
+            df_detalle = resumen_semestre.rename(columns={COL_SEMESTRE: "Semestre"})
+            df_resumo = pd.DataFrame([{"Cohorte": cohorte_sel, "TAC Promedio": tac_promedio}])
+            dados_excel = generar_excel_estilizado(
+                {
+                    "Resumen TAC": df_resumo,
+                    "Detalle Semestres": df_detalle,
+                },
+                titulo=f"TASA DE APROBACIÓN POR CARRERA - COHORTE {cohorte_sel}",
+                subtitulo=f"Cohorte: {cohorte_sel} · TAC Promedio: {tac_promedio:.2f}%",
+            )
 
             # 3. Buttons
             st.divider()
