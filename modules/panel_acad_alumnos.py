@@ -1,5 +1,6 @@
 import datetime
 import io
+import os
 from html import escape
 
 import pandas as pd
@@ -9,7 +10,7 @@ import xlsxwriter
 
 import modules.rend_acad_alumno as raa
 from services.data.alumnos import load_current_alumnos, load_alumnos_documentos
-from utils.data_loader import get_current_version
+from utils.data_loader import get_current_version, get_data_path
 from utils import db_pia
 from utils.ui import (
     COLOR_BUENO,
@@ -62,7 +63,9 @@ def _prepare_alumnos(df):
     if missing_cols:
         return pd.DataFrame(), missing_cols
 
-    prepared = df[required_cols].copy()
+    # Deduplicar tempranamente reduce las ~362.000 filas de asignaturas a ~56.000
+    # registros únicos de (alumno, periodo, semestre) antes de convertir tipos.
+    prepared = df[required_cols].drop_duplicates().copy()
     prepared[COL_PERIODO] = pd.to_numeric(prepared[COL_PERIODO], errors="coerce")
     prepared[COL_SUBPERIODO] = pd.to_numeric(prepared[COL_SUBPERIODO], errors="coerce")
     prepared[COL_SEMESTRE] = pd.to_numeric(prepared[COL_SEMESTRE], errors="coerce")
@@ -72,6 +75,13 @@ def _prepare_alumnos(df):
     prepared[COL_SEMESTRE] = prepared[COL_SEMESTRE].astype(int)
     prepared = prepared[prepared[COL_SEMESTRE].between(1, 12)].copy()
     prepared["Periodo"] = prepared[COL_PERIODO].astype(str) + "." + prepared[COL_SUBPERIODO].astype(str)
+    prepared = (
+        prepared.drop_duplicates(
+            subset=[COL_ID_ALUMNO, COL_CATRACA, COL_NOMBRE, COL_PERIODO, COL_SUBPERIODO, COL_SEMESTRE, "Periodo"]
+        )
+        .sort_values([COL_PERIODO, COL_SUBPERIODO, COL_SEMESTRE])
+        .reset_index(drop=True)
+    )
     return prepared, []
 
 
@@ -129,9 +139,7 @@ def _filtrar_alumnos(df_preparado, periodo="Todos", semestre="Todos", busqueda="
     - Periodo == 'Todos' y Semestre == 'Todos': último periodo y semestre registrado de cada alumno en la institución.
     - Búsqueda por texto: filtro insensible a mayúsculas/minúsculas por nombre o matrícula.
     """
-    registros = df_preparado.drop_duplicates(
-        subset=[COL_ID_ALUMNO, COL_CATRACA, COL_NOMBRE, COL_PERIODO, COL_SUBPERIODO, COL_SEMESTRE, "Periodo"]
-    )
+    registros = df_preparado
 
     if periodo != "Todos":
         registros = registros[registros["Periodo"] == str(periodo)]
@@ -229,7 +237,7 @@ def _render_listado(df_preparado, df_completo, periodos_disponibles):
 
     if listado.empty:
         st.info("No se encontraron alumnos con los filtros seleccionados.")
-        return
+        return listado
 
     # Paginación: vuelve a la página 1 cuando cambia cualquiera de los filtros
     total_paginas = max(1, (len(listado) - 1) // ALUMNOS_POR_PAGINA + 1)
@@ -256,7 +264,8 @@ def _render_listado(df_preparado, df_completo, periodos_disponibles):
                 "Ver historial académico", icon=":material/history_edu:", key=f"hist_alumno_{fila[COL_ID_ALUMNO]}",
                 width="stretch", help="Abre el rendimiento académico del alumno, semestre por semestre",
             ):
-                _mostrar_rendimiento(fila[COL_ID_ALUMNO], df_completo)
+                datos_completos = df_completo if df_completo is not None else load_current_alumnos()
+                _mostrar_rendimiento(fila[COL_ID_ALUMNO], datos_completos)
 
     c_ant, c_pag, c_sig = st.columns([1, 2, 1], vertical_alignment="center")
     if c_ant.button("Anterior", icon=":material/chevron_left:", disabled=pagina <= 1, width="stretch",
@@ -274,6 +283,8 @@ def _render_listado(df_preparado, df_completo, periodos_disponibles):
                     key="alumnos_pag_siguiente"):
         st.session_state["alumnos_pagina"] = pagina + 1
         st.rerun()
+
+    return listado
 
 
 def _grafico_por_periodo(period_summary):
@@ -329,10 +340,48 @@ def _matriz_html(matriz, period_summary):
     )
 
 
+@st.cache_resource(max_entries=4, show_spinner=False)
+def _obtener_estructuras_base_alumnos(version_activa, mtime_archivo):
+    """Precalcula y almacena en caché las estructuras base del módulo de Alumnos
+    ligadas a la versión activa y a la fecha de modificación del archivo parquet.
+    Evita reprocesar las ~362.000 filas en cada cambio de pestaña, filtro o página.
+    """
+    df_completo = load_current_alumnos()
+    if df_completo.empty:
+        return {"vacio": True}
+
+    df_prep, missing_cols = _prepare_alumnos(df_completo)
+    if missing_cols:
+        return {"vacio": False, "missing_cols": missing_cols}
+
+    period_summary = _build_period_summary(df_prep)
+    matriz = _build_matriz(df_prep, period_summary)
+    periodos_disponibles = period_summary["Periodo"].tolist()[::-1]
+    alumnos_list = _build_alumnos_list(df_prep)
+    total_alumnos_unicos = int(df_prep[COL_ID_ALUMNO].nunique())
+    html_matriz = _matriz_html(matriz, period_summary)
+    fig_periodo = _grafico_por_periodo(period_summary)
+
+    return {
+        "vacio": False,
+        "missing_cols": [],
+        "df_preparado": df_prep,
+        "period_summary": period_summary,
+        "matriz": matriz,
+        "periodos_disponibles": periodos_disponibles,
+        "alumnos_list": alumnos_list,
+        "total_alumnos_unicos": total_alumnos_unicos,
+        "html_matriz": html_matriz,
+        "fig_periodo": fig_periodo,
+        "total_registros_raw": len(df_completo),
+    }
+
+
 @st.cache_data(show_spinner="Generando Excel...")
 def _generate_excel_bytes(_period_summary, _matriz, _alumnos_list, version_tag=""):
     buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+    opciones_motor = {"strings_to_urls": False, "strings_to_formulas": False}
+    with pd.ExcelWriter(buffer, engine="xlsxwriter", engine_kwargs={"options": opciones_motor}) as writer:
         libro = writer.book
 
         # Formatos institucionales
@@ -405,16 +454,16 @@ def _generate_excel_bytes(_period_summary, _matriz, _alumnos_list, version_tag="
         # 1. Hoja "Por Periodo" estilizada
         hoja_p = libro.add_worksheet("Por Periodo")
         hoja_p.set_landscape()
+        hoja_p.set_default_row(19)
         df_p = _period_summary[["Periodo", "Alumnos"]].copy()
         hoja_p.write(0, 0, "Periodo", fmt_cabecera)
         hoja_p.write(0, 1, "Alumnos", fmt_cabecera)
         hoja_p.set_row(0, 24)
-        for r_idx, (_, fila) in enumerate(df_p.iterrows(), start=1):
+        for r_idx, fila in enumerate(df_p.itertuples(index=False), start=1):
             f_cen = fmt_centro_color if r_idx % 2 == 0 else fmt_centro_blanco
             f_num = fmt_num_color if r_idx % 2 == 0 else fmt_num_blanco
-            hoja_p.write(r_idx, 0, str(fila["Periodo"]), f_cen)
-            hoja_p.write(r_idx, 1, int(fila["Alumnos"]), f_num)
-            hoja_p.set_row(r_idx, 19)
+            hoja_p.write(r_idx, 0, str(fila[0]), f_cen)
+            hoja_p.write(r_idx, 1, int(fila[1]), f_num)
         hoja_p.set_column(0, 0, 16)
         hoja_p.set_column(1, 1, 16)
         hoja_p.autofilter(0, 0, len(df_p), 1)
@@ -446,22 +495,23 @@ def _generate_excel_bytes(_period_summary, _matriz, _alumnos_list, version_tag="
             hoja.write(fila_total, j, int(valor), f_tot)
         hoja.set_column(0, len(_matriz.columns), 10)
 
-        # 3. Hoja "Listado" estilizada
+        # 3. Hoja "Listado" estilizada (escritura rápida con itertuples)
         cols_export_list = [c for c in ["Número de Matrícula", "Nombre y Apellido", "Periodo", "Semestre"] if c in _alumnos_list.columns]
         df_l = _alumnos_list[cols_export_list].copy()
         hoja_l = libro.add_worksheet("Listado")
         hoja_l.set_landscape()
+        hoja_l.set_default_row(19)
         hoja_l.set_row(0, 24)
+        es_col_centrada = [c_nom in ("Número de Matrícula", "Periodo", "Semestre") for c_nom in cols_export_list]
         for c_idx, c_nom in enumerate(cols_export_list):
             hoja_l.write(0, c_idx, c_nom, fmt_cabecera)
-        for r_idx, (_, fila) in enumerate(df_l.iterrows(), start=1):
+        for r_idx, fila in enumerate(df_l.itertuples(index=False), start=1):
             f_txt = fmt_cebra_color if r_idx % 2 == 0 else fmt_cebra_blanco
             f_cen = fmt_centro_color if r_idx % 2 == 0 else fmt_centro_blanco
-            hoja_l.set_row(r_idx, 19)
-            for c_idx, c_nom in enumerate(cols_export_list):
-                val = str(fila[c_nom]) if pd.notna(fila[c_nom]) else ""
-                fmt_usar = f_cen if c_nom in ("Número de Matrícula", "Periodo", "Semestre") else f_txt
-                hoja_l.write(r_idx, c_idx, val, fmt_usar)
+            for c_idx, valor_celda in enumerate(fila):
+                val = str(valor_celda) if pd.notna(valor_celda) else ""
+                fmt_usar = f_cen if es_col_centrada[c_idx] else f_txt
+                hoja_l.write_string(r_idx, c_idx, val, fmt_usar)
         hoja_l.set_column(0, 0, 22)
         hoja_l.set_column(1, 1, 38)
         hoja_l.set_column(2, 2, 14)
@@ -502,24 +552,7 @@ def _generar_excel_listado_alumnos(_alumnos_list, _df_completo, busqueda="", per
     # Mapeo oficial de documentos (doc_oficial de SysEduca)
     mapa_docs = load_alumnos_documentos()
 
-    # Identificar el conjunto de alumnos a exportar
-    uids = set(alumnos_sub["usuarios_id"].dropna().unique())
-
-    # Normalizar columnas de periodo en df_raw
-    df_raw_prep = df_raw.copy()
-    df_raw_prep["ano_periodo_letivo"] = pd.to_numeric(df_raw_prep["ano_periodo_letivo"], errors="coerce").fillna(0).astype(int)
-    df_raw_prep["periodo_anual_periodo_letivo"] = pd.to_numeric(df_raw_prep["periodo_anual_periodo_letivo"], errors="coerce").fillna(0).astype(int)
-
-    # Filtrar asignaturas académicas válidas (regulares y extracurriculares con disciplina)
-    df_reg = df_raw_prep[
-        (df_raw_prep["usuarios_id"].isin(uids))
-        & (df_raw_prep["tipo_disciplina"].isin(["Regular", "Extracurricular"]))
-        & (df_raw_prep["disciplina"].notna())
-        & (df_raw_prep["disciplina"].astype(str).str.strip() != "")
-        & (df_raw_prep["disciplina"].astype(str).str.lower() != "nan")
-    ].copy()
-
-    # Asegurar columnas de periodo en alumnos_sub
+    # Asegurar columnas de periodo en alumnos_sub antes del cruce
     if "ano_periodo_letivo" not in alumnos_sub.columns or "periodo_anual_periodo_letivo" not in alumnos_sub.columns:
         partes_p = alumnos_sub["Periodo"].astype(str).str.split(".", expand=True)
         alumnos_sub["ano_periodo_letivo"] = pd.to_numeric(partes_p[0], errors="coerce").fillna(0).astype(int)
@@ -528,20 +561,36 @@ def _generar_excel_listado_alumnos(_alumnos_list, _df_completo, busqueda="", per
         alumnos_sub["ano_periodo_letivo"] = pd.to_numeric(alumnos_sub["ano_periodo_letivo"], errors="coerce").fillna(0).astype(int)
         alumnos_sub["periodo_anual_periodo_letivo"] = pd.to_numeric(alumnos_sub["periodo_anual_periodo_letivo"], errors="coerce").fillna(0).astype(int)
 
-    # Periodos lectivos correspondientes a los alumnos según los filtros activos
+    # Identificar el conjunto de alumnos y periodos objetivo a exportar
+    uids = set(alumnos_sub["usuarios_id"].dropna().unique())
     periodos_objetivo = alumnos_sub[["usuarios_id", "ano_periodo_letivo", "periodo_anual_periodo_letivo"]].drop_duplicates()
 
-    materias_filtradas = df_reg.merge(
+    # Filtrar primero por los alumnos requeridos antes de copiar o transformar el dataset completo
+    df_raw_prep = df_raw[df_raw["usuarios_id"].isin(uids)].copy()
+    if not pd.api.types.is_integer_dtype(df_raw_prep["ano_periodo_letivo"]):
+        df_raw_prep["ano_periodo_letivo"] = pd.to_numeric(df_raw_prep["ano_periodo_letivo"], errors="coerce").fillna(0).astype(int)
+    if not pd.api.types.is_integer_dtype(df_raw_prep["periodo_anual_periodo_letivo"]):
+        df_raw_prep["periodo_anual_periodo_letivo"] = pd.to_numeric(df_raw_prep["periodo_anual_periodo_letivo"], errors="coerce").fillna(0).astype(int)
+
+    # Cruzar primero con los periodos objetivo para reducir filas antes de evaluar strings de disciplina
+    df_candidatos = df_raw_prep.merge(
         periodos_objetivo,
         on=["usuarios_id", "ano_periodo_letivo", "periodo_anual_periodo_letivo"],
         how="inner",
     )
+    disc_str = df_candidatos["disciplina"].fillna("").astype(str).str.strip()
+    materias_filtradas = df_candidatos[
+        df_candidatos["tipo_disciplina"].isin(["Regular", "Extracurricular"])
+        & (disc_str != "")
+        & (disc_str.str.lower() != "nan")
+    ].copy()
 
     pan_reg = materias_filtradas["periodo_anual_periodo_letivo"]
     ano_reg = materias_filtradas["ano_periodo_letivo"]
     materias_filtradas["Periodo_Reg"] = ano_reg.astype(str) + "." + pan_reg.astype(str)
     sem_reg = pd.to_numeric(materias_filtradas["semestre_alumno"], errors="coerce").fillna(0).astype(int)
-    materias_filtradas["Semestre_Reg"] = sem_reg.apply(lambda s: f"{s}º" if s > 0 else "")
+    mapa_sem_str = {s: f"{s}º" for s in range(1, 25)}
+    materias_filtradas["Semestre_Reg"] = sem_reg.map(mapa_sem_str).fillna("")
 
     cols_materias = [
         "usuarios_id",
@@ -568,49 +617,52 @@ def _generar_excel_listado_alumnos(_alumnos_list, _df_completo, busqueda="", per
 
     # Vectorización de alto rendimiento
     detalle["Matrícula"] = detalle["Número de Matrícula"].astype(str).str.replace(r"\.0$", "", regex=True)
-    detalle["Documento"] = detalle["usuarios_id"].map(lambda uid: mapa_docs.get(int(uid), "") if pd.notna(uid) else "")
+    uids_int = pd.to_numeric(detalle["usuarios_id"], errors="coerce").fillna(-1).astype(int)
+    detalle["Documento"] = uids_int.map(mapa_docs).fillna("")
     if col_doc and col_doc in detalle.columns:
         detalle["Documento"] = detalle["Documento"].where(detalle["Documento"] != "", detalle[col_doc].fillna("").astype(str))
 
     detalle["Nombre Completo"] = detalle["Nombre y Apellido"].fillna("").astype(str).str.strip()
-    
-    # Si algún alumno no tuvo materias regulares en ese periodo, recuperar estado y filial desde df_raw_prep
-    if detalle["nombre_status_actual"].isna().any():
-        mapa_status_general = (
-            df_raw_prep.sort_values(["usuarios_id", "ano_periodo_letivo", "periodo_anual_periodo_letivo"])
-            .drop_duplicates(subset=["usuarios_id"], keep="last")
-            .set_index("usuarios_id")["nombre_status_actual"]
-            .to_dict()
-        )
-        detalle["nombre_status_actual"] = detalle["nombre_status_actual"].fillna(detalle["usuarios_id"].map(mapa_status_general))
 
-    if detalle["filial_periodo_letivo"].isna().any():
-        mapa_filial_general = (
-            df_raw_prep.sort_values(["usuarios_id", "ano_periodo_letivo", "periodo_anual_periodo_letivo"])
+    # Si algún alumno no tuvo materias regulares en ese periodo, recuperar estado y filial solo para los faltantes
+    mask_faltante = detalle["nombre_status_actual"].isna() | detalle["filial_periodo_letivo"].isna()
+    if mask_faltante.any():
+        uids_faltantes = set(detalle.loc[mask_faltante, "usuarios_id"].dropna().unique())
+        ultimos_registros = (
+            df_raw_prep[df_raw_prep["usuarios_id"].isin(uids_faltantes)]
+            .sort_values(["usuarios_id", "ano_periodo_letivo", "periodo_anual_periodo_letivo"])
             .drop_duplicates(subset=["usuarios_id"], keep="last")
-            .set_index("usuarios_id")["filial_periodo_letivo"]
-            .to_dict()
+            .set_index("usuarios_id")
         )
-        detalle["filial_periodo_letivo"] = detalle["filial_periodo_letivo"].fillna(detalle["usuarios_id"].map(mapa_filial_general))
+        if detalle["nombre_status_actual"].isna().any() and "nombre_status_actual" in ultimos_registros.columns:
+            mapa_status_general = ultimos_registros["nombre_status_actual"].to_dict()
+            detalle["nombre_status_actual"] = detalle["nombre_status_actual"].fillna(detalle["usuarios_id"].map(mapa_status_general))
+        if detalle["filial_periodo_letivo"].isna().any() and "filial_periodo_letivo" in ultimos_registros.columns:
+            mapa_filial_general = ultimos_registros["filial_periodo_letivo"].to_dict()
+            detalle["filial_periodo_letivo"] = detalle["filial_periodo_letivo"].fillna(detalle["usuarios_id"].map(mapa_filial_general))
 
     detalle["Estado de Matrícula"] = detalle["nombre_status_actual"].fillna("–").astype(str).str.strip().replace(["nan", ""], "–")
     detalle["Periodo"] = detalle["Periodo_Reg"].fillna(detalle["Periodo"]).astype(str)
-    
-    sem_str = detalle["Semestre"].astype(str)
-    sem_formateado = sem_str.apply(lambda s: f"{s}º" if s and not s.endswith("º") else s)
-    detalle["Semestre"] = detalle["Semestre_Reg"].fillna(sem_formateado).astype(str)
-    
+
+    sem_str = detalle["Semestre"].fillna("").astype(str)
+    sem_formateado = sem_str.where(sem_str.str.endswith("º") | (sem_str == ""), sem_str + "º")
+    detalle["Semestre"] = detalle["Semestre_Reg"].where(detalle["Semestre_Reg"].notna() & (detalle["Semestre_Reg"] != ""), sem_formateado).astype(str)
+
     detalle["Sede"] = detalle["filial_periodo_letivo"].fillna("").astype(str).replace("nan", "")
     detalle["Materia"] = detalle["disciplina"].fillna("–").astype(str).replace("nan", "–")
     detalle["Sección"] = detalle["turma"].fillna("–").astype(str).replace("nan", "–")
 
     # Notas vectorizadas con tope estricto de 0 a 100
     n100 = pd.to_numeric(detalle["calificacion_final"], errors="coerce").clip(lower=0, upper=100)
-    detalle["Nota (1 a 100)"] = n100.apply(lambda v: (int(v) if v.is_integer() else round(v, 1)) if pd.notna(v) else None).astype(object)
+    detalle["Nota (1 a 100)"] = [
+        (int(v) if v == int(v) else round(float(v), 1)) if pd.notna(v) else None
+        for v in n100.to_numpy()
+    ]
+    detalle["Nota (1 a 100)"] = detalle["Nota (1 a 100)"].astype(object)
 
     # Notas 1 a 5 aseguradas en rango 1 a 5
-    n5 = pd.to_numeric(detalle["calificacion_final_1a5"], errors="coerce").fillna(0).astype(int)
-    detalle["Nota (1 a 5)"] = n5.apply(lambda v: min(5, max(1, v)) if v > 0 else "–").astype(object)
+    n5 = pd.to_numeric(detalle["calificacion_final_1a5"], errors="coerce").fillna(0).astype(int).clip(upper=5)
+    detalle["Nota (1 a 5)"] = n5.map({1: 1, 2: 2, 3: 3, 4: 4, 5: 5}).fillna("–").astype(object)
 
     # Alumnos con matrícula lanzada pero sin materias registradas en el periodo lectivo
     es_sin_materias = detalle["disciplina"].isna() | (detalle["disciplina"].astype(str).str.strip().isin(["", "nan", "–"]))
@@ -635,12 +687,16 @@ def _generar_excel_listado_alumnos(_alumnos_list, _df_completo, busqueda="", per
     df_export = detalle[cols_finales]
 
     buffer = io.BytesIO()
-    workbook = xlsxwriter.Workbook(buffer, {"in_memory": True})
+    workbook = xlsxwriter.Workbook(
+        buffer,
+        {"in_memory": True, "strings_to_urls": False, "strings_to_formulas": False},
+    )
     worksheet = workbook.add_worksheet("Listado de Alumnos")
 
     worksheet.hide_gridlines(False)
     worksheet.set_paper(9)  # Formato A4
     worksheet.set_landscape()
+    worksheet.set_default_row(19)
 
     COLOR_AZUL_INST = "#1B365D"
     COLOR_CEBRA = "#F8FAFC"
@@ -739,7 +795,6 @@ def _generar_excel_listado_alumnos(_alumnos_list, _df_completo, busqueda="", per
     for i, row in enumerate(df_export.itertuples(index=False)):
         fila_idx = fila_inicio_tabla + 1 + i
         prefijo = "par_" if i % 2 == 1 else "impar_"
-        worksheet.set_row(fila_idx, 19)
 
         for col_idx, valor in enumerate(row):
             # Para notas en formato texto (ej. 'Sin nota'), alinear al centro
@@ -763,6 +818,88 @@ def _generar_excel_listado_alumnos(_alumnos_list, _df_completo, busqueda="", per
     return buffer.getvalue()
 
 
+UMBRAL_EXCEL_INMEDIATO = 250
+
+
+def _excel_listado_bajo_demanda(
+    listado_exportar,
+    busqueda_actual,
+    periodo_actual,
+    semestre_actual,
+    version_actual_tag,
+    nombre_archivo,
+):
+    """Gestiona la exportación del Excel detallado del Listado de Alumnos:
+    - Cuando el filtro tiene <= 250 alumnos (ej. búsqueda o semestre específico) o ya fue
+      preparado para el filtro actual, muestra directamente el botón de descarga inmediata.
+    - Cuando el listado abarca miles de alumnos (ej. Periodo='Todos' con ~62.000 filas de
+      asignaturas), evita bloquear la navegación y el filtrado de la vista mostrando primero
+      'Preparar listado de alumnos (Excel)' y luego 'Descargar listado de alumnos (Excel)'.
+    """
+    firma = (
+        version_actual_tag,
+        str(periodo_actual),
+        str(semestre_actual),
+        busqueda_actual.lower(),
+        len(listado_exportar),
+    )
+    clave_estado = "alumnos_excel_listado_preparado"
+    estado = st.session_state.get(clave_estado)
+
+    if len(listado_exportar) <= UMBRAL_EXCEL_INMEDIATO:
+        df_completo = load_current_alumnos()
+        bytes_excel = _generar_excel_listado_alumnos(
+            listado_exportar,
+            df_completo,
+            busqueda=busqueda_actual,
+            periodo=periodo_actual,
+            semestre=semestre_actual,
+            version_dataset=version_actual_tag,
+        )
+        st.download_button(
+            "Descargar listado de alumnos (Excel)",
+            data=bytes_excel,
+            file_name=nombre_archivo,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            icon=":material/download:",
+            width="stretch",
+            key="btn_descargar_excel_listado_inmediato",
+            on_click=db_pia.log_export_callback,
+            args=("Listado Alumnos Detallado", "Excel"),
+        )
+        return
+
+    if estado and estado[0] == firma and estado[1]:
+        st.download_button(
+            "Descargar listado de alumnos (Excel)",
+            data=estado[1],
+            file_name=nombre_archivo,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            icon=":material/download:",
+            width="stretch",
+            key="btn_descargar_excel_listado_preparado",
+            on_click=db_pia.log_export_callback,
+            args=("Listado Alumnos Detallado", "Excel"),
+        )
+    elif st.button(
+        "Preparar listado de alumnos (Excel)",
+        icon=":material/table_view:",
+        width="stretch",
+        key="btn_preparar_excel_listado",
+    ):
+        df_completo = load_current_alumnos()
+        bytes_excel = _generar_excel_listado_alumnos(
+            listado_exportar,
+            df_completo,
+            busqueda=busqueda_actual,
+            periodo=periodo_actual,
+            semestre=semestre_actual,
+            version_dataset=version_actual_tag,
+        )
+        st.session_state[clave_estado] = (firma, bytes_excel)
+        st.rerun()
+
+
 def render():
     render_cabecera_indicador(
         "Alumnos",
@@ -770,20 +907,29 @@ def render():
         "vez por periodo, en el semestre que cursaba.",
     )
 
-    df_completo = load_current_alumnos()
-    if df_completo.empty:
+    version_activa = get_current_version()
+    ruta_parquet = get_data_path("alumnos", version_activa)
+    mtime_archivo = os.path.getmtime(ruta_parquet) if os.path.exists(ruta_parquet) else 0
+
+    estructuras = _obtener_estructuras_base_alumnos(version_activa, mtime_archivo)
+    if estructuras.get("vacio"):
         st.error("Archivo de alumnos no encontrado o vacío.")
         return
 
-    df, missing_cols = _prepare_alumnos(df_completo)
+    missing_cols = estructuras.get("missing_cols", [])
     if missing_cols:
         st.error(f"Faltan columnas requeridas en el archivo: {', '.join(missing_cols)}")
         return
 
-    period_summary = _build_period_summary(df)
-    matriz = _build_matriz(df, period_summary)
-    periodos_disponibles = period_summary["Periodo"].tolist()[::-1]
-    alumnos_list = _build_alumnos_list(df)
+    df = estructuras["df_preparado"]
+    period_summary = estructuras["period_summary"]
+    matriz = estructuras["matriz"]
+    periodos_disponibles = estructuras["periodos_disponibles"]
+    alumnos_list = estructuras["alumnos_list"]
+    total_alumnos_unicos = estructuras["total_alumnos_unicos"]
+    html_matriz = estructuras["html_matriz"]
+    fig_periodo = estructuras["fig_periodo"]
+    total_registros_raw = estructuras["total_registros_raw"]
 
     ultimo = period_summary.iloc[-1]
     if len(period_summary) > 1:
@@ -797,7 +943,7 @@ def render():
     else:
         kpi_variacion = {"etiqueta": "Variación", "valor": "–", "detalle": "Se necesita más de un periodo"}
     render_tarjetas_kpi([
-        {"etiqueta": "Alumnos distintos", "valor": formatear_entero(df[COL_ID_ALUMNO].nunique()),
+        {"etiqueta": "Alumnos distintos", "valor": formatear_entero(total_alumnos_unicos),
          "detalle": "En todo el periodo analizado"},
         {"etiqueta": "Periodos", "valor": len(period_summary),
          "detalle": f"De {period_summary['Periodo'].iloc[0]} a {ultimo['Periodo']}"},
@@ -812,23 +958,24 @@ def render():
         "Vista", vistas, default=vistas[0], key="alumnos_vista", label_visibility="collapsed",
     ) or vistas[0]
 
+    listado_actual = None
     if vista == vistas[0]:
         render_titulo_seccion("Alumnos por periodo", "Total de alumnos distintos en cada periodo lectivo.")
-        st.plotly_chart(_grafico_por_periodo(period_summary), use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig_periodo, use_container_width=True, config={"displayModeBar": False})
 
         render_titulo_seccion(
             "Alumnos por semestre y periodo",
             "Cada color sigue a una misma cohorte: en diagonal se ve cómo un grupo avanza un semestre "
             "por periodo. La fila TOTAL coincide con el gráfico de arriba.",
         )
-        st.markdown(_matriz_html(matriz, period_summary), unsafe_allow_html=True)
+        st.markdown(html_matriz, unsafe_allow_html=True)
     else:
-        _render_listado(df, df_completo, periodos_disponibles)
+        listado_actual = _render_listado(df, None, periodos_disponibles)
 
     st.divider()
     if vista == vistas[0]:
         cols_export_list = [c for c in ["Número de Matrícula", "Nombre y Apellido", "Periodo", "Semestre"] if c in alumnos_list.columns]
-        tag_vistas = f"{get_current_version()}_{len(df_completo)}"
+        tag_vistas = f"{version_activa}_{mtime_archivo}_{total_registros_raw}"
         excel_bytes = _generate_excel_bytes(
             period_summary, matriz, alumnos_list[cols_export_list], version_tag=tag_vistas
         )
@@ -847,37 +994,31 @@ def render():
         periodo_actual = st.session_state.get("alumnos_filtro_periodo", "Todos")
         semestre_actual = st.session_state.get("alumnos_filtro_semestre", "Todos")
 
-        listado_exportar = _filtrar_alumnos(
-            df,
-            periodo=periodo_actual,
-            semestre=semestre_actual,
-            busqueda=busqueda_actual,
+        listado_exportar = (
+            listado_actual
+            if listado_actual is not None
+            else _filtrar_alumnos(
+                df,
+                periodo=periodo_actual,
+                semestre=semestre_actual,
+                busqueda=busqueda_actual,
+            )
         )
 
-        version_actual_tag = f"{get_current_version()}_{len(df_completo)}_{len(listado_exportar)}"
-        excel_bytes_detallado = _generar_excel_listado_alumnos(
-            listado_exportar,
-            df_completo,
-            busqueda=busqueda_actual,
-            periodo=periodo_actual,
-            semestre=semestre_actual,
-            version_dataset=version_actual_tag,
-        )
+        if not listado_exportar.empty:
+            version_actual_tag = f"{version_activa}_{mtime_archivo}_{total_registros_raw}_{len(listado_exportar)}"
+            partes_nombre = ["Listado_Alumnos"]
+            if periodo_actual != "Todos":
+                partes_nombre.append(str(periodo_actual))
+            if semestre_actual != "Todos":
+                partes_nombre.append(f"Sem{str(semestre_actual).replace('º', '')}")
+            nombre_archivo = "_".join(partes_nombre) + ".xlsx"
 
-        partes_nombre = ["Listado_Alumnos"]
-        if periodo_actual != "Todos":
-            partes_nombre.append(str(periodo_actual))
-        if semestre_actual != "Todos":
-            partes_nombre.append(f"Sem{str(semestre_actual).replace('º', '')}")
-        nombre_archivo = "_".join(partes_nombre) + ".xlsx"
-
-        st.download_button(
-            "Descargar listado de alumnos (Excel)",
-            data=excel_bytes_detallado,
-            file_name=nombre_archivo,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            icon=":material/download:",
-            width="stretch",
-            on_click=db_pia.log_export_callback,
-            args=("Listado Alumnos Detallado", "Excel"),
-        )
+            _excel_listado_bajo_demanda(
+                listado_exportar=listado_exportar,
+                busqueda_actual=busqueda_actual,
+                periodo_actual=periodo_actual,
+                semestre_actual=semestre_actual,
+                version_actual_tag=version_actual_tag,
+                nombre_archivo=nombre_archivo,
+            )

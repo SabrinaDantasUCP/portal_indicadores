@@ -182,8 +182,8 @@ class TestExportacionAlumnos(unittest.TestCase):
             "Nota (1 a 5)",
         ]
         self.assertEqual(list(df_leido.columns), columnas_esperadas)
-        # Solo deben salir 3 filas regulares (2 de Juan y 1 de María). Pedro (sin materias) y materias extracurriculares deben omitirse.
-        self.assertEqual(len(df_leido), 3)
+        # Deben salir 5 filas: 3 de Juan (2 regulares + 1 extracurricular), 1 de María y 1 de Pedro (sin materias)
+        self.assertEqual(len(df_leido), 5)
 
         # Verificar contenido de la primera fila (Juan Perez)
         primera_fila = df_leido.iloc[0]
@@ -202,6 +202,13 @@ class TestExportacionAlumnos(unittest.TestCase):
         self.assertEqual(fila_maria["Materia"], "Histología")
         self.assertEqual(fila_maria["Nota (1 a 100)"], 100)
         self.assertEqual(fila_maria["Nota (1 a 5)"], 5)
+
+        # Verificar contenido de Pedro SinMaterias: identificado como Matrícula lanzada / Sin materias
+        fila_pedro = df_leido[df_leido["Nombre Completo"] == "Pedro SinMaterias"].iloc[0]
+        self.assertEqual(fila_pedro["Materia"], "Matrícula lanzada / Sin materias")
+        self.assertEqual(fila_pedro["Sección"], "Sin sección")
+        self.assertEqual(fila_pedro["Nota (1 a 100)"], "Sin nota")
+        self.assertEqual(fila_pedro["Nota (1 a 5)"], "Sin nota")
 
         # Verificar que NO existen materias vacías ('–') en la columna Materia
         self.assertFalse((df_leido["Materia"] == "–").any())
